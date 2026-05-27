@@ -18,7 +18,9 @@ export async function redirectAuthedUser(user: User, router: RouterLike): Promis
   const role = meta.role;
 
   if (role === "super_admin") {
-    router.push("/admin");
+    // admin 분리 (모노레포) — super_admin 은 별도 admin 사이트 (다른 cookie sb-admin-auth).
+    // wholesale 에서 로그인 시 admin 사이트로 cross-domain 이동 (admin 에서 재로그인).
+    window.location.href = `${process.env.NEXT_PUBLIC_ADMIN_SITE_URL}/`;
     return;
   }
 

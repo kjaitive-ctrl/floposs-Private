@@ -38,15 +38,8 @@ export async function proxy(req: NextRequest) {
 
   const role = ((user.app_metadata ?? {}) as { role?: Role }).role ?? null;
 
-  // /admin/* 은 super_admin 만
-  if (req.nextUrl.pathname.startsWith("/admin")) {
-    if (role !== "super_admin") {
-      const url = req.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
-    }
-    return res;
-  }
+  // (admin 분리 — 모노레포) /admin/* 라우트는 별도 admin 사이트로 이전됨.
+  // super_admin 은 loginRedirect 에서 ADMIN_SITE_URL 로 cross-domain 이동.
 
   // /dashboard/* 가드
   const menuKey = pathToMenuKey(req.nextUrl.pathname);
@@ -65,5 +58,5 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/admin/:path*"],
+  matcher: ["/dashboard/:path*"],
 };
