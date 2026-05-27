@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { redirectAuthedUser } from "@/lib/loginRedirect";
 import { useRouter } from "next/navigation";
+import { usePlatformSettings, BusinessInfoFooter } from "@floposs/ui";
 
 type Mode = "login" | "signup";
 
@@ -16,22 +17,12 @@ type AccountType = {
   display_order: number;
 };
 
-type PlatformSettings = {
-  company_name: string | null;
-  representative_name: string | null;
-  business_number: string | null;
-  ecommerce_license: string | null;
-  address: string | null;
-  contact_email: string | null;
-  service_name: string | null;
-  service_brand_letter: string | null;
-};
-
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [authChecking, setAuthChecking] = useState(true);
-  const [settings, setSettings] = useState<PlatformSettings | null>(null);
+  // 사업자 정보 + 서비스 브랜딩 — admin/general-settings 단일 관리. packages/ui hook 사용.
+  const settings = usePlatformSettings(supabase);
 
   // 이미 로그인된 사용자가 /login 진입 시 본인 메인페이지로 즉시 이동
   useEffect(() => {
@@ -49,20 +40,6 @@ export default function LoginPage() {
     return () => { cancelled = true; };
   }, [router]);
 
-  // 사업자 정보 + 서비스 브랜딩 — /admin/general-settings 에서 super_admin 이 관리
-  useEffect(() => {
-    let cancelled = false;
-    supabase
-      .from("platform_settings")
-      .select("company_name, representative_name, business_number, ecommerce_license, address, contact_email, service_name, service_brand_letter")
-      .eq("id", 1)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled && data) setSettings(data as PlatformSettings);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
   if (authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
@@ -75,35 +52,15 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
-          <Header mode={mode} brandLetter={settings?.service_brand_letter || "F"} />
+          <Header mode={mode} brandLetter={settings?.service_brand_letter ?? ""} />
           {mode === "login" ? (
             <LoginForm router={router} onGoSignup={() => setMode("signup")} />
           ) : (
             <SignupFlow onBackToLogin={() => setMode("login")} />
           )}
         </div>
-        <p className="text-center text-xs text-gray-400 mt-4">
-          © {new Date().getFullYear()} {settings?.service_name || "플로포스"} · 멀티 업종 통합 플랫폼
-        </p>
-        {settings && <BusinessInfoFooter settings={settings} />}
+        <BusinessInfoFooter settings={settings} />
       </div>
-    </div>
-  );
-}
-
-function BusinessInfoFooter({ settings }: { settings: PlatformSettings }) {
-  const headLine = [
-    settings.company_name,
-    settings.representative_name && `대표 ${settings.representative_name}`,
-    settings.business_number && `사업자등록번호 ${settings.business_number}`,
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <div className="text-center text-[11px] text-gray-400 mt-3 leading-relaxed space-y-0.5">
-      {headLine && <p>{headLine}</p>}
-      {settings.ecommerce_license && <p>통신판매업신고번호 {settings.ecommerce_license}</p>}
-      {settings.address && <p>{settings.address}</p>}
-      {settings.contact_email && <p className="mt-1">contact : {settings.contact_email}</p>}
     </div>
   );
 }

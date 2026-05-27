@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { isValidPhone, isValidPin } from "@/lib/orderPortal";
 import { styles } from "@/common/styles";
-import { usePlatformSettings } from "@/lib/usePlatformSettings";
-import BusinessInfoFooter from "@/components/BusinessInfoFooter";
+import { usePlatformSettings, BusinessInfoFooter } from "@floposs/ui";
+import { supabase } from "@/lib/supabase";
 
 // 공용 로그인 폼 — /order 와 /login 양쪽에서 재사용.
 // 인증 = /api/order-portal/login (sb-retail-auth cookie). 두 진입점 같은 cookie 공유.
@@ -20,7 +20,7 @@ interface Props {
 
 export default function LoginForm({ redirect, signupHref, subtitle }: Props) {
   const router = useRouter();
-  const settings = usePlatformSettings();
+  const settings = usePlatformSettings(supabase);
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +110,7 @@ export default function LoginForm({ redirect, signupHref, subtitle }: Props) {
           </div>
         </form>
       </div>
-      <BusinessInfoFooter />
+      <BusinessInfoFooter settings={settings} />
     </div>
   );
 }

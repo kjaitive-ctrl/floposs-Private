@@ -1,0 +1,19 @@
+{
+  "name": "@floposs/ui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "플로포스 공통 UI 컴포넌트 + hook. apps/wholesale + apps/retail 공통 사용. 한 곳 변경 = 양쪽 자동 반영.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "@supabase/ssr": "*"
+  },
+  "devDependencies": {
+    "@types/react": "*",
+    "typescript": "*"
+  }
+}
