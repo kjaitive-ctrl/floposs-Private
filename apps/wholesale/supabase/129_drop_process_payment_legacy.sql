@@ -1,0 +1,25 @@
+-- ============================================================
+-- 129: Phase 4 #2 — process_payment 084 시그니처 (6인자) DROP
+--
+-- 사장 단일 ledger 원칙: process_payment 함수 단일화. vat 분리 정합 유지.
+--
+-- 현재 중복:
+--   084 process_payment(uuid, uuid, bigint, text, text, uuid) — 옛 vat 미지원
+--   089 process_payment(uuid, uuid, bigint, text, text, uuid, text, bigint) — vat 지원
+--
+-- 클라이언트 변경 완료:
+--   - handleDayPayment (orders/page.tsx) — 089 호출 (vat=0)
+--   - handleCreditPayment — 이미 089
+--   - SaleForm 즉시출고 — 089 호출 (vat=0)
+--   - transactions/page.tsx — 이미 089
+--   → 084 호출처 0
+--
+-- 변경:
+--   084 process_payment(6인자) DROP. 089 단독.
+--
+-- 위험:
+--   호출처 누락 시 함수 없음 에러. grep 검증 완료.
+--   향후 외부 호출 (admin tool 등) 도 089 사용 필수.
+-- ============================================================
+
+DROP FUNCTION IF EXISTS public.process_payment(uuid, uuid, bigint, text, text, uuid);

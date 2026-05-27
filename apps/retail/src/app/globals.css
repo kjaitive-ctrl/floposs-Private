@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* 다크모드 X 원칙 — OS 다크모드와 무관하게 항상 흰 배경 + 검은 글자.
+   html 에 color-scheme: light 박아 브라우저 default 컬러도 강제. */
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+html, body {
+  background-color: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* retail 브랜드 톤 — 푸른색 계열 (blue).
+     wholesale-pos 는 같은 변수명을 violet(#8b5cf6) 으로 사용.
+     변수명만 같고 색이 다른 구조 → 같은 styles.ts 클래스 참조 시 자동 분리.
+     수정하면 전체 사이트 톤 변경. */
+  --color-primary: #3b82f6;            /* blue-500 — 메인 액션 (버튼 bg, 링크 text) */
+  --color-primary-hover: #2563eb;      /* blue-600 — hover 진한 톤 */
+  --color-primary-ring: #60a5fa;       /* blue-400 — focus ring, mid border */
+  --color-primary-border: #bfdbfe;     /* blue-200 — 옅은 border */
+  --color-primary-soft-hover: #dbeafe; /* blue-100 — 옅은 bg hover */
+  --color-primary-soft: #eff6ff;       /* blue-50 — 옅은 bg base (선택 상태) */
+}

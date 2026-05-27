@@ -1,0 +1,34 @@
+-- ============================================================
+-- 121: 119 trigger 제거 — 109 매입금 충당과 이중 박제 사고
+--
+-- 증상 (2026-05-05 운영 검증):
+--   언타일A 거래처 데이터에서 paid_amount > total_amount (예: 781K 주문에 893K 충당).
+--   같은 주문에 transactions(credit_apply) 박제 5번 (109 + 119 trigger 누적).
+--
+-- 원인 메커니즘:
+--   1. 109 refresh_order_revenue 첫 처리 분기:
+--      orders UPDATE outstanding_amount = v_revenue
+--   2. → 119 trigger trg_cascade_paid_when_credit 발동
+--      (NEW.outstanding_amount > 0, v_balance < 0)
+--      → paid 마킹 + outstanding=0 + credit_apply 박제
+--   3. 109 가 customers.outstanding_balance += revenue
+--   4. 109 매입금 충당 분기 진입 (v_old_balance 는 snapshot 이라 그대로 음수)
+--   5. 109 가 또 paid_amount 누적 + credit_apply 박제
+--   → 이중 박제
+--
+-- 119 의 의도된 안전망 가치 = 0:
+--   - 109 가 누락하는 케이스 = derived 주문 (outstanding=0 으로 INSERT)
+--   - 119 의 WHEN (NEW.outstanding > 0) → derived 도 발동 X
+--   - 119 는 의도한 역할 못 하면서 109 정상 경로에서만 중복 발생
+--
+-- 처방:
+--   119 trigger + 함수 DROP. 109 의 기존 매입금 충당 로직만 사용.
+--   derived 주문 등 누락 경로는 의도된 동작 (영수증 발행용 가상 주문).
+--
+-- 데이터 정리:
+--   기존 이중 박제된 transactions/orders 는 사장님이 별도 정리 (수동 또는 스크립트).
+--   복구 SQL 은 본 마이그 외 별도 작성 (운영 데이터 신중 처리).
+-- ============================================================
+
+DROP TRIGGER IF EXISTS trg_cascade_paid_when_credit ON orders;
+DROP FUNCTION IF EXISTS public.cascade_paid_when_credit_available();

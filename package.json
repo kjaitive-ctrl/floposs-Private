@@ -1,0 +1,17 @@
+{
+  "name": "floposs",
+  "private": true,
+  "version": "0.0.0",
+  "description": "플로포스 멀티 vertical 모노레포 — apps (wholesale/retail/admin) + packages (공통 코드).",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:wholesale": "npm --workspace wholesale-pos run dev",
+    "dev:retail": "npm --workspace retail-site run dev",
+    "build:wholesale": "npm --workspace wholesale-pos run build",
+    "build:retail": "npm --workspace retail-site run build",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

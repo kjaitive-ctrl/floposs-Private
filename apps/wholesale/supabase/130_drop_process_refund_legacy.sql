@@ -1,0 +1,23 @@
+-- ============================================================
+-- 130: Phase 4 #3 — process_refund 084 시그니처 (4인자) DROP
+--
+-- 사장 단일 ledger 원칙: process_refund 함수 단일화. vat 분리 정합 유지.
+--
+-- 현재 중복:
+--   084 process_refund(uuid, uuid, bigint, text) — vat 미지원, source='payment'
+--   089 process_refund(uuid, uuid, bigint, text, text, bigint) — vat 분리 + 공급가 환원
+--
+-- 클라이언트 호출처 확인:
+--   - orders/page.tsx (handleCreditPayment 환불 분기) — 089 호출 ✓
+--   - transactions/page.tsx (환불 모달) — 089 호출 ✓
+--   → 084 호출처 0
+--
+-- 변경:
+--   084 process_refund(4인자) DROP. 089 단독.
+--
+-- TODO (별도 작업):
+--   089 의 source='payment' (type='expense') → 'refund' 로 명확화 검토.
+--   현재 입출금 페이지 라벨 매핑이 'refund' 로 처리하는지 검증 후 진행.
+-- ============================================================
+
+DROP FUNCTION IF EXISTS public.process_refund(uuid, uuid, bigint, text);

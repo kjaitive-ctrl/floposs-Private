@@ -1,0 +1,38 @@
+-- ============================================================
+-- 153: DB session timezone 을 KST 로 (Asia/Seoul)
+--
+-- 관리자 결정 (2026-05-07):
+--   한국 서비스라 KST 일관 박제. 자정 ~ 오전 9시 KST 거래 시
+--   UTC date 로 박제되어 부가세 정산/매출 월 분류 어긋나는 케이스 차단.
+--
+-- 영향:
+--   ✓ 자동 KST 박제: CURRENT_DATE / NOW()::DATE — RPC 들의 transaction_date 등
+--   ✓ TIMESTAMPTZ 컬럼 (created_at, opened_at 등): UTC 저장 그대로, 표시만 KST
+--   ✓ 브라우저 코드 toLocaleString("ko-KR"): 무관 (브라우저 timezone)
+--   ✓ formatKstDate (+9 수동 변환): TIMESTAMPTZ ISO 처리용 — 영향 X (그대로 유지)
+--
+-- 검증:
+--   - 적용 전: SHOW timezone → 'UTC', SELECT CURRENT_DATE → UTC 날짜
+--   - 적용 후: SHOW timezone → 'Asia/Seoul', SELECT CURRENT_DATE → KST 날짜
+--   - TIMESTAMPTZ 컬럼 값 변동 0
+--
+-- 적용 방식:
+--   ALTER DATABASE 는 새 connection 부터 적용. 기존 connection 유지되면 옛 timezone.
+--   Supabase Dashboard SQL Editor 에서 실행 후 새 SQL 세션 또는 페이지 재로딩.
+--
+-- 옵션 C 백업 (DATABASE level ALTER 가 거부되거나 적용 안 될 경우):
+--   각 RPC 시작에 'SET LOCAL timezone = ''Asia/Seoul''' 추가.
+--   하지만 Supabase 는 ALTER DATABASE postgres 권한 허용하므로 보통 OK.
+--
+-- 옛 데이터:
+--   기존 transactions.transaction_date 는 UTC 기준 박제됨 (DATE 라 시간 정보 없음).
+--   backfill 불가. 1인 테스트 환경이라 그대로 두거나 reset 가능.
+--   신규 거래부터 KST 박제.
+-- ============================================================
+
+-- DB session timezone 변경 (모든 새 connection 적용)
+ALTER DATABASE postgres SET timezone TO 'Asia/Seoul';
+
+-- 검증용 SQL — 적용 후 새 SQL editor 세션에서 직접 실행:
+--   SHOW timezone;                                                      -- 'Asia/Seoul'
+--   SELECT CURRENT_DATE, NOW(), NOW()::DATE, (NOW() AT TIME ZONE 'UTC');  -- KST 기준
