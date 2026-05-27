@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "도매 POS",
-  description: "의류 도매업체 POS 시스템",
+  title: "플로포스 통합 관리자",
+  description: "플로포스 멀티 vertical 관리 콘솔",
 };
 
 export default function RootLayout({
