@@ -10,8 +10,10 @@
   "scripts": {
     "dev:wholesale": "npm --workspace wholesale-pos run dev",
     "dev:retail": "npm --workspace retail-site run dev",
+    "dev:admin": "npm --workspace admin run dev",
     "build:wholesale": "npm --workspace wholesale-pos run build",
     "build:retail": "npm --workspace retail-site run build",
+    "build:admin": "npm --workspace admin run build",
     "lint": "npm run lint --workspaces --if-present"
   }
 }
