@@ -559,11 +559,13 @@ export default function SamplesPage() {
               {rows[0] && !rows[0].id && (
                 <tr>
                   <td className={tdDraft + " w-6 text-center"}><SaveStatusDot status={saveState[rows[0]._key]} hideWhenIdle /></td>
-                  <td className={tdDraft + " min-w-[140px]"}></td>
-                  <td className={tdDraft + " w-24"}></td>
-                  <td className={tdDraft + " w-24"}></td>
-                  <td className={tdDraft + " w-24"}></td>
-                  <td className={tdDraft + " w-24"}></td>
+                  {/* 좌측 빈 5칸 병합 → 셀 이동 가이드. draft row 가 thead 안이라 헤더 높이 증가 X. */}
+                  <td className={tdDraft + " text-right pr-3"} colSpan={5}>
+                    <span className="inline-flex items-center gap-2 text-[11px] text-gray-500">
+                      <span>상하 <kbd className="px-1 py-0.5 bg-white border border-gray-200 rounded text-[10px]">↑</kbd> <kbd className="px-1 py-0.5 bg-white border border-gray-200 rounded text-[10px]">↓</kbd> <kbd className="px-1 py-0.5 bg-white border border-gray-200 rounded text-[10px]">Enter</kbd></span>
+                      <span>좌우 <kbd className="px-1 py-0.5 bg-white border border-gray-200 rounded text-[10px]">Tab</kbd> <kbd className="px-1 py-0.5 bg-white border border-gray-200 rounded text-[10px]">⇧Tab</kbd></span>
+                    </span>
+                  </td>
                   <td className={tdDraft + " min-w-[160px] px-1 py-0.5"}>
                     <input
                       id={`cell-${rows[0]._key}-wholesale_name`}
