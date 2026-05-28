@@ -22,6 +22,20 @@ export function isValidPin(pin: string): boolean {
   return /^\d{4}$/.test(pin);
 }
 
+// 사업자등록번호 — 저장은 숫자만(문자열, 앞자리 0 보존), 표시는 XXX-XX-XXXXX.
+// onlyDigits: 입력값에서 숫자만 추출 (최대 10자리) → DB 저장용.
+export function bizNumberDigits(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 10);
+}
+
+// 표시용 하이픈 포맷. 자리수가 덜 차도 부분 포맷 (입력 중 표시).
+export function formatBizNumber(value: string | null | undefined): string {
+  const d = bizNumberDigits(value ?? "");
+  if (d.length <= 3) return d;
+  if (d.length <= 5) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
+}
+
 // 타입 ----------------------------------------------------
 
 export type PaymentMethod = "cash" | "transfer" | "credit";

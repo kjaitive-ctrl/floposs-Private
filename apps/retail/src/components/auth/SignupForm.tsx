@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isValidPhone, isValidPin, type PaymentMethod } from "@/lib/orderPortal";
+import { isValidPhone, isValidPin, bizNumberDigits, formatBizNumber, type PaymentMethod } from "@/lib/orderPortal";
 import { styles } from "@/common/styles";
 
 // retail v2 가입 폼 (마이그 189).
@@ -26,6 +26,8 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [businessNumber, setBusinessNumber] = useState("");
   const [address, setAddress] = useState("");
   const [representativePhone, setRepresentativePhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("credit");
@@ -52,6 +54,8 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
       body: JSON.stringify({
         phone, pin,
         company_name: companyName,
+        owner_name: ownerName,
+        business_number: businessNumber,
         address,
         representative_phone: representativePhone,
         default_payment_method: paymentMethod,
@@ -129,6 +133,22 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
               value={companyName}
               onChange={e => setCompanyName(e.target.value)}
               className={inputClass} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>대표자명</label>
+              <input type="text" placeholder="(선택)"
+                value={ownerName}
+                onChange={e => setOwnerName(e.target.value)}
+                className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>사업자등록번호</label>
+              <input type="text" inputMode="numeric" placeholder="000-00-00000"
+                value={formatBizNumber(businessNumber)}
+                onChange={e => setBusinessNumber(bizNumberDigits(e.target.value))}
+                className={inputClass} />
+            </div>
           </div>
           <div>
             <label className={labelClass}>사무실주소</label>

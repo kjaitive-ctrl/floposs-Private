@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
   const phone = String(body.phone ?? "").trim();
   const pin = String(body.pin ?? "").trim();
   const companyName = String(body.company_name ?? "").trim();   // 업체명(상호)
+  const ownerName = String(body.owner_name ?? "").trim();        // 대표자명
+  const businessNumber = String(body.business_number ?? "").trim(); // 사업자등록번호
   const address = String(body.address ?? "").trim();             // 사무실주소
   const representativePhone = String(body.representative_phone ?? "").trim();
   const defaultPaymentMethod = body.default_payment_method as PaymentMethod;
@@ -95,7 +97,8 @@ export async function POST(req: NextRequest) {
     .insert({
       tenant_type: "retail",
       company_name: companyName,
-      owner_name: companyName,
+      owner_name: ownerName || companyName,   // 미입력 시 상호로 fallback
+      business_number: businessNumber || null,
       phone: representativePhone || phoneDigits,
       address: address || null,
       default_payment_method: defaultPaymentMethod,

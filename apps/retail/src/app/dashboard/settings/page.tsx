@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { styles } from "@/common/styles";
 import { supabase } from "@/lib/supabase";
-import type { PaymentMethod } from "@/lib/orderPortal";
+import { bizNumberDigits, formatBizNumber, type PaymentMethod } from "@/lib/orderPortal";
 import type { TenantFull } from "@/lib/types";
 
 // retail-site 메인 settings 페이지 (마이그 189).
@@ -36,6 +36,8 @@ export default function SettingsPage() {
 
   // 편집 state
   const [companyName, setCompanyName] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [businessNumber, setBusinessNumber] = useState("");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [taxInvoiceEmail, setTaxInvoiceEmail] = useState("");
@@ -83,6 +85,8 @@ export default function SettingsPage() {
         const t = data as unknown as MeTenant;
         setTenant(t);
         setCompanyName(t.company_name ?? "");
+        setOwnerName(t.owner_name ?? "");
+        setBusinessNumber(bizNumberDigits(t.business_number ?? ""));
         setAddress(t.address ?? "");
         setPhone(t.phone ?? "");
         setTaxInvoiceEmail(t.tax_invoice_email ?? "");
@@ -109,7 +113,8 @@ export default function SettingsPage() {
       .from("tenants")
       .update({
         company_name: companyName,
-        owner_name: companyName,
+        owner_name: ownerName.trim() || companyName,
+        business_number: businessNumber.trim() || null,
         address: address || null,
         phone: phone || null,
         tax_invoice_email: taxInvoiceEmail.trim() || null,
@@ -214,6 +219,19 @@ export default function SettingsPage() {
                 <label className={styles.modalLabel}>업체명 (사업자등록증 상호)</label>
                 <input className={styles.modalInput} required
                   value={companyName} onChange={e => setCompanyName(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={styles.modalLabel}>대표자명</label>
+                  <input className={styles.modalInput} placeholder="(선택)"
+                    value={ownerName} onChange={e => setOwnerName(e.target.value)} />
+                </div>
+                <div>
+                  <label className={styles.modalLabel}>사업자등록번호</label>
+                  <input className={styles.modalInput} inputMode="numeric" placeholder="000-00-00000"
+                    value={formatBizNumber(businessNumber)}
+                    onChange={e => setBusinessNumber(bizNumberDigits(e.target.value))} />
+                </div>
               </div>
               <div>
                 <label className={styles.modalLabel}>사무실주소</label>
