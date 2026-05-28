@@ -22,11 +22,12 @@ const menuGroups: MenuGroup[] = [
     { label: "계정관리",     path: "/accounts",        badgeKey: "pendingAccounts" },
   ] },
   { label: "admin", items: [
-    { label: "구독플랜",     path: "/plans" },
-    { label: "문의처리",     path: "/inquiries",       badgeKey: "openInquiries" },
-    { label: "일반설정",     path: "/general-settings" },
-    { label: "약관관리",     path: "/legal" },
-    { label: "TEST",        path: "/test" },
+    { label: "구독플랜",         path: "/plans" },
+    { label: "문의처리",         path: "/inquiries",            badgeKey: "openInquiries" },
+    { label: "측정 카테고리",    path: "/measurement-templates" },
+    { label: "일반설정",         path: "/general-settings" },
+    { label: "약관관리",         path: "/legal" },
+    { label: "TEST",            path: "/test" },
   ] },
 ];
 

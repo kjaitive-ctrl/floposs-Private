@@ -11,6 +11,8 @@ import {
   type DbProduct, type Variant,
 } from "@/lib/samplesUtils";
 import SizeModal from "@/components/SizeModal";
+import CommentModal from "@/components/CommentModal";
+import ShootModal from "@/components/ShootModal";
 import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
@@ -56,6 +58,8 @@ export default function ProductsPage() {
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sizeModalRow, setSizeModalRow] = useState<ProductRow | null>(null);
+  const [commentModalRow, setCommentModalRow] = useState<ProductRow | null>(null);
+  const [shootModalRow, setShootModalRow] = useState<ProductRow | null>(null);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
@@ -374,7 +378,17 @@ export default function ProductsPage() {
                       </td>
                       <td className={tdTop}></td>
                       <td className={tdTop}></td>
-                      <td className={tdTop + " border-r-0"}></td>
+                      {/* MD기능: 멘트 / 촬영 / AI. AI 는 Anthropic 연결 대기 — 비활성 회색. */}
+                      <td className={tdTop + " border-r-0 text-center"}>
+                        <div className="flex gap-1 justify-center">
+                          <button onClick={() => setCommentModalRow(row)} className={styles.btnSmall}>멘트</button>
+                          <button onClick={() => setShootModalRow(row)} className={styles.btnSmall}>촬영</button>
+                          <button disabled title="AI 기능 준비 중"
+                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50">
+                            AI
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                     <tr className="hover:bg-gray-50/40">
                       {/* ● 자리는 위 tr 의 rowSpan=2 가 차지 */}
@@ -444,6 +458,33 @@ export default function ProductsPage() {
           onClose={() => setSizeModalRow(null)}
           onSaved={() => {
             setSizeModalRow(null);
+            fetchItems(tenant.id);
+          }}
+        />
+      )}
+
+      {commentModalRow && tenant && (
+        <CommentModal
+          tenantId={tenant.id}
+          productId={commentModalRow.id}
+          productName={commentModalRow.consumer_name || commentModalRow.wholesale_name || ""}
+          onClose={() => setCommentModalRow(null)}
+          onSaved={() => {
+            setCommentModalRow(null);
+            fetchItems(tenant.id);
+          }}
+        />
+      )}
+
+      {shootModalRow && tenant && (
+        <ShootModal
+          tenantId={tenant.id}
+          productId={shootModalRow.id}
+          productName={shootModalRow.consumer_name || shootModalRow.wholesale_name || ""}
+          ownVariants={shootModalRow.variants}
+          onClose={() => setShootModalRow(null)}
+          onSaved={() => {
+            setShootModalRow(null);
             fetchItems(tenant.id);
           }}
         />

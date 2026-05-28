@@ -9,6 +9,7 @@ type Template = {
   tenant_id: string | null;
   category: string;
   field_keys: string[];
+  required_keys: string[];   // 마이그 193 — 필수 필드(예: ["총장"]). UI 에 * 표시.
   sort_order: number;
 };
 
@@ -42,7 +43,7 @@ export default function SizeModal({
     (async () => {
       const { data } = await supabase
         .from("measurement_templates")
-        .select("id, tenant_id, category, field_keys, sort_order")
+        .select("id, tenant_id, category, field_keys, required_keys, sort_order")
         .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
         .eq("is_active", true)
         .order("sort_order", { ascending: true });
@@ -91,6 +92,7 @@ export default function SizeModal({
 
   const currentTemplate = templates.find(t => t.category === category);
   const fieldKeys = currentTemplate?.field_keys ?? [];
+  const requiredSet = new Set(currentTemplate?.required_keys ?? []);
 
   function updateSize(idx: number, value: string) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, size: value } : r));
@@ -191,7 +193,10 @@ export default function SizeModal({
                   <tr>
                     <th className="px-3 py-2 text-left w-24 text-black font-medium">사이즈</th>
                     {fieldKeys.map(f => (
-                      <th key={f} className="px-3 py-2 text-center text-black font-medium">{f}</th>
+                      <th key={f} className="px-3 py-2 text-center text-black font-medium">
+                        {requiredSet.has(f) && <span className="text-red-500 mr-0.5">*</span>}
+                        {f}
+                      </th>
                     ))}
                     <th className="px-2 py-2 w-10"></th>
                   </tr>
