@@ -254,7 +254,6 @@ export default function ProductsPage() {
               className={styles.btnSmall + " py-1"}>
               엑셀 다운로드
             </button>
-            <span className="text-xs text-gray-600">옵션 chip 인라인 박제</span>
           </>}
         />
       </header>
