@@ -8,7 +8,6 @@ export default function SignupPage() {
       <SignupForm
         redirect="/samples"
         loginHref="/login"
-        subtitle="한 번 가입하면 모든 도매에 주문할 수 있어요"
       />
     </main>
   );
