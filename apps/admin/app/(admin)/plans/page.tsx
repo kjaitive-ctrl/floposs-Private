@@ -27,9 +27,10 @@ const BILLING_LABEL: Record<string, string> = {
 };
 
 // 마이그 189: vertical 별 플랜 풀 분리. 탭은 wholesale/retail 만 (5축 추가 시 확장).
+// retail 위주 재편 (2026-05-28): 소매를 맨 앞 + 기본 탭으로.
 const VERTICAL_TABS: { key: Vertical; label: string }[] = [
-  { key: "wholesale", label: "도매 (Wholesale)" },
   { key: "retail",    label: "소매 (Retail)" },
+  { key: "wholesale", label: "도매 (Wholesale)" },
 ];
 
 const emptyForm = {
@@ -40,7 +41,7 @@ const emptyForm = {
   features: "",
   is_active: true,
   sort_order: 0,
-  vertical: "wholesale" as Vertical,
+  vertical: "retail" as Vertical,
 };
 
 export default function PlansPage() {
@@ -50,7 +51,7 @@ export default function PlansPage() {
   const [editing, setEditing] = useState<Plan | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [verticalTab, setVerticalTab] = useState<Vertical>("wholesale");
+  const [verticalTab, setVerticalTab] = useState<Vertical>("retail");
 
   useEffect(() => { fetchPlans(); }, []);
 

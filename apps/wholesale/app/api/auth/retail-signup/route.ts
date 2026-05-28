@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       phone,
       business_number,
       is_active: true,
+      status: "active",   // retail 자가가입 = 자동 활성 (승인 개념 없음)
     })
     .select("id")
     .single();

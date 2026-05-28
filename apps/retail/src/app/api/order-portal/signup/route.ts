@@ -111,6 +111,7 @@ export async function POST(req: NextRequest) {
       plan_id: betaPlan?.id ?? null,
       subscription_expires_at: betaPlan ? expiresAt.toISOString() : null,
       is_active: true,
+      status: "active",   // retail 자가가입 = 자동 활성 (승인 개념 없음, 진입 가드는 구독 만료만)
     })
     .select("id")
     .single();
