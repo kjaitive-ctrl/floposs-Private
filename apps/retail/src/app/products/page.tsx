@@ -281,8 +281,8 @@ export default function ProductsPage() {
                 <th className={thTopInput + " w-32"}>상시판매가</th>
                 <th className={thTopInput + " w-32"}>판매가</th>
                 <th className={thTopInput + " w-32"}>소비자가</th>
-                <th className={thTopInput + " min-w-[140px]"}>플랫폼</th>
-                <th className={thTopInput + " w-20"}>상품코드</th>
+                <th className={thTopInput + " w-24"}>플랫폼</th>
+                <th className={thTopInput + " w-32"}>상품코드</th>
                 <th className={thTopInput + " w-32 border-r-0"}>MD기능</th>
               </tr>
               {/* 아래 줄: samples 박제 헤더 */}
@@ -295,8 +295,8 @@ export default function ProductsPage() {
                 <th className={thBot + " w-32"}>공급가</th>
                 <th className={thBot + " w-32"}>할인가</th>
                 <th className={thBot + " w-32"}>제조국</th>
-                <th className={thBot + " min-w-[140px]"}>혼용율</th>
-                <th className={thBot + " w-20"}>공급사</th>
+                <th className={thBot + " w-24"}>혼용율</th>
+                <th className={thBot + " w-32"}>공급사</th>
                 <th className={thBot + " w-32 border-r-0"}>액션</th>
               </tr>
             </thead>

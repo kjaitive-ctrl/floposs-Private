@@ -112,10 +112,21 @@ export default function MemoModal({ title, initialValue, onSave, onClose, readOn
           placeholder={readOnly ? "" : "메모 (Enter 줄바꿈)"}
           className={`${styles.inputMd} resize-none`}
         />
-        <div className="mt-2 flex justify-end">
+        <div className="mt-2 flex justify-end gap-2">
           <button onClick={handleClose} className={styles.btnSmallGhost}>
             닫기
           </button>
+          {/* 명시적 저장 — autosave 만으론 빠른 닫기 시점 보장 안 됨. 사용자가 한 번 더 누름. */}
+          {!readOnly && (
+            <button onClick={() => doSave()}
+              disabled={saveStatus === "saving" || value === initialValue}
+              className={styles.btnSmall + " disabled:opacity-40"}>
+              {saveStatus === "saving" ? "저장 중..."
+                : saveStatus === "saved" ? "✓ 저장됨"
+                : saveStatus === "error" ? "재시도"
+                : "저장"}
+            </button>
+          )}
         </div>
       </div>
     </div>
