@@ -31,7 +31,8 @@ import { useCategoryOptions } from "@/lib/useCategoryOptions";
 interface ProductRow {
   _key: string;
   id: string;
-  product_code: string;  // 엑셀 다운로드 / 표시
+  product_code: string;  // 엑셀 다운로드 / 표시 (옛 도매 product_code)
+  barcode: string | null;  // 마이그 198: 진행 시 자동 발급 (Code 128, 18자리), 샘플로 회귀 시 NULL
   category: string;  // SizeModal initialCategory 용
   // read-only 표시용 (samples 박제 정보 — 아래 줄)
   description: string;
@@ -109,7 +110,7 @@ export default function ProductsPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code)", { count: "exact" })
+      .select("id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("status", PRODUCT_STATUSES);
@@ -138,6 +139,7 @@ export default function ProductsPage() {
         _key: newKey(),
         id: p.id,
         product_code: p.product_code ?? "",
+        barcode: p.barcode ?? null,
         category: p.category ?? "",
         description: p.description ?? "",
         wholesale_name: p.wholesale_name ?? "",
@@ -185,7 +187,26 @@ export default function ProductsPage() {
   }
 
   async function handleRevert(id: string) {
-    if (!confirm("이 상품을 샘플 단계로 되돌리시겠습니까?")) return;
+    // 마이그 198: 바코드 폐기 안내 (외부 push 동기화는 미래 작업)
+    const msg = "샘플 단계로 되돌리면:\n"
+      + "• 발급된 바코드가 폐기됩니다 (재진행 시 새 바코드)\n"
+      + "• 종이 라벨 출력된 바코드가 있다면 수거 필요\n"
+      + "• 카페24 등 외부 플랫폼에 등록된 경우 별도 동기화 필요\n\n"
+      + "계속하시겠습니까?";
+    if (!confirm(msg)) return;
+
+    // 바코드 폐기 (RPC: products.barcode NULL + variants barcode NULL + history revoked 박제)
+    const { error: revokeError } = await supabase.rpc("revoke_product_barcode", {
+      p_product_id: id,
+      p_reason: "샘플로 회귀",
+    });
+    if (revokeError) {
+      console.error("바코드 폐기 실패:", revokeError);
+      alert(`바코드 폐기 실패: ${revokeError.message}`);
+      return;
+    }
+
+    // status 변경
     await supabase.from("products")
       .update({ status: "sample_received", updated_at: new Date().toISOString() })
       .eq("id", id);
@@ -240,6 +261,7 @@ export default function ProductsPage() {
               const { exportProductsToExcel } = await import("@/lib/excelUtils");
               exportProductsToExcel(rows.map(r => ({
                 product_code: r.product_code,
+                barcode: r.barcode,
                 progress_memo: r.progress_memo,
                 consumer_name: r.consumer_name,
                 variants: r.variants,
@@ -376,8 +398,14 @@ export default function ProductsPage() {
                           onKeyDown={e => handleNav(e, row._key, "consumer_price")}
                           className={inp + " text-right"} />
                       </td>
+                      {/* 플랫폼: 입력칸 (추후 카페24/스마트스토어 등) */}
                       <td className={tdTop}></td>
-                      <td className={tdTop}></td>
+                      {/* 상품코드: 진행 시 자동 발급된 바코드 (마이그 198, 18자리). 샘플 상태면 "-". */}
+                      <td className={tdTop + " text-center"}>
+                        <span className="text-[11px] font-mono text-black select-all">
+                          {row.barcode ?? <span className="text-gray-300">-</span>}
+                        </span>
+                      </td>
                       {/* MD기능: 멘트 / 촬영 / AI. AI 는 Anthropic 연결 대기 — 비활성 회색.
                           w-32 컬럼에 text-xs 정상 크기 3 버튼 가로 한 줄. */}
                       <td className={tdTop + " border-r-0 text-center"}>
@@ -386,8 +414,8 @@ export default function ProductsPage() {
                             className={styles.btnSmall + " whitespace-nowrap"}>멘트</button>
                           <button onClick={() => setShootModalRow(row)}
                             className={styles.btnSmall + " whitespace-nowrap"}>촬영</button>
-                          <button disabled title="AI 기능 준비 중"
-                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50 whitespace-nowrap">AI</button>
+                          <button disabled title="이미지 업로드 기능 준비 중 (R2 연동 예정)"
+                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50 whitespace-nowrap">IMG</button>
                         </div>
                       </td>
                     </tr>

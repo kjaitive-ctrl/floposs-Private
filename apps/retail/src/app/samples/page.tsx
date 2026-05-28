@@ -404,10 +404,11 @@ export default function SamplesPage() {
   }
 
   // 진행 — 정식 상품으로 승격 (status='registered'). /samples 에서 사라지고 /products 에 등장.
+  // 마이그 198: status 변경과 함께 바코드 자동 발급 (Product 18자리 + 활성 variants 22자리).
   async function handlePromote(rowKey: string) {
     const row = rowsRef.current.find(r => r._key === rowKey);
     if (!row?.id) return;
-    if (!confirm("이 상품을 정식 상품으로 등록하시겠습니까? (상품 탭으로 이동)")) return;
+    if (!confirm("이 상품을 정식 상품으로 등록하시겠습니까? (상품 탭으로 이동, 바코드 자동 발급)")) return;
 
     setSaveStatus(rowKey, "saving");
     const { error } = await supabase.from("products")
@@ -419,6 +420,17 @@ export default function SamplesPage() {
       alert(`등록 실패: ${error.message}`);
       return;
     }
+
+    // 바코드 발급 (RPC atomic — Product + 활성 variants 일괄)
+    const { error: barcodeError } = await supabase.rpc("issue_product_barcode", {
+      p_product_id: row.id,
+    });
+    if (barcodeError) {
+      // 상품 등록은 성공했으니 경고만. UI 새로고침 시 재발급 시도 가능 (status 가드).
+      console.error("바코드 발급 실패:", barcodeError);
+      alert(`상품 등록은 완료됐지만 바코드 발급에 실패했습니다: ${barcodeError.message}\n새로고침 후 상품 탭에서 확인해주세요.`);
+    }
+
     // /samples 에 그대로 표시 (같은 row 양쪽 탭 모두 표시). status 만 갱신.
     setRows(prev => prev.map(r => r._key === rowKey ? { ...r, status: "registered" } : r));
     setSaveStatus(rowKey, "saved", true);

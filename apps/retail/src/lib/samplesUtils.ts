@@ -21,6 +21,7 @@ export type DbVariant = Variant & { is_active?: boolean };
 export type DbProduct = {
   id: string;
   product_code: string | null;
+  barcode: string | null;            // 마이그 198 — 진행 시 자동 발급(18자리). 샘플 회귀 시 NULL.
   wholesale_name: string | null;
   wholesale_supplier: string | null;
   category: string | null;
