@@ -282,8 +282,8 @@ export default function ProductsPage() {
                 <th className={thTopInput + " w-32"}>판매가</th>
                 <th className={thTopInput + " w-32"}>소비자가</th>
                 <th className={thTopInput + " min-w-[140px]"}>플랫폼</th>
-                <th className={thTopInput + " min-w-[120px]"}>상품코드</th>
-                <th className={thTopInput + " w-20 border-r-0"}>MD기능</th>
+                <th className={thTopInput + " w-20"}>상품코드</th>
+                <th className={thTopInput + " w-32 border-r-0"}>MD기능</th>
               </tr>
               {/* 아래 줄: samples 박제 헤더 */}
               <tr>
@@ -296,8 +296,8 @@ export default function ProductsPage() {
                 <th className={thBot + " w-32"}>할인가</th>
                 <th className={thBot + " w-32"}>제조국</th>
                 <th className={thBot + " min-w-[140px]"}>혼용율</th>
-                <th className={thBot + " min-w-[120px]"}>공급사</th>
-                <th className={thBot + " w-20 border-r-0"}>액션</th>
+                <th className={thBot + " w-20"}>공급사</th>
+                <th className={thBot + " w-32 border-r-0"}>액션</th>
               </tr>
             </thead>
             <tbody>
@@ -378,15 +378,16 @@ export default function ProductsPage() {
                       </td>
                       <td className={tdTop}></td>
                       <td className={tdTop}></td>
-                      {/* MD기능: 멘트 / 촬영 / AI. AI 는 Anthropic 연결 대기 — 비활성 회색. */}
+                      {/* MD기능: 멘트 / 촬영 / AI. AI 는 Anthropic 연결 대기 — 비활성 회색.
+                          w-32 컬럼에 text-xs 정상 크기 3 버튼 가로 한 줄. */}
                       <td className={tdTop + " border-r-0 text-center"}>
                         <div className="flex gap-1 justify-center">
-                          <button onClick={() => setCommentModalRow(row)} className={styles.btnSmall}>멘트</button>
-                          <button onClick={() => setShootModalRow(row)} className={styles.btnSmall}>촬영</button>
+                          <button onClick={() => setCommentModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap"}>멘트</button>
+                          <button onClick={() => setShootModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap"}>촬영</button>
                           <button disabled title="AI 기능 준비 중"
-                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50">
-                            AI
-                          </button>
+                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50 whitespace-nowrap">AI</button>
                         </div>
                       </td>
                     </tr>
