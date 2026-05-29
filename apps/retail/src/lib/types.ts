@@ -11,6 +11,8 @@ export interface SubscriptionPlan {
   price: number;
   billing_cycle: string;
   features: string[];
+  // 마이그 200: R2 이미지 용량 한도 (MB). 0 = 무제한.
+  r2_storage_quota_mb?: number;
 }
 
 // ── tenant 기본 (자주 필요한 필드 + 구독 가드용) ──
@@ -40,6 +42,9 @@ export interface TenantFull extends TenantBase {
   store_url: string | null;
   cancel_at_period_end: boolean;
   subscription_plans: SubscriptionPlan | null;
+  // 마이그 200: R2 이미지 사용량 캐시 (trigger 자동 갱신)
+  r2_usage_bytes?: number;
+  r2_image_count?: number;
 }
 
 // ── 외상 합계 (me API ?include=outstanding) ──

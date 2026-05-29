@@ -15,14 +15,17 @@ type MenuGroup = { label: string; items: MenuItem[] };
 // (route/code 는 존치 — 5축 확장 대비). [[project_multi_vertical_saas]]
 const menuGroups: MenuGroup[] = [
   { label: "retail", items: [
-    { label: "소매계정관리", path: "/accounts-retail", badgeKey: "pendingRetailAccounts" },
-    { label: "TEST2",       path: "/test2" },
+    { label: "소매계정관리",     path: "/accounts-retail", badgeKey: "pendingRetailAccounts" },
+    { label: "소매 구독플랜",    path: "/plans-retail" },
+    { label: "이미지 용량",      path: "/r2-usage" },
+    { label: "TEST2",           path: "/test2" },
   ] },
   { label: "wholesale", items: [
-    { label: "계정관리",     path: "/accounts",        badgeKey: "pendingAccounts" },
+    { label: "계정관리",         path: "/accounts",        badgeKey: "pendingAccounts" },
   ] },
   { label: "admin", items: [
-    { label: "구독플랜",         path: "/plans" },
+    { label: "매장관리",         path: "/stores" },
+    { label: "구독플랜 (전체)",  path: "/plans" },
     { label: "문의처리",         path: "/inquiries",            badgeKey: "openInquiries" },
     { label: "측정 카테고리",    path: "/measurement-templates" },
     { label: "일반설정",         path: "/general-settings" },

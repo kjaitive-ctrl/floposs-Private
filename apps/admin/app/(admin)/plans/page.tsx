@@ -17,6 +17,7 @@ type Plan = {
   is_active: boolean;
   sort_order: number;
   vertical: Vertical;
+  r2_storage_quota_mb: number;  // 마이그 200 — 0 = 무제한
   created_at: string;
 };
 
@@ -42,16 +43,25 @@ const emptyForm = {
   is_active: true,
   sort_order: 0,
   vertical: "retail" as Vertical,
+  r2_storage_quota_mb: 500,  // Free Beta 기본
 };
 
-export default function PlansPage() {
+function formatQuota(mb: number): string {
+  if (mb === 0) return "무제한";
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${mb} MB`;
+}
+
+// fixedVertical 이 지정되면 그 vertical 만 표시하고 vertical 탭/입력 숨김.
+// /plans = 전체 (탭 표시) / /plans-retail = retail 고정.
+export default function PlansPage({ fixedVertical }: { fixedVertical?: Vertical } = {}) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState({ ...emptyForm, vertical: fixedVertical ?? "retail" as Vertical });
   const [saving, setSaving] = useState(false);
-  const [verticalTab, setVerticalTab] = useState<Vertical>("retail");
+  const [verticalTab, setVerticalTab] = useState<Vertical>(fixedVertical ?? "retail");
 
   useEffect(() => { fetchPlans(); }, []);
 
@@ -67,8 +77,8 @@ export default function PlansPage() {
 
   function openAdd() {
     setEditing(null);
-    // 신규 플랜은 현재 탭의 vertical 로 자동 설정
-    setForm({ ...emptyForm, sort_order: filteredPlans.length + 1, vertical: verticalTab });
+    // 신규 플랜은 현재 탭/고정의 vertical 로 자동 설정
+    setForm({ ...emptyForm, sort_order: filteredPlans.length + 1, vertical: fixedVertical ?? verticalTab });
     setShowModal(true);
   }
 
@@ -83,6 +93,7 @@ export default function PlansPage() {
       is_active: p.is_active,
       sort_order: p.sort_order,
       vertical: p.vertical,
+      r2_storage_quota_mb: p.r2_storage_quota_mb ?? 500,
     });
     setShowModal(true);
   }
@@ -100,6 +111,7 @@ export default function PlansPage() {
       is_active: form.is_active,
       sort_order: Number(form.sort_order),
       vertical: form.vertical,
+      r2_storage_quota_mb: Math.max(0, Number(form.r2_storage_quota_mb) || 0),
     };
     if (editing) {
       await supabase.from("subscription_plans").update(payload).eq("id", editing.id);
@@ -126,8 +138,16 @@ export default function PlansPage() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">구독 플랜</h2>
-          <p className="text-sm text-gray-500 mt-0.5">이용자에게 제공할 플랜을 vertical 별로 관리합니다</p>
+          <h2 className="text-2xl font-bold text-gray-900">
+            {fixedVertical === "retail" ? "소매 구독플랜"
+              : fixedVertical === "wholesale" ? "도매 구독플랜"
+              : "구독 플랜"}
+          </h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {fixedVertical
+              ? `${fixedVertical} 이용자에게 제공할 플랜을 관리합니다`
+              : "이용자에게 제공할 플랜을 vertical 별로 관리합니다"}
+          </p>
         </div>
         <button onClick={openAdd}
           className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary-hover">
@@ -135,22 +155,24 @@ export default function PlansPage() {
         </button>
       </div>
 
-      {/* vertical 탭 */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
-        {VERTICAL_TABS.map(tab => {
-          const count = plans.filter(p => p.vertical === tab.key).length;
-          const active = verticalTab === tab.key;
-          return (
-            <button key={tab.key}
-              onClick={() => setVerticalTab(tab.key)}
-              className={`px-4 py-2 text-sm border-b-2 transition-colors ${
-                active ? "border-primary text-primary font-medium" : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}>
-              {tab.label} <span className="text-xs text-gray-400 ml-1">({count})</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* vertical 탭 — fixedVertical 시 숨김 */}
+      {!fixedVertical && (
+        <div className="flex gap-1 mb-6 border-b border-gray-200">
+          {VERTICAL_TABS.map(tab => {
+            const count = plans.filter(p => p.vertical === tab.key).length;
+            const active = verticalTab === tab.key;
+            return (
+              <button key={tab.key}
+                onClick={() => setVerticalTab(tab.key)}
+                className={`px-4 py-2 text-sm border-b-2 transition-colors ${
+                  active ? "border-primary text-primary font-medium" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}>
+                {tab.label} <span className="text-xs text-gray-400 ml-1">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-gray-400 text-sm">불러오는 중...</p>
@@ -175,6 +197,11 @@ export default function PlansPage() {
               <div className="mb-4">
                 <span className="text-2xl font-bold text-gray-900">{krw(p.price)}</span>
                 <span className="text-sm text-gray-500 ml-1">/ {BILLING_LABEL[p.billing_cycle] ?? p.billing_cycle}</span>
+              </div>
+
+              <div className="mb-3 px-2 py-1.5 bg-blue-50 rounded text-xs text-blue-900 flex items-center justify-between">
+                <span>이미지 용량</span>
+                <span className="font-bold">{formatQuota(p.r2_storage_quota_mb ?? 0)}</span>
               </div>
 
               {p.features.length > 0 && (
@@ -231,15 +258,17 @@ export default function PlansPage() {
                   placeholder="예: Basic, Pro, Enterprise"
                   className="w-full input-md" />
               </div>
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">Vertical *</label>
-                <select value={form.vertical} onChange={e => setForm(f => ({ ...f, vertical: e.target.value as Vertical }))}
-                  className="w-full input-md">
-                  {VERTICAL_TABS.map(t => (
-                    <option key={t.key} value={t.key}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
+              {!fixedVertical && (
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">Vertical *</label>
+                  <select value={form.vertical} onChange={e => setForm(f => ({ ...f, vertical: e.target.value as Vertical }))}
+                    className="w-full input-md">
+                    {VERTICAL_TABS.map(t => (
+                      <option key={t.key} value={t.key}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-600 mb-1">결제 주기</label>
                 <select value={form.billing_cycle} onChange={e => setForm(f => ({ ...f, billing_cycle: e.target.value }))}
@@ -258,6 +287,16 @@ export default function PlansPage() {
                 <label className="block text-xs text-gray-600 mb-1">정렬 순서</label>
                 <input type="number" value={form.sort_order} onChange={e => setForm(f => ({ ...f, sort_order: Number(e.target.value) }))}
                   className="w-full input-md" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">
+                  이미지 용량 한도 (MB) <span className="text-gray-400">— 0 = 무제한</span>
+                </label>
+                <input type="number" min={0} value={form.r2_storage_quota_mb}
+                  onChange={e => setForm(f => ({ ...f, r2_storage_quota_mb: Number(e.target.value) }))}
+                  placeholder="500"
+                  className="w-full input-md" />
+                <p className="text-[11px] text-gray-400 mt-0.5">{formatQuota(form.r2_storage_quota_mb)}</p>
               </div>
               <div className="col-span-2">
                 <label className="block text-xs text-gray-600 mb-1">설명</label>

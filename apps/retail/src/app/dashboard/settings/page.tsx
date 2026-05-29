@@ -35,7 +35,20 @@ type RetailPlan = {
   price: number;
   billing_cycle: string;
   features: string[];
+  r2_storage_quota_mb: number;  // 마이그 200
 };
+
+function formatBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+  return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+function quotaLabel(mb: number): string {
+  if (mb === 0) return "무제한";
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${mb} MB`;
+}
 
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
@@ -96,13 +109,14 @@ export default function SettingsPage() {
             warehouse_address, warehouse_same_as_office, warehouse_phone,
             store_name, store_url,
             plan_id, subscription_expires_at, cancel_at_period_end,
-            subscription_plans(id, name, description, price, billing_cycle, features)
+            r2_usage_bytes, r2_image_count,
+            subscription_plans(id, name, description, price, billing_cycle, features, r2_storage_quota_mb)
           `)
           .eq("id", tenantId)
           .single(),
         supabase
           .from("subscription_plans")
-          .select("id, name, description, price, billing_cycle, features")
+          .select("id, name, description, price, billing_cycle, features, r2_storage_quota_mb")
           .eq("vertical", "retail")
           .eq("is_active", true)
           .order("price", { ascending: true }),
@@ -204,6 +218,7 @@ export default function SettingsPage() {
       subscription_plans: {
         id: p.id, name: p.name, description: p.description,
         price: p.price, billing_cycle: p.billing_cycle, features: p.features,
+        r2_storage_quota_mb: p.r2_storage_quota_mb,
       },
     });
   }
@@ -389,6 +404,44 @@ export default function SettingsPage() {
                         )}
                       </div>
                     )}
+
+                    {/* 이미지 데이터 사용량 — 마이그 200 캐시 기반 */}
+                    {(() => {
+                      const usage = tenant.r2_usage_bytes ?? 0;
+                      const quotaMb = plan.r2_storage_quota_mb ?? 0;
+                      const quotaBytes = quotaMb * 1024 * 1024;
+                      const unlimited = quotaMb === 0;
+                      const pct = unlimited ? 0 : Math.min(100, (usage / quotaBytes) * 100);
+                      const overWarn = !unlimited && pct >= 90;
+                      const overFull = !unlimited && pct >= 100;
+                      return (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <div className="flex items-center justify-between text-xs mb-1.5">
+                            <span className="text-gray-500">이미지 사용량</span>
+                            <span className={`font-medium ${overFull ? "text-red-600" : overWarn ? "text-orange-600" : "text-black"}`}>
+                              {formatBytes(usage)}
+                              {!unlimited && <span className="text-gray-400"> / {quotaLabel(quotaMb)}</span>}
+                              {unlimited && <span className="text-gray-400"> · 무제한</span>}
+                            </span>
+                          </div>
+                          {!unlimited && (
+                            <div className="h-1.5 bg-gray-200 rounded overflow-hidden">
+                              <div className={`h-full transition-all ${overFull ? "bg-red-500" : overWarn ? "bg-orange-500" : "bg-blue-500"}`}
+                                style={{ width: `${pct}%` }} />
+                            </div>
+                          )}
+                          {!unlimited && overWarn && (
+                            <p className={`text-[11px] mt-1 ${overFull ? "text-red-600" : "text-orange-600"}`}>
+                              {overFull ? "한도 초과 — 새 이미지 업로드 불가" : `한도 ${Math.round(100 - pct)}% 남음 — 곧 초과 예정`}
+                            </p>
+                          )}
+                          <p className="text-[11px] text-gray-400 mt-1">
+                            상품 이미지 총 {tenant.r2_image_count ?? 0}장
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     {plan.features && plan.features.length > 0 && (
                       <ul className="text-[11px] text-gray-600 mt-2 space-y-0.5">
                         {plan.features.map((f, i) => (
@@ -442,6 +495,7 @@ export default function SettingsPage() {
                                 {p.price === 0
                                   ? "무료"
                                   : `${p.price.toLocaleString()}원 / ${BILLING_LABEL[p.billing_cycle] ?? p.billing_cycle}`}
+                                <span className="ml-2 text-gray-400">· 이미지 {quotaLabel(p.r2_storage_quota_mb ?? 0)}</span>
                               </div>
                             </div>
                             {isCurrent ? (
