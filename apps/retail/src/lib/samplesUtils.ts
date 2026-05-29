@@ -46,6 +46,10 @@ export type DbProduct = {
   sale_price?: number | null;
   consumer_price?: number | null;
   regular_sale_price?: number | null;
+  // 마이그 201 — 상품 전체 품절 토글 (variant.sold_out 와 OR 관계)
+  sold_out?: boolean | null;
+  // count 형태로 fetch — supabase nested aggregate. [{ count: N }]
+  product_images?: { count: number }[] | null;
 };
 
 export interface EditableRow {

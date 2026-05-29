@@ -7,6 +7,7 @@ import { useState, KeyboardEvent, ReactNode } from "react";
 // 우측: rightActions (페이지별 다른 버튼)
 
 export type SearchCol = "wholesale_name" | "wholesale_supplier";
+export type SoldOutFilter = "all" | "active" | "sold_out";
 
 interface Props {
   // 검색
@@ -24,6 +25,10 @@ interface Props {
   pageSize: number;
   onPageSizeChange: (n: number) => void;
 
+  // 품절 필터 (optional — /products 만 사용. /samples 는 전달 X)
+  soldOutFilter?: SoldOutFilter;
+  onSoldOutFilterChange?: (f: SoldOutFilter) => void;
+
   rightActions?: ReactNode;
 }
 
@@ -35,6 +40,7 @@ export default function ProductsToolbar({
   searchValue, onSearchSubmit,
   category, onCategoryChange, categoryOptions,
   pageSize, onPageSizeChange,
+  soldOutFilter, onSoldOutFilterChange,
   rightActions,
 }: Props) {
   // 입력 중인 값은 내부 draft, Enter 시점에 부모로 commit.
@@ -81,6 +87,27 @@ export default function ProductsToolbar({
         <option value={50}>50개씩</option>
         <option value={100}>100개씩</option>
       </select>
+      {/* 품절 필터 — /products 만. 세그먼트 컨트롤 (서버 필터링, 마이그 202 인덱스 가속) */}
+      {soldOutFilter !== undefined && onSoldOutFilterChange && (
+        <div className="inline-flex rounded border border-gray-300 overflow-hidden text-xs">
+          {([
+            { v: "all",      label: "전체" },
+            { v: "active",   label: "진행중" },
+            { v: "sold_out", label: "품절" },
+          ] as { v: SoldOutFilter; label: string }[]).map(opt => {
+            const active = soldOutFilter === opt.v;
+            return (
+              <button key={opt.v}
+                onClick={() => onSoldOutFilterChange(opt.v)}
+                className={"px-2.5 py-1.5 border-r border-gray-300 last:border-r-0 transition-colors " + (
+                  active ? "bg-black text-white" : "bg-white text-gray-700 hover:bg-gray-50"
+                )}>
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
       {rightActions && <div className="ml-auto flex items-center gap-2">{rightActions}</div>}
     </div>
   );

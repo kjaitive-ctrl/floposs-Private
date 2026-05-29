@@ -13,11 +13,12 @@ import {
 import SizeModal from "@/components/SizeModal";
 import CommentModal from "@/components/CommentModal";
 import ShootModal from "@/components/ShootModal";
+import ProductImagesModal from "@/components/ProductImagesModal";
 import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
-import ProductsToolbar, { type SearchCol } from "@/components/ProductsToolbar";
+import ProductsToolbar, { type SearchCol, type SoldOutFilter } from "@/components/ProductsToolbar";
 import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
@@ -52,6 +53,10 @@ interface ProductRow {
   sale_price: string;          // 판매가 = 실제 판매가 (재사용 컬럼)
   consumer_price: string;       // 소비자가 = 정가 (마이그 182)
   regular_sale_price: string;   // 상시판매가 = 상시할인가 (마이그 182)
+  // 마이그 201 — 상품 전체 품절 토글
+  sold_out: boolean;
+  // product_images 등록 개수 — 0 보다 크면 [샘플로] 차단
+  image_count: number;
 }
 
 export default function ProductsPage() {
@@ -61,6 +66,7 @@ export default function ProductsPage() {
   const [sizeModalRow, setSizeModalRow] = useState<ProductRow | null>(null);
   const [commentModalRow, setCommentModalRow] = useState<ProductRow | null>(null);
   const [shootModalRow, setShootModalRow] = useState<ProductRow | null>(null);
+  const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
@@ -71,6 +77,7 @@ export default function ProductsPage() {
   const [searchCol, setSearchCol] = useState<SearchCol>("wholesale_name");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [category, setCategory] = useState("");
+  const [soldOutFilter, setSoldOutFilter] = useState<SoldOutFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
@@ -110,12 +117,15 @@ export default function ProductsPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code)", { count: "exact" })
+      .select("id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code), product_images(count)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("status", PRODUCT_STATUSES);
     if (appliedSearch) query = query.ilike(searchCol, `%${appliedSearch}%`);
     if (category)      query = query.eq("category", category);
+    // 품절 필터 (마이그 201 컬럼 + 202 인덱스). all = 필터 없음.
+    if (soldOutFilter === "active")   query = query.eq("sold_out", false);
+    if (soldOutFilter === "sold_out") query = query.eq("sold_out", true);
     const { data, count } = await query
       .order("created_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
@@ -159,6 +169,8 @@ export default function ProductsPage() {
         sale_price:          p.sale_price?.toString() ?? "",
         consumer_price:      p.consumer_price?.toString() ?? "",
         regular_sale_price:  p.regular_sale_price?.toString() ?? "",
+        sold_out:            p.sold_out ?? false,
+        image_count:         p.product_images?.[0]?.count ?? 0,
       };
     });
     setRows(list);
@@ -168,10 +180,10 @@ export default function ProductsPage() {
   useEffect(() => {
     // fetchItems 는 async — 내부 await 후 setState 라 lint set-state-in-effect 는 false positive.
     // (effect body 자체는 setState 안 부름; data fetching 은 effect 의 정상 사용처.)
-    // page/pageSize/appliedSearch/searchCol/category 변경 시 자동 재조회.
+    // page/pageSize/appliedSearch/searchCol/category/soldOutFilter 변경 시 자동 재조회.
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
     if (tenant?.id) fetchItems(tenant.id);
-  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category]);
+  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, soldOutFilter]);
 
   type EditField = "consumer_name" | "sale_price" | "consumer_price" | "regular_sale_price";
 
@@ -186,7 +198,26 @@ export default function ProductsPage() {
     scheduleAutosave(rowKey);
   }
 
-  async function handleRevert(id: string) {
+  async function toggleProductSoldOut(row: ProductRow) {
+    const next = !row.sold_out;
+    // 낙관적 업데이트
+    setRows(prev => prev.map(r => r.id === row.id ? { ...r, sold_out: next } : r));
+    const { error } = await supabase.from("products")
+      .update({ sold_out: next, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) {
+      alert(`전체품절 토글 실패: ${error.message}`);
+      // 롤백
+      setRows(prev => prev.map(r => r.id === row.id ? { ...r, sold_out: row.sold_out } : r));
+    }
+  }
+
+  async function handleRevert(row: ProductRow) {
+    // 이미지 등록 시 회귀 차단 (사장 결정 2026-05-29) — 샘플 단계엔 이미지 X
+    if (row.image_count > 0) {
+      alert(`이미지가 ${row.image_count}장 등록되어 있어 샘플로 되돌릴 수 없습니다.\n[IMG] 모달에서 먼저 모든 이미지를 삭제하세요.`);
+      return;
+    }
     // 마이그 198: 바코드 폐기 안내 (외부 push 동기화는 미래 작업)
     const msg = "샘플 단계로 되돌리면:\n"
       + "• 발급된 바코드가 폐기됩니다 (재진행 시 새 바코드)\n"
@@ -197,7 +228,7 @@ export default function ProductsPage() {
 
     // 바코드 폐기 (RPC: products.barcode NULL + variants barcode NULL + history revoked 박제)
     const { error: revokeError } = await supabase.rpc("revoke_product_barcode", {
-      p_product_id: id,
+      p_product_id: row.id,
       p_reason: "샘플로 회귀",
     });
     if (revokeError) {
@@ -209,7 +240,7 @@ export default function ProductsPage() {
     // status 변경
     await supabase.from("products")
       .update({ status: "sample_received", updated_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", row.id);
     if (tenant?.id) fetchItems(tenant.id);
   }
 
@@ -256,6 +287,8 @@ export default function ProductsPage() {
           categoryOptions={categoryOptions}
           pageSize={pageSize}
           onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+          soldOutFilter={soldOutFilter}
+          onSoldOutFilterChange={f => { setSoldOutFilter(f); setPage(1); }}
           rightActions={<>
             <button onClick={async () => {
               const { exportProductsToExcel } = await import("@/lib/excelUtils");
@@ -356,9 +389,21 @@ export default function ProductsPage() {
                           {row.progress_memo || <span className="text-gray-400">메모 (클릭)</span>}
                         </div>
                       </td>
-                      {/* 상품명: 위=consumer_name input */}
-                      <td className={tdTop}>
-                        <input {...cellProps(row, "consumer_name")} placeholder="소비자 상품명" className={inp + " font-medium"} />
+                      {/* 상품명: 위=consumer_name input + 전체품절 토글 (사장 결정 2026-05-29, 마이그 201) */}
+                      <td className={tdTop + " p-0"}>
+                        <div className="flex items-center gap-1 pr-1 h-full">
+                          <input {...cellProps(row, "consumer_name")} placeholder="소비자 상품명"
+                            className={inp + " font-medium" + (row.sold_out ? " line-through text-gray-400" : "")} />
+                          <button onClick={() => toggleProductSoldOut(row)}
+                            title={row.sold_out ? "전체품절 해제" : "상품 전체 품절 처리"}
+                            className={"text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap shrink-0 " + (
+                              row.sold_out
+                                ? "bg-red-600 text-white border-red-600 hover:bg-red-700"
+                                : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                            )}>
+                            {row.sold_out ? "품절중" : "품절"}
+                          </button>
+                        </div>
                       </td>
                       {/* 옵션1/2/3: variant 단위 chip 인터페이스 (마이그 188). 통째 텍스트 수정 차단 */}
                       <td className={tdTop + " p-0"}>
@@ -414,8 +459,8 @@ export default function ProductsPage() {
                             className={styles.btnSmall + " whitespace-nowrap"}>멘트</button>
                           <button onClick={() => setShootModalRow(row)}
                             className={styles.btnSmall + " whitespace-nowrap"}>촬영</button>
-                          <button disabled title="이미지 업로드 기능 준비 중 (R2 연동 예정)"
-                            className="px-2 py-0.5 text-xs border border-gray-300 text-gray-400 rounded cursor-not-allowed bg-gray-50 whitespace-nowrap">IMG</button>
+                          <button onClick={() => setImagesModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap"}>IMG</button>
                         </div>
                       </td>
                     </tr>
@@ -443,8 +488,10 @@ export default function ProductsPage() {
                           <button onClick={() => setSizeModalRow(row)} className={styles.btnSmall}>
                             SIZE
                           </button>
-                          <button onClick={() => handleRevert(row.id)}
-                            className={styles.btnSmallGhost + " whitespace-nowrap"}>
+                          <button onClick={() => handleRevert(row)}
+                            disabled={row.image_count > 0}
+                            title={row.image_count > 0 ? `이미지 ${row.image_count}장 등록됨 — 먼저 삭제 후 가능` : "샘플 단계로 되돌리기"}
+                            className={styles.btnSmallGhost + " whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"}>
                             샘플로
                           </button>
                         </div>
@@ -515,6 +562,21 @@ export default function ProductsPage() {
           onSaved={() => {
             setShootModalRow(null);
             fetchItems(tenant.id);
+          }}
+        />
+      )}
+
+      {imagesModalRow && tenant && (
+        <ProductImagesModal
+          productId={imagesModalRow.id}
+          productName={imagesModalRow.consumer_name || imagesModalRow.wholesale_name || ""}
+          onClose={() => {
+            setImagesModalRow(null);
+            // image_count 갱신 — [샘플로] 가드 동기화 (사장 결정 2026-05-29)
+            if (tenant?.id) fetchItems(tenant.id);
+          }}
+          onSaved={() => {
+            // 모달 안에서 즉시 갱신하므로 list 만 별도 refresh 안 함 — 닫을 때 page refetch.
           }}
         />
       )}
