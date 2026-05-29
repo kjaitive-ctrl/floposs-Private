@@ -103,6 +103,9 @@ export default function SamplesPage() {
   // 반납완료(status='returned') 숨김 토글 — 기본 ON. OFF 시 30일 cutoff 로직 적용.
   const [hideReturned, setHideReturned] = useState(true);
   const categoryOptions = useCategoryOptions(tenant?.id);
+  // 사이즈 측정 카테고리 dropdown (measurement_templates 시스템 + tenant 커스텀)
+  // /products 와 동일 — samples 에서 미리 선택해두면 [진행] 시 그대로 넘어감.
+  const [measureCategories, setMeasureCategories] = useState<string[]>([]);
 
   async function handleDownloadTemplate() {
     const { downloadUploadTemplate } = await import("@/lib/excelUtils");
@@ -216,14 +219,18 @@ export default function SamplesPage() {
         }, 50);
 
         // variants INSERT
+        // created_at 클라이언트 명시 — PG now() 가 트랜잭션 시작 시점이라
+        // multi-row INSERT 시 모두 동률 → ORDER BY created_at 이 임의 순서 됨. 1ms 간격으로 보장.
         const combos = cartesian(o1, o2, o3);
         if (combos.length > 0) {
+          const baseTs = Date.now();
           const { data: vData } = await supabase.from("product_variants").insert(
-            combos.map(c => ({
+            combos.map((c, i) => ({
               product_id: data.id,
               color: c.o1 || null,
               size: c.o2 || null,
               option3: c.o3 || null,
+              created_at: new Date(baseTs + i).toISOString(),
             }))
           ).select("id, color, size, option3");
           if (vData) {
@@ -270,14 +277,22 @@ export default function SamplesPage() {
       const toDeactivate = oldVariants.filter(v => !newKeys.has(vKeyVar(v)) && v.id);
 
       if (toInsert.length > 0) {
-        const { data: vData } = await supabase.from("product_variants").insert(
-          toInsert.map(c => ({
+        // created_at 1ms 간격 명시 (now() 동률 회피)
+        const baseTs = Date.now();
+        const { data: vData, error: vErr } = await supabase.from("product_variants").insert(
+          toInsert.map((c, i) => ({
             product_id: row.id,
             color: c.o1 || null,
             size: c.o2 || null,
             option3: c.o3 || null,
+            created_at: new Date(baseTs + i).toISOString(),
           }))
         ).select("id, color, size, option3");
+        if (vErr) {
+          console.error("variants INSERT 실패:", vErr);
+          alert(`옵션 저장 실패: ${vErr.message}\n(옛 inactive variants 와 UNIQUE 충돌 가능성 — SQL 로 정리 필요)`);
+          return { ok: false };
+        }
         if (vData) {
           setVariantsMap(m => ({
             ...m,
@@ -369,6 +384,37 @@ export default function SamplesPage() {
     // fetchItems 는 page/pageSize/appliedSearch/searchCol/category state 를 closure 로 사용
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, hideReturned]);
+
+  // measurement_templates 카테고리 옵션 fetch — 행별 카테고리 dropdown 용
+  useEffect(() => {
+    if (!tenant?.id) return;
+    supabase.from("measurement_templates")
+      .select("category, sort_order, tenant_id")
+      .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => {
+        const set = new Set<string>();
+        (data ?? []).forEach((r: { category: string }) => set.add(r.category));
+        setMeasureCategories(Array.from(set));
+      });
+  }, [tenant?.id]);
+
+  async function updateSampleCategory(row: EditableRow, newCategory: string) {
+    if ((row.category ?? "") === newCategory) return;
+    if (!row.id) return; // draft row (아직 INSERT 전)
+    setSaveStatus(row._key, "saving");
+    const { error } = await supabase.from("products")
+      .update({ category: newCategory || null, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) {
+      setSaveStatus(row._key, "error", true);
+      alert(`카테고리 변경 실패: ${error.message}`);
+      return;
+    }
+    setSaveStatus(row._key, "saved", true);
+    setRows(prev => prev.map(r => r._key === row._key ? { ...r, category: newCategory } : r));
+  }
 
   // ↑↓ 화살표 또는 Enter/Shift+Enter → 위/아래 row 의 같은 컬럼 셀로 focus 이동.
   // Tab/Shift+Tab 은 HTML 기본(좌/우) 유지.
@@ -564,6 +610,7 @@ export default function SamplesPage() {
                 <th className={th + " w-20"}>제조국</th>
                 <th className={th + " min-w-[140px]"}>혼용율</th>
                 <th className={th + " min-w-[120px]"}>공급사</th>
+                <th className={th + " w-32"}>카테고리</th>
                 <th className={th + " w-10 text-center border-r-0"}>×</th>
               </tr>
               {/* thead 2번째 행 — draft 입력 행 (노란 음영, sticky). 항상 표 최상단 고정, × 없음 (삭제 불가).
@@ -603,6 +650,7 @@ export default function SamplesPage() {
                   <td className={tdDraft + " w-20"}></td>
                   <td className={tdDraft + " min-w-[140px]"}></td>
                   <td className={tdDraft + " min-w-[120px]"}></td>
+                  <td className={tdDraft + " w-32"}></td>
                   <td className={tdDraft + " w-10 border-r-0"}></td>
                 </tr>
               )}
@@ -715,6 +763,16 @@ export default function SamplesPage() {
                     </td>
                     <td className={td}>
                       <input {...cellProps(row, "wholesale_supplier")} readOnly={isReg} className={inp + lockTxt} />
+                    </td>
+                    {/* 카테고리: dropdown (measurement_templates). 진행 시 그대로 /products 로 박제 박혀감. */}
+                    <td className={td + " p-0" + (row.category ? "" : " bg-orange-50")}>
+                      <select value={row.category ?? ""}
+                        onChange={e => updateSampleCategory(row, e.target.value)}
+                        disabled={isReg || !row.id}
+                        className={inp + " w-full" + lockTxt}>
+                        <option value="">— 선택 —</option>
+                        {measureCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
                     </td>
                     <td className={td + " text-center border-r-0"}>
                       <button onClick={() => handleDelete(row._key)}

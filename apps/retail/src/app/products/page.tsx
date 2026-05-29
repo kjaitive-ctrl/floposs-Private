@@ -57,6 +57,8 @@ interface ProductRow {
   sold_out: boolean;
   // product_images 등록 개수 — 0 보다 크면 [샘플로] 차단
   image_count: number;
+  // product_measurements 박제 row 수 — 0 이면 SIZE 버튼 옅은 주황 (사이즈 측정값 미박제)
+  measurements_count: number;
 }
 
 export default function ProductsPage() {
@@ -71,6 +73,8 @@ export default function ProductsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
+  // 카테고리 dropdown 옵션 (measurement_templates 시스템 공통 + tenant 커스텀)
+  const [measureCategories, setMeasureCategories] = useState<string[]>([]);
 
   // ── 검색/필터/페이지네이션 ──
   // 한 상품 = 2 tr 이라 기본 25개 (= 50 tr). samples 와 동일 인터페이스.
@@ -96,7 +100,7 @@ export default function ProductsPage() {
   useEffect(() => { rowsRef.current = rows; });
 
   // 자동저장 hook — saveRow 가 실 UPDATE 로직, hook 이 timers/inFlight/dirtyAgain + setSaveStatus 관리
-  const { saveState, scheduleAutosave } = useRowAutosave({
+  const { saveState, setSaveStatus, scheduleAutosave } = useRowAutosave({
     saveRow: async (rowKey) => {
       const row = rowsRef.current.find(r => r._key === rowKey);
       if (!row?.id) return { ok: true };  // skip
@@ -112,18 +116,75 @@ export default function ProductsPage() {
     },
   });
 
+  // select 절 — fetchItems / refetchOneProduct 공통.
+  // product_measurements 는 별도 fetch (nested aggregate 가 variants 에 영향 줄 수 있음 — 안전 분리)
+  // product_variants.created_at — toRow 의 active 정렬 기준 (사용자 INSERT 순 보존)
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, created_at), product_images(count)";
+
+  // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
+  function toRow(p: DbProduct, existingKey?: string): ProductRow {
+    // is_active=true 필터 + created_at ASC 정렬 (사용자 INSERT 순 보존).
+    // 사전식 정렬은 S/M/L 같은 사이즈가 거꾸로 (L,M,S) 보이므로 X.
+    const active = (p.product_variants ?? [])
+      .filter(v => v.is_active !== false)
+      .sort((a, b) => {
+        const ca = (a as { created_at?: string }).created_at ?? "";
+        const cb = (b as { created_at?: string }).created_at ?? "";
+        return ca.localeCompare(cb);
+      });
+    const vs: Variant[] = active.map(v => ({
+      id: v.id,
+      color: v.color,
+      size: v.size,
+      option3: v.option3,
+      consumer_label_color: v.consumer_label_color ?? v.color,
+      consumer_label_size: v.consumer_label_size ?? v.size,
+      consumer_label_option3: v.consumer_label_option3 ?? v.option3,
+      is_for_sale: v.is_for_sale ?? true,
+      sold_out: v.sold_out ?? false,
+      variant_code: v.variant_code ?? null,
+    }));
+    return {
+      _key: existingKey ?? newKey(),
+      id: p.id,
+      product_code: p.product_code ?? "",
+      barcode: p.barcode ?? null,
+      category: p.category ?? "",
+      description: p.description ?? "",
+      wholesale_name: p.wholesale_name ?? "",
+      wholesale_supplier: p.wholesale_supplier ?? "",
+      wholesale_price: p.wholesale_price,
+      wholesale_discount_price: p.wholesale_discount_price,
+      country_of_origin: p.country_of_origin ?? "",
+      material_composition: materialToText(p.material_composition),
+      wholesale_options: {
+        o1: joinUniq(vs, "color"),
+        o2: joinUniq(vs, "size"),
+        o3: joinUniq(vs, "option3"),
+      },
+      variants: vs,
+      consumer_name: p.consumer_name ?? "",
+      progress_memo: p.progress_memo ?? "",
+      sale_price:          p.sale_price?.toString() ?? "",
+      consumer_price:      p.consumer_price?.toString() ?? "",
+      regular_sale_price:  p.regular_sale_price?.toString() ?? "",
+      sold_out:            p.sold_out ?? false,
+      image_count:         p.product_images?.[0]?.count ?? 0,
+      measurements_count:  p.product_measurements?.[0]?.count ?? 0,
+    };
+  }
+
   async function fetchItems(tenantId: string) {
     setLoading(true);
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code), product_images(count)", { count: "exact" })
+      .select(PRODUCT_SELECT, { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .in("status", PRODUCT_STATUSES);
     if (appliedSearch) query = query.ilike(searchCol, `%${appliedSearch}%`);
     if (category)      query = query.eq("category", category);
-    // 품절 필터 (마이그 201 컬럼 + 202 인덱스). all = 필터 없음.
     if (soldOutFilter === "active")   query = query.eq("sold_out", false);
     if (soldOutFilter === "sold_out") query = query.eq("sold_out", true);
     const { data, count } = await query
@@ -131,50 +192,50 @@ export default function ProductsPage() {
       .range(offset, offset + pageSize - 1);
     const items = (data ?? []) as DbProduct[];
     setTotal(count ?? 0);
-    const list: ProductRow[] = items.map(p => {
-      const active = (p.product_variants ?? []).filter(v => v.is_active !== false);
-      const vs: Variant[] = active.map(v => ({
-        id: v.id,
-        color: v.color,
-        size: v.size,
-        option3: v.option3,
-        consumer_label_color: v.consumer_label_color ?? v.color,
-        consumer_label_size: v.consumer_label_size ?? v.size,
-        consumer_label_option3: v.consumer_label_option3 ?? v.option3,
-        is_for_sale: v.is_for_sale ?? true,
-        sold_out: v.sold_out ?? false,
-        variant_code: v.variant_code ?? null,
-      }));
-      return {
-        _key: newKey(),
-        id: p.id,
-        product_code: p.product_code ?? "",
-        barcode: p.barcode ?? null,
-        category: p.category ?? "",
-        description: p.description ?? "",
-        wholesale_name: p.wholesale_name ?? "",
-        wholesale_supplier: p.wholesale_supplier ?? "",
-        wholesale_price: p.wholesale_price,
-        wholesale_discount_price: p.wholesale_discount_price,
-        country_of_origin: p.country_of_origin ?? "",
-        material_composition: materialToText(p.material_composition),
-        wholesale_options: {
-          o1: joinUniq(vs, "color"),
-          o2: joinUniq(vs, "size"),
-          o3: joinUniq(vs, "option3"),
-        },
-        variants: vs,
-        consumer_name: p.consumer_name ?? "",
-        progress_memo: p.progress_memo ?? "",
-        sale_price:          p.sale_price?.toString() ?? "",
-        consumer_price:      p.consumer_price?.toString() ?? "",
-        regular_sale_price:  p.regular_sale_price?.toString() ?? "",
-        sold_out:            p.sold_out ?? false,
-        image_count:         p.product_images?.[0]?.count ?? 0,
-      };
-    });
-    setRows(list);
+    setRows(items.map(p => toRow(p)));
     setLoading(false);
+  }
+
+  // measurement_templates 카테고리 옵션 fetch — row 의 카테고리 dropdown 용
+  useEffect(() => {
+    if (!tenant?.id) return;
+    supabase.from("measurement_templates")
+      .select("category, sort_order, tenant_id")
+      .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => {
+        const set = new Set<string>();
+        (data ?? []).forEach((r: { category: string }) => set.add(r.category));
+        setMeasureCategories(Array.from(set));
+      });
+  }, [tenant?.id]);
+
+  async function updateCategory(row: ProductRow, newCategory: string) {
+    if (row.category === newCategory) return;
+    setSaveStatus(row._key, "saving");
+    const { error } = await supabase.from("products")
+      .update({ category: newCategory || null, updated_at: new Date().toISOString() })
+      .eq("id", row.id);
+    if (error) {
+      setSaveStatus(row._key, "error", true);
+      alert(`카테고리 변경 실패: ${error.message}`);
+      return;
+    }
+    setSaveStatus(row._key, "saved", true);
+    refetchOneProduct(row.id);
+  }
+
+  // 한 product 만 부분 fetch — chip 변경/모달 onSaved 등 위치 불변 갱신용.
+  // _key 보존 → React 가 같은 row 로 인식 → DOM 재생성 X → 깜빡임 0.
+  async function refetchOneProduct(productId: string) {
+    const { data, error } = await supabase
+      .from("products")
+      .select(PRODUCT_SELECT)
+      .eq("id", productId)
+      .maybeSingle();
+    if (error || !data) return;
+    setRows(prev => prev.map(r => r.id === productId ? toRow(data as DbProduct, r._key) : r));
   }
 
   useEffect(() => {
@@ -313,6 +374,29 @@ export default function ProductsPage() {
               className={styles.btnSmall + " py-1"}>
               엑셀 다운로드
             </button>
+            <button onClick={async () => {
+              if (!tenant?.id) { alert("tenant 미정"); return; }
+              const { downloadSizeMeasurements } = await import("@/lib/excelUtils");
+              try { await downloadSizeMeasurements(tenant.id); }
+              catch (e) { alert((e as Error).message); }
+            }}
+              className={styles.btnSmall + " py-1"}>
+              사이즈 다운로드
+            </button>
+            <label className={styles.btnSmall + " py-1 cursor-pointer"}>
+              사이즈 업로드
+              <input type="file" accept=".xlsx" className="hidden"
+                onChange={async (e: ChangeEvent<HTMLInputElement>) => {
+                  const f = e.target.files?.[0];
+                  if (!f || !tenant?.id) return;
+                  const { uploadSizeMeasurements } = await import("@/lib/excelUtils");
+                  const res = await uploadSizeMeasurements(f, tenant.id);
+                  const msg = `완료: 성공 ${res.success} / 실패 ${res.failed}` +
+                    (res.errors.length ? `\n\n[에러 ${res.errors.length}건]\n${res.errors.slice(0, 5).join("\n")}` : "");
+                  alert(msg);
+                  e.target.value = ""; // 같은 파일 재선택 가능
+                }} />
+            </label>
           </>}
         />
       </header>
@@ -324,9 +408,24 @@ export default function ProductsPage() {
               {/* 위 줄: 노란 음영 5개 (입력 가능 컬럼명). 그 외 공란. ● 는 rowSpan=2 */}
               <tr>
                 <th rowSpan={2} className={thTop + " w-6"}></th>
-                <th rowSpan={2} className={thTop + " w-8"}>
-                  <span style={{ writingMode: "vertical-rl", textOrientation: "upright", letterSpacing: "0.05em" }}
-                    className="text-xs">선택</span>
+                <th rowSpan={2} className={thTop + " w-8 cursor-pointer hover:bg-gray-200"}
+                  title="전체선택"
+                  onClick={() => {
+                    const allSelected = rows.length > 0 && rows.every(r => selectedIds.has(r.id));
+                    const next = new Set(selectedIds);
+                    if (allSelected) rows.forEach(r => next.delete(r.id));
+                    else rows.forEach(r => next.add(r.id));
+                    setSelectedIds(next);
+                  }}>
+                  <div className="flex flex-col items-center gap-0.5 pointer-events-none">
+                    <input type="checkbox" readOnly
+                      checked={rows.length > 0 && rows.every(r => selectedIds.has(r.id))}
+                      ref={el => {
+                        if (el) el.indeterminate = rows.some(r => selectedIds.has(r.id))
+                          && !rows.every(r => selectedIds.has(r.id));
+                      }} />
+                    <span className="text-[10px] text-gray-500 leading-none">전체</span>
+                  </div>
                 </th>
                 <th className={thTopInput + " min-w-[140px]"}>메모(진행)</th>
                 <th className={thTopInput + " min-w-[160px]"}>상품명</th>
@@ -336,7 +435,7 @@ export default function ProductsPage() {
                 <th className={thTopInput + " w-32"}>상시판매가</th>
                 <th className={thTopInput + " w-32"}>판매가</th>
                 <th className={thTopInput + " w-32"}>소비자가</th>
-                <th className={thTopInput + " w-24"}>플랫폼</th>
+                <th className={thTopInput + " w-32"}>카테고리</th>
                 <th className={thTopInput + " w-32"}>상품코드</th>
                 <th className={thTopInput + " w-32 border-r-0"}>MD기능</th>
               </tr>
@@ -390,7 +489,7 @@ export default function ProductsPage() {
                         </div>
                       </td>
                       {/* 상품명: 위=consumer_name input + 전체품절 토글 (사장 결정 2026-05-29, 마이그 201) */}
-                      <td className={tdTop + " p-0"}>
+                      <td className={tdTop + " p-0" + (row.consumer_name.trim() ? "" : " bg-orange-50")}>
                         <div className="flex items-center gap-1 pr-1 h-full">
                           <input {...cellProps(row, "consumer_name")} placeholder="소비자 상품명"
                             className={inp + " font-medium" + (row.sold_out ? " line-through text-gray-400" : "")} />
@@ -408,18 +507,18 @@ export default function ProductsPage() {
                       {/* 옵션1/2/3: variant 단위 chip 인터페이스 (마이그 188). 통째 텍스트 수정 차단 */}
                       <td className={tdTop + " p-0"}>
                         <OptionChipCell productId={row.id} variants={row.variants} axis="color"
-                          onChanged={() => tenant?.id && fetchItems(tenant.id)} />
+                          onChanged={() => refetchOneProduct(row.id)} />
                       </td>
                       <td className={tdTop + " p-0"}>
                         <OptionChipCell productId={row.id} variants={row.variants} axis="size"
-                          onChanged={() => tenant?.id && fetchItems(tenant.id)} />
+                          onChanged={() => refetchOneProduct(row.id)} />
                       </td>
                       <td className={tdTop + " p-0"}>
                         <OptionChipCell productId={row.id} variants={row.variants} axis="option3"
-                          onChanged={() => tenant?.id && fetchItems(tenant.id)} />
+                          onChanged={() => refetchOneProduct(row.id)} />
                       </td>
                       {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란 */}
-                      <td className={tdTop}>
+                      <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
                         <input id={`cell-${row._key}-regular_sale_price`}
                           type="text" inputMode="numeric"
                           value={formatComma(row.regular_sale_price)}
@@ -443,8 +542,16 @@ export default function ProductsPage() {
                           onKeyDown={e => handleNav(e, row._key, "consumer_price")}
                           className={inp + " text-right"} />
                       </td>
-                      {/* 플랫폼: 입력칸 (추후 카페24/스마트스토어 등) */}
-                      <td className={tdTop}></td>
+                      {/* 카테고리: dropdown (measurement_templates 정의 — 시스템 + tenant 커스텀)
+                          SizeModal 의 카테고리 선택을 여기로 이동 (2026-05-29). 사이즈 모달은 추종. */}
+                      <td className={tdTop + " p-0" + (row.category ? "" : " bg-orange-50")}>
+                        <select value={row.category}
+                          onChange={e => updateCategory(row, e.target.value)}
+                          className={inp + " w-full"}>
+                          <option value="">— 선택 —</option>
+                          {measureCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
                       {/* 상품코드: 진행 시 자동 발급된 바코드 (마이그 198, 18자리). 샘플 상태면 "-". */}
                       <td className={tdTop + " text-center"}>
                         <span className="text-[11px] font-mono text-black select-all">
@@ -482,10 +589,12 @@ export default function ProductsPage() {
                       <td className={tdBot + " text-center"}>{row.country_of_origin || "-"}</td>
                       <td className={tdBot}>{row.material_composition || "-"}</td>
                       <td className={tdBot}>{row.wholesale_supplier || "-"}</td>
-                      {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성 */}
+                      {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성.
+                          product_measurements 박제 row 가 0 이면 옅은 주황으로 환기 (사이즈표 미박제). */}
                       <td className={tdBot + " text-center border-r-0"}>
                         <div className="flex gap-1 justify-center">
-                          <button onClick={() => setSizeModalRow(row)} className={styles.btnSmall}>
+                          <button onClick={() => setSizeModalRow(row)}
+                            className={styles.btnSmall + (row.measurements_count > 0 ? "" : " !bg-orange-50")}>
                             SIZE
                           </button>
                           <button onClick={() => handleRevert(row)}

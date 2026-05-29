@@ -223,3 +223,261 @@ export function exportProductsToExcel(rows: ExportRow[]) {
   const dateStr = new Date().toLocaleDateString("en-CA").replace(/-/g, "");
   XLSX.writeFile(wb, `상품목록_${dateStr}.xlsx`);
 }
+
+// ────────────────────────────────────────────
+// 사이즈(치수) 일괄 다운로드 / 업로드
+// — 카테고리별 measurement_templates.field_keys 가 같은 카테고리끼리 한 시트로 그룹화.
+// — row 단위 = (product_id, size). 색상 무관 (product_measurements UNIQUE(product_id, size)).
+// — 기존 값 채워서 다운로드 → 사장이 빈칸 채워 / 수정 후 업로드 → UPSERT.
+// ────────────────────────────────────────────
+
+// 사장 명시 (2026-05-29): 공급상품명 왼쪽에 상품명(소비자) 추가. consumer_name 빈 경우 "NULL" 표기.
+const SIZE_FIXED_HEADERS = ["product_id", "상품코드", "상품명", "공급상품명", "카테고리", "사이즈"] as const;
+
+interface SizeRowOut {
+  product_id: string;
+  product_code: string;
+  consumer_name: string;       // 소비자 상품명 (빈 경우 "NULL" 출력)
+  wholesale_name: string;      // 공급상품명
+  category: string;
+  size: string;
+  measurements: Record<string, number | string | null>;
+}
+
+export async function downloadSizeMeasurements(tenantId: string) {
+  // 1) 활성 products. consumer_name + wholesale_name 둘 다 select (사장 명시 2026-05-29: 둘 다 노출, consumer 빈 경우 NULL 표기)
+  const { data: products, error: pErr } = await supabase
+    .from("products")
+    .select("id, product_code, wholesale_name, consumer_name, category")
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true);
+  if (pErr || !products) throw new Error(`products fetch 실패: ${pErr?.message ?? "unknown"}`);
+  if (products.length === 0) { alert("활성 상품이 없습니다."); return; }
+
+  const productIds = products.map(p => p.id);
+
+  // 2) variants distinct size per product. is_active=true 만 (soft delete 옛 variant 제외).
+  const { data: variants } = await supabase
+    .from("product_variants")
+    .select("product_id, size")
+    .eq("is_active", true)
+    .in("product_id", productIds);
+  const sizesByProduct = new Map<string, Set<string>>();
+  (variants || []).forEach(v => {
+    if (!v.size) return;
+    if (!sizesByProduct.has(v.product_id)) sizesByProduct.set(v.product_id, new Set());
+    sizesByProduct.get(v.product_id)!.add(v.size);
+  });
+
+  // 3) 기존 product_measurements
+  const { data: existingMeas } = await supabase
+    .from("product_measurements")
+    .select("product_id, size, measurements")
+    .in("product_id", productIds);
+  const measByKey = new Map<string, Record<string, unknown>>();
+  (existingMeas || []).forEach(m => {
+    measByKey.set(`${m.product_id}::${m.size}`, (m.measurements as Record<string, unknown>) || {});
+  });
+
+  // 4) measurement_templates (시스템 공통 + tenant 커스텀)
+  const { data: templates } = await supabase
+    .from("measurement_templates")
+    .select("tenant_id, category, field_keys")
+    .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`);
+  // 카테고리 매핑: tenant 커스텀 우선, 없으면 시스템 공통
+  const tplByCategory = new Map<string, string[]>();
+  (templates || []).forEach(t => {
+    const fk = (t.field_keys as string[]) || [];
+    if (t.tenant_id) tplByCategory.set(t.category, fk);
+  });
+  (templates || []).forEach(t => {
+    if (!t.tenant_id && !tplByCategory.has(t.category)) {
+      tplByCategory.set(t.category, (t.field_keys as string[]) || []);
+    }
+  });
+
+  // 5) (product, size) row 생성 + field_keys 그룹화
+  type Group = { fieldKeys: string[]; rows: SizeRowOut[]; categories: Set<string> };
+  const groups = new Map<string, Group>(); // key = sorted field_keys JSON
+  let totalRows = 0;
+  let skippedNoCategory = 0;
+  let skippedNoTemplate = 0;
+
+  for (const p of products) {
+    const sizes = sizesByProduct.get(p.id);
+    if (!sizes || sizes.size === 0) continue;
+    const category = p.category || "";
+    if (!category) { skippedNoCategory++; continue; }
+    const fieldKeys = tplByCategory.get(category);
+    if (!fieldKeys || fieldKeys.length === 0) { skippedNoTemplate++; continue; }
+
+    const groupKey = JSON.stringify([...fieldKeys].sort());
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, { fieldKeys, rows: [], categories: new Set() });
+    }
+    const g = groups.get(groupKey)!;
+    g.categories.add(category);
+
+    const sortedSizes = Array.from(sizes).sort();
+    for (const size of sortedSizes) {
+      const existing = measByKey.get(`${p.id}::${size}`) || {};
+      g.rows.push({
+        product_id: p.id,
+        product_code: p.product_code,
+        consumer_name: p.consumer_name || "",   // 빈 경우 출력 단계에서 "NULL"
+        wholesale_name: p.wholesale_name || "",
+        category,
+        size,
+        measurements: fieldKeys.reduce((acc, key) => {
+          const v = existing[key];
+          acc[key] = v == null ? "" : (v as number | string);
+          return acc;
+        }, {} as Record<string, number | string | null>),
+      });
+      totalRows++;
+    }
+  }
+
+  if (groups.size === 0) {
+    alert("다운로드할 사이즈 row가 없습니다.\n(활성 상품에 카테고리/variants/template 매칭 확인 필요)");
+    return;
+  }
+
+  // 6) xlsx 생성 — 그룹별 시트
+  const wb = XLSX.utils.book_new();
+  // Excel 시트명 금지 문자: \ / ? * [ ] : — 모두 "_"로 치환 + 31자 이내 + 중복 방지
+  const sanitize = (s: string) => s.replace(/[\\/?*[\]:]/g, "_");
+  const usedNames = new Set<string>();
+  for (const g of Array.from(groups.values()).sort((a, b) => b.rows.length - a.rows.length)) {
+    const cats = Array.from(g.categories).sort();
+    let sheetName = sanitize(cats.join("+")).slice(0, 28);
+    let suffix = 0;
+    while (usedNames.has(sheetName)) {
+      suffix++;
+      sheetName = (sanitize(cats.join("+")).slice(0, 26) + ` ${suffix}`).slice(0, 28);
+    }
+    usedNames.add(sheetName);
+
+    const headers = [...SIZE_FIXED_HEADERS, ...g.fieldKeys];
+    const data: (string | number | null)[][] = [headers];
+    for (const r of g.rows) {
+      data.push([
+        r.product_id, r.product_code,
+        r.consumer_name || "NULL",     // 빈 → "NULL" 시각 표기
+        r.wholesale_name || "NULL",
+        r.category, r.size,
+        ...g.fieldKeys.map(k => {
+          const v = r.measurements[k];
+          if (v == null || v === "") return "";
+          const n = Number(v);
+          return isNaN(n) ? String(v) : n;
+        }),
+      ]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    // 컬럼 폭: product_id 36 / 상품코드 10 / 상품명 24 / 공급상품명 24 / 카테고리 18 / 사이즈 8 / measurements 10
+    ws["!cols"] = headers.map((_, i) =>
+      i === 0 ? { wch: 36 } : i === 1 ? { wch: 10 } :
+      i === 2 ? { wch: 24 } : i === 3 ? { wch: 24 } :
+      i === 4 ? { wch: 18 } : i === 5 ? { wch: 8 } : { wch: 10 }
+    );
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  }
+
+  const dateStr = new Date().toLocaleDateString("en-CA").replace(/-/g, "");
+  XLSX.writeFile(wb, `사이즈_일괄_${dateStr}.xlsx`);
+
+  const note = [];
+  if (skippedNoCategory > 0) note.push(`카테고리 없는 상품 ${skippedNoCategory}개 제외`);
+  if (skippedNoTemplate > 0) note.push(`템플릿 매칭 안 되는 카테고리 ${skippedNoTemplate}개 제외`);
+  if (note.length) alert(`다운로드 완료: ${totalRows} row / ${groups.size} 시트\n\n${note.join("\n")}`);
+}
+
+export interface SizeUploadResult {
+  success: number;
+  failed: number;
+  errors: string[];
+}
+
+export async function uploadSizeMeasurements(file: File, tenantId: string): Promise<SizeUploadResult> {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+
+  // 모든 시트 합쳐서 처리 — 시트마다 헤더 다름 (field_keys)
+  type Parsed = { product_id: string; size: string; measurements: Record<string, number> };
+  const parsed: Parsed[] = [];
+  const errors: string[] = [];
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: null });
+    if (rows.length === 0) continue;
+    const sample = rows[0];
+    const fixedSet = new Set<string>(SIZE_FIXED_HEADERS);
+    const fieldKeys = Object.keys(sample).filter(k => !fixedSet.has(k));
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const pid = String(r["product_id"] || "").trim();
+      const size = String(r["사이즈"] || "").trim();
+      if (!pid || !size) {
+        errors.push(`[${sheetName}] ${i + 2}행: product_id 또는 사이즈 누락 — skip`);
+        continue;
+      }
+      const meas: Record<string, number> = {};
+      for (const fk of fieldKeys) {
+        const v = r[fk];
+        if (v == null || v === "") continue;
+        const n = Number(String(v).replace(/[^0-9.-]/g, ""));
+        if (!isNaN(n)) meas[fk] = n;
+      }
+      parsed.push({ product_id: pid, size, measurements: meas });
+    }
+  }
+
+  if (parsed.length === 0) {
+    return { success: 0, failed: 0, errors: ["파일에 유효한 row 없음"] };
+  }
+
+  // tenant_id 검증 — 다른 tenant 상품 박제 방지
+  const distinctPids = Array.from(new Set(parsed.map(p => p.product_id)));
+  const { data: ownProducts } = await supabase
+    .from("products")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .in("id", distinctPids);
+  const ownSet = new Set((ownProducts || []).map(p => p.id));
+
+  let success = 0;
+  let failed = 0;
+
+  // UPSERT 청크 단위
+  const CHUNK = 100;
+  const validRows = parsed.filter(p => {
+    if (!ownSet.has(p.product_id)) {
+      failed++;
+      errors.push(`product_id ${p.product_id}: 본 tenant 소유 아님 — skip`);
+      return false;
+    }
+    return true;
+  });
+
+  for (let i = 0; i < validRows.length; i += CHUNK) {
+    const chunk = validRows.slice(i, i + CHUNK);
+    const { error } = await supabase
+      .from("product_measurements")
+      .upsert(chunk.map(p => ({
+        product_id: p.product_id,
+        size: p.size,
+        measurements: p.measurements,
+      })), { onConflict: "product_id,size" });
+    if (error) {
+      failed += chunk.length;
+      errors.push(`UPSERT 청크 실패 (${chunk.length} rows): ${error.message}`);
+    } else {
+      success += chunk.length;
+    }
+  }
+
+  return { success, failed, errors };
+}

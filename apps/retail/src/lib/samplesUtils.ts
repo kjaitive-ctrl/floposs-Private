@@ -37,9 +37,9 @@ export type DbProduct = {
   product_variants: DbVariant[] | null;
   // 소비자(retail) 박제 — /products 에서 사장이 입력. 공급(wholesale_*) 과 별개. 마이그 186.
   consumer_name: string | null;
-  consumer_option1: string | null;
-  consumer_option2: string | null;
-  consumer_option3: string | null;
+  consumer_option1?: string | null;
+  consumer_option2?: string | null;
+  consumer_option3?: string | null;
   // 진행 단계 메모 (products 측 박제) — samples 단계 description 과 별도. 마이그 187.
   progress_memo: string | null;
   // 가격 — sale_price 기존 컬럼 재사용 + consumer_price/regular_sale_price 마이그 182
@@ -50,6 +50,7 @@ export type DbProduct = {
   sold_out?: boolean | null;
   // count 형태로 fetch — supabase nested aggregate. [{ count: N }]
   product_images?: { count: number }[] | null;
+  product_measurements?: { count: number }[] | null;
 };
 
 export interface EditableRow {

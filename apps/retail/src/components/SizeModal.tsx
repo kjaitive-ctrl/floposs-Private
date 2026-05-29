@@ -113,13 +113,7 @@ export default function SizeModal({
   async function handleSave() {
     setSaving(true);
 
-    // 카테고리 박제 (products.category)
-    if (category) {
-      await supabase.from("products")
-        .update({ category, updated_at: new Date().toISOString() })
-        .eq("id", productId);
-    }
-
+    // 카테고리는 /products 행에서 박제 — SizeModal 은 추종(읽기)만. (2026-05-29)
     // product_measurements upsert
     // 유효 row 만 (size 채워진 것)
     const validRows = rows.filter(r => r.size.trim());
@@ -160,20 +154,14 @@ export default function SizeModal({
         {/* 본문 */}
         <div className={styles.modalBody}>
 
-          {/* 카테고리 선택 */}
+          {/* 카테고리 — read-only. 변경은 행 dropdown 에서 (samples/products 둘 다) */}
           <div>
-            <label className={styles.modalLabel}>카테고리 *</label>
-            <select value={category} onChange={e => setCategory(e.target.value)}
-              className={styles.modalInput}>
-              <option value="">— 카테고리 선택 —</option>
-              {templates.map(t => (
-                <option key={t.id} value={t.category}>
-                  {t.category} {t.tenant_id ? "(내 커스텀)" : ""}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-600 mt-1">
-              카테고리 선택 시 측정항목이 자동 표시됩니다. 옵션(사이즈)과 매칭은 별개 — 자유롭게 박제.
+            <label className={styles.modalLabel}>카테고리</label>
+            <div className="px-2 py-1.5 border border-gray-200 rounded bg-gray-50 text-sm text-gray-700">
+              {category || <span className="text-amber-600">미설정 — 행의 카테고리 dropdown 에서 먼저 선택해주세요</span>}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              카테고리 변경은 행에서. 사이즈표는 자동 추종.
             </p>
           </div>
 

@@ -101,12 +101,15 @@ export default function OptionChipCell({ productId, variants, axis, onChanged, r
 
   const groups = buildGroups(variants, axis);
 
+  // × 버튼 = soft delete (is_active=false). 사장 결정 2026-05-29 (다)
+  // 박제 데이터(orders/transactions) 보존 + UI/사이즈 다운로드에서 즉시 사라짐.
+  // 복원은 admin/SQL 로 (드문 케이스).
   async function toggleSale(g: ChipGroup) {
     if (readOnly || busy) return;
+    if (!confirm(`"${g.label}" 옵션을 삭제하시겠습니까? (재활성은 admin 에서)`)) return;
     setBusy(true);
-    const next = !g.is_for_sale;
     await supabase.from("product_variants")
-      .update({ is_for_sale: next })
+      .update({ is_active: false })
       .in("id", g.variantIds);
     setBusy(false);
     onChanged();

@@ -217,7 +217,11 @@ export default function ShootModal({
                         <option key={m.id} value={m.id}>
                           {m.name}
                           {m.height && ` · ${m.height}cm`}
+                          {m.weight && ` · ${m.weight}kg`}
                           {m.top_size && ` · 상의 ${m.top_size}`}
+                          {m.bottom_size && ` · 하의 ${m.bottom_size}`}
+                          {m.shoe_size && ` · 신발 ${m.shoe_size}`}
+                          {m.body_type && ` · ${m.body_type}`}
                         </option>
                       ))}
                     </select>

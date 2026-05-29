@@ -18,6 +18,7 @@ const menuGroups: MenuGroup[] = [
     { label: "소매계정관리",     path: "/accounts-retail", badgeKey: "pendingRetailAccounts" },
     { label: "소매 구독플랜",    path: "/plans-retail" },
     { label: "이미지 용량",      path: "/r2-usage" },
+    { label: "측정 카테고리",    path: "/measurement-templates" },
     { label: "TEST2",           path: "/test2" },
   ] },
   { label: "wholesale", items: [
@@ -27,7 +28,6 @@ const menuGroups: MenuGroup[] = [
     { label: "매장관리",         path: "/stores" },
     { label: "구독플랜 (전체)",  path: "/plans" },
     { label: "문의처리",         path: "/inquiries",            badgeKey: "openInquiries" },
-    { label: "측정 카테고리",    path: "/measurement-templates" },
     { label: "일반설정",         path: "/general-settings" },
     { label: "약관관리",         path: "/legal" },
     { label: "TEST",            path: "/test" },
