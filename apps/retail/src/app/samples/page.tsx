@@ -100,8 +100,12 @@ export default function SamplesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
-  // 반납완료(status='returned') 숨김 토글 — 기본 ON. OFF 시 30일 cutoff 로직 적용.
-  const [hideReturned, setHideReturned] = useState(true);
+  // 반납완료 필터 — 3단계 (사장 결정 2026-05-29):
+  //   'none'    = 미반납만 (default)              — 반납 안 한 것만
+  //   'last_30' = + 최근 30일 반납까지            — 최근 반납 검토용
+  //   'all'     = 옛 반납 포함 전체                — 영구 검색용
+  type ReturnFilter = "none" | "last_30" | "all";
+  const [returnFilter, setReturnFilter] = useState<ReturnFilter>("none");
   const categoryOptions = useCategoryOptions(tenant?.id);
   // 사이즈 측정 카테고리 dropdown (measurement_templates 시스템 + tenant 커스텀)
   // /products 와 동일 — samples 에서 미리 선택해두면 [진행] 시 그대로 넘어감.
@@ -314,9 +318,9 @@ export default function SamplesPage() {
   async function fetchItems(tenantId: string) {
     setLoading(true);
     // /samples = 가등록(sample_*) + 정식 등록(registered) 모두 표시. inactive(품절) 만 항상 제외.
-    // 반납완료 토글:
-    //   ON(default)  → status != 'returned' 완전 제외
-    //   OFF          → 반납 30일 후 자동 숨김 (status != returned) OR (shipped_date IS NULL) OR (>= 30일 전)
+    // 반납완료 3-way 필터 (사장 결정 2026-05-29):
+    //   기준 = return_shipped_date 또는 옛 status='returned'
+    //   취소 케이스 — 실제반납 셀 비우면 NULL 박힘 → 자동 복귀
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
@@ -324,12 +328,13 @@ export default function SamplesPage() {
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .neq("status", "inactive");
-    if (hideReturned) {
-      query = query.neq("status", "returned");
-    } else {
+    if (returnFilter === "none") {
+      query = query.is("return_shipped_date", null).neq("status", "returned");
+    } else if (returnFilter === "last_30") {
       const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-      query = query.or(`status.neq.returned,return_shipped_date.is.null,return_shipped_date.gte.${cutoff}`);
+      query = query.or(`return_shipped_date.is.null,return_shipped_date.gte.${cutoff}`);
     }
+    // "all" — 필터 없음 (옛 반납 포함 전체)
     // 검색 — 단일 컬럼 ilike. ilike 안 % 는 사용자가 박을 수 없음 (자동 wrap).
     if (appliedSearch) query = query.ilike(searchCol, `%${appliedSearch}%`);
     if (category)      query = query.eq("category", category);
@@ -386,7 +391,7 @@ export default function SamplesPage() {
     if (tenant?.id) fetchItems(tenant.id);
     // fetchItems 는 page/pageSize/appliedSearch/searchCol/category state 를 closure 로 사용
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, hideReturned]);
+  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, returnFilter]);
 
   // measurement_templates 카테고리 옵션 fetch — 행별 카테고리 dropdown 용
   useEffect(() => {
@@ -562,12 +567,13 @@ export default function SamplesPage() {
           pageSize={pageSize}
           onPageSizeChange={n => { setPageSize(n); setPage(1); }}
           rightActions={<>
-            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
-              <input type="checkbox" checked={hideReturned}
-                onChange={e => { setHideReturned(e.target.checked); setPage(1); }}
-                className="w-4 h-4 accent-primary" />
-              반납완료 숨기기
-            </label>
+            <select value={returnFilter}
+              onChange={e => { setReturnFilter(e.target.value as ReturnFilter); setPage(1); }}
+              className="px-2 py-1 border border-gray-300 rounded text-xs text-black bg-white">
+              <option value="none">미반납만</option>
+              <option value="last_30">+ 최근 30일 반납</option>
+              <option value="all">전체 (옛 반납 포함)</option>
+            </select>
             <button onClick={handleDownloadTemplate} className={styles.btnSmallGhost + " py-1"}>
               양식 다운로드
             </button>
