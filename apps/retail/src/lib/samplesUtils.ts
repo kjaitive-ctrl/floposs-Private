@@ -14,9 +14,10 @@ export type Variant = {
   is_for_sale?: boolean;
   sold_out?: boolean;
   variant_code?: string | null;
+  sort_order?: number;  // 마이그 033 — 클라이언트 INSERT 순 보존 박제
 };
 
-export type DbVariant = Variant & { is_active?: boolean };
+export type DbVariant = Variant & { is_active?: boolean; created_at?: string };
 
 export type DbProduct = {
   id: string;
@@ -118,11 +119,18 @@ export const emptyRow = (): EditableRow => ({
 export function textToMaterial(s: string): Record<string, number> | null {
   if (!s.trim()) return null;
   const out: Record<string, number> = {};
-  s.split(",").forEach(part => {
-    const [k, v] = part.trim().split(/\s+/);
-    const n = Number(v);
+  // 다양한 형식 지원:
+  //   "면 70, 폴리 30"           (콤마+공백)
+  //   "면65%폴리에스테르35%"     (% 포함, 공백 없음 — raw 입력)
+  //   "코튼60% 폴리에스테르40%"  (% + 공백 혼용)
+  // 정규식: 한글/영문 이름 + 숫자(소수 가능) + 옵션 %
+  const regex = /([가-힣A-Za-z·]+)\s*(\d+(?:\.\d+)?)\s*%?/g;
+  let m;
+  while ((m = regex.exec(s)) !== null) {
+    const k = m[1].trim();
+    const n = parseFloat(m[2]);
     if (k && !isNaN(n)) out[k] = n;
-  });
+  }
   return Object.keys(out).length ? out : null;
 }
 

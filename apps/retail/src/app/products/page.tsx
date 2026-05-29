@@ -117,21 +117,16 @@ export default function ProductsPage() {
   });
 
   // select 절 — fetchItems / refetchOneProduct 공통.
-  // product_measurements 는 별도 fetch (nested aggregate 가 variants 에 영향 줄 수 있음 — 안전 분리)
-  // product_variants.created_at — toRow 의 active 정렬 기준 (사용자 INSERT 순 보존)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, created_at), product_images(count)";
+  // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
+  // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
-    // is_active=true 필터 + created_at ASC 정렬 (사용자 INSERT 순 보존).
-    // 사전식 정렬은 S/M/L 같은 사이즈가 거꾸로 (L,M,S) 보이므로 X.
+    // is_active=true 필터 + sort_order ASC 정렬 (마이그 033, 클라이언트 INSERT 순 박제).
     const active = (p.product_variants ?? [])
       .filter(v => v.is_active !== false)
-      .sort((a, b) => {
-        const ca = (a as { created_at?: string }).created_at ?? "";
-        const cb = (b as { created_at?: string }).created_at ?? "";
-        return ca.localeCompare(cb);
-      });
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
     const vs: Variant[] = active.map(v => ({
       id: v.id,
       color: v.color,
@@ -143,6 +138,7 @@ export default function ProductsPage() {
       is_for_sale: v.is_for_sale ?? true,
       sold_out: v.sold_out ?? false,
       variant_code: v.variant_code ?? null,
+      sort_order: (v as { sort_order?: number }).sort_order ?? 0,  // chip 정렬 일관성 (마이그 033)
     }));
     return {
       _key: existingKey ?? newKey(),

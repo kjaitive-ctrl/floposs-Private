@@ -218,21 +218,18 @@ export default function SamplesPage() {
           document.getElementById(`cell-${newDraft._key}-wholesale_name`)?.focus();
         }, 50);
 
-        // variants INSERT
-        // created_at 클라이언트 명시 — PG now() 가 트랜잭션 시작 시점이라
-        // multi-row INSERT 시 모두 동률 → ORDER BY created_at 이 임의 순서 됨. 1ms 간격으로 보장.
+        // variants INSERT — sort_order 명시 박제 (마이그 033 정공법, 1ms hack 폐기)
         const combos = cartesian(o1, o2, o3);
         if (combos.length > 0) {
-          const baseTs = Date.now();
           const { data: vData } = await supabase.from("product_variants").insert(
             combos.map((c, i) => ({
               product_id: data.id,
               color: c.o1 || null,
               size: c.o2 || null,
               option3: c.o3 || null,
-              created_at: new Date(baseTs + i).toISOString(),
+              sort_order: i + 1,
             }))
-          ).select("id, color, size, option3");
+          ).select("id, color, size, option3, sort_order");
           if (vData) {
             setVariantsMap(m => ({ ...m, [data.id]: vData as Variant[] }));
           }
@@ -277,17 +274,17 @@ export default function SamplesPage() {
       const toDeactivate = oldVariants.filter(v => !newKeys.has(vKeyVar(v)) && v.id);
 
       if (toInsert.length > 0) {
-        // created_at 1ms 간격 명시 (now() 동률 회피)
-        const baseTs = Date.now();
+        // sort_order 명시 — 기존 max(sort_order) + 1 부터 이어감
+        const maxSort = Math.max(0, ...oldVariants.map(v => v.sort_order ?? 0));
         const { data: vData, error: vErr } = await supabase.from("product_variants").insert(
           toInsert.map((c, i) => ({
             product_id: row.id,
             color: c.o1 || null,
             size: c.o2 || null,
             option3: c.o3 || null,
-            created_at: new Date(baseTs + i).toISOString(),
+            sort_order: maxSort + i + 1,
           }))
-        ).select("id, color, size, option3");
+        ).select("id, color, size, option3, sort_order");
         if (vErr) {
           console.error("variants INSERT 실패:", vErr);
           alert(`옵션 저장 실패: ${vErr.message}\n(옛 inactive variants 와 UNIQUE 충돌 가능성 — SQL 로 정리 필요)`);
@@ -323,7 +320,7 @@ export default function SamplesPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code)", { count: "exact" })
+      .select("id, product_code, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .neq("status", "inactive");
@@ -343,8 +340,14 @@ export default function SamplesPage() {
     setTotal(count ?? 0);
     const vMap: Record<string, Variant[]> = {};
     const editable: EditableRow[] = items.map(p => {
-      const active = (p.product_variants ?? []).filter(v => v.is_active !== false);
-      const vs = active.map(v => ({ id: v.id, color: v.color, size: v.size, option3: v.option3 }));
+      // 마이그 033 — sort_order 정공법으로 정렬 통일 (joinUniq 결과 = chip 순)
+      const active = (p.product_variants ?? [])
+        .filter(v => v.is_active !== false)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const vs = active.map(v => ({
+        id: v.id, color: v.color, size: v.size, option3: v.option3,
+        sort_order: (v as { sort_order?: number }).sort_order ?? 0,
+      }));
       vMap[p.id] = vs;
       return {
         _key: newKey(),

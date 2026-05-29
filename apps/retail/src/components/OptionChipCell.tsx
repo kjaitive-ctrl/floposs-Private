@@ -47,9 +47,12 @@ function buildGroups(variants: Variant[], axis: Axis): ChipGroup[] {
   const map = new Map<string, ChipGroup>();
   const aKey = axisKey(axis);
   const lKey = labelKey(axis);
-  // 안정 순서 보장 — variant_code (R-001-01 = 생성 순서) 기준 정렬.
-  // UPDATE 후 Postgres 물리 row 순서가 바뀌어도 chip 순서 유지. fallback = id.
+  // 마이그 033 — sort_order 기준 통일 정렬 (클라이언트 INSERT 순 박제).
+  // fallback: variant_code (옛 발급분) → id.
   const sorted = [...variants].sort((a, b) => {
+    const sa = a.sort_order ?? 0;
+    const sb = b.sort_order ?? 0;
+    if (sa !== sb) return sa - sb;
     const ac = a.variant_code ?? "";
     const bc = b.variant_code ?? "";
     if (ac && bc) return ac.localeCompare(bc);
