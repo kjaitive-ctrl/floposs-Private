@@ -10,6 +10,7 @@ import {
   joinUniq, materialToText, newKey, split,
   type DbProduct, type Variant,
 } from "@/lib/samplesUtils";
+import { shortLocFromNested } from "@/lib/retailSuppliers";
 import SizeModal from "@/components/SizeModal";
 import CommentModal from "@/components/CommentModal";
 import ShootModal from "@/components/ShootModal";
@@ -39,6 +40,7 @@ interface ProductRow {
   description: string;
   wholesale_name: string;
   wholesale_supplier: string;
+  supplier_loc: string;          // 축약 위치 "디오트1J" (마이그 036 nested)
   wholesale_price: number | null;
   wholesale_discount_price: number | null;
   country_of_origin: string;
@@ -122,7 +124,7 @@ export default function ProductsPage() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -152,6 +154,7 @@ export default function ProductsPage() {
       description: p.description ?? "",
       wholesale_name: p.wholesale_name ?? "",
       wholesale_supplier: p.wholesale_supplier ?? "",
+      supplier_loc: shortLocFromNested(p.retail_suppliers),
       wholesale_price: p.wholesale_price,
       wholesale_discount_price: p.wholesale_discount_price,
       country_of_origin: p.country_of_origin ?? "",
@@ -591,7 +594,11 @@ export default function ProductsPage() {
                       <td className={tdBot + " text-right"}>{formatComma(row.wholesale_discount_price) || "-"}</td>
                       <td className={tdBot + " text-center"}>{row.country_of_origin || "-"}</td>
                       <td className={tdBot}>{row.material_composition || "-"}</td>
-                      <td className={tdBot}>{row.wholesale_supplier || "-"}</td>
+                      <td className={tdBot}>
+                        {row.wholesale_supplier
+                          ? <>{row.wholesale_supplier}{row.supplier_loc && <span className="text-gray-400"> · {row.supplier_loc}</span>}</>
+                          : "-"}
+                      </td>
                       {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성.
                           product_measurements 박제 row 가 0 이면 옅은 주황으로 환기 (사이즈표 미박제). */}
                       <td className={tdBot + " text-center border-r-0"}>

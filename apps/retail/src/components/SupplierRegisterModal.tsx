@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { styles } from "@/common/styles";
 import {
-  searchSlotStores, ensureRetailSupplier, createSlotStoreSupplier, slotLabel,
+  searchSlotStores, ensureRetailSupplier, createSlotStoreSupplier, slotLabel, shortSlotLabel,
   loadSlotBuildings, loadFloorOptions,
   type SlotStoreHit, type BuildingDef, type FieldOpt,
 } from "@/lib/retailSuppliers";
@@ -17,7 +17,7 @@ const CUSTOM_BUILDING = "__custom__";
 interface Props {
   tenantId: string;
   initialName: string;
-  onDone: (text: string, supplierId: string | null) => void;
+  onDone: (text: string, supplierId: string | null, loc: string) => void;
   onClose: () => void;
 }
 
@@ -63,7 +63,7 @@ export default function SupplierRegisterModal({ tenantId, initialName, onDone, o
   async function pickExisting(hit: SlotStoreHit) {
     setSaving(true);
     const sid = await ensureRetailSupplier(tenantId, hit.slot.id, hit.id);
-    onDone(hit.store_name, sid);
+    onDone(hit.store_name, sid, shortSlotLabel(hit.slot));
   }
 
   async function submit() {
@@ -83,7 +83,7 @@ export default function SupplierRegisterModal({ tenantId, initialName, onDone, o
     });
     setSaving(false);
     if (!res) { alert("등록에 실패했습니다. 콘솔을 확인해주세요."); return; }
-    onDone(res.storeName, res.supplierId);
+    onDone(res.storeName, res.supplierId, res.loc);
   }
 
   return (

@@ -26,6 +26,8 @@ export type DbProduct = {
   wholesale_name: string | null;
   wholesale_supplier: string | null;
   retail_supplier_id: string | null;  // 마이그 036 — slot 기반 거래처 링크 (안건1)
+  // nested fetch — 축약 위치 표시용 (retail_suppliers → slots)
+  retail_suppliers?: import("@/lib/retailSuppliers").NestedSupplier | import("@/lib/retailSuppliers").NestedSupplier[] | null;
   category: string | null;
   wholesale_price: number | null;
   wholesale_discount_price: number | null;
@@ -65,6 +67,7 @@ export interface EditableRow {
   wholesale_name: string;
   wholesale_supplier: string;
   retail_supplier_id: string | null;  // 마이그 036 — slot 기반 거래처 링크 (안건1)
+  supplier_loc: string;                // 축약 위치 표시용 "디오트1J" (DB 박제 X)
   category: string;
   wholesale_price: string;
   wholesale_discount_price: string;
@@ -99,6 +102,7 @@ export const emptyRow = (): EditableRow => ({
   wholesale_name: "",
   wholesale_supplier: "",
   retail_supplier_id: null,
+  supplier_loc: "",
   category: "",
   wholesale_price: "",
   wholesale_discount_price: "",

@@ -13,6 +13,7 @@ import { formatComma, formatShortDate, parseDigits, parseShortDate } from "@/lib
 import SizeModal from "@/components/SizeModal";
 import MemoModal from "@/components/MemoModal";
 import SupplierAutocomplete from "@/components/SupplierAutocomplete";
+import { shortLocFromNested } from "@/lib/retailSuppliers";
 import HelpDot from "@/components/HelpDot";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
@@ -327,7 +328,7 @@ export default function SamplesPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, wholesale_name, wholesale_supplier, retail_supplier_id, category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
+      .select("id, product_code, wholesale_name, wholesale_supplier, retail_supplier_id, retail_suppliers(slots(building, floor, section)), category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .neq("status", "inactive");
@@ -364,6 +365,7 @@ export default function SamplesPage() {
         wholesale_name: p.wholesale_name ?? "",
         wholesale_supplier: p.wholesale_supplier ?? "",
         retail_supplier_id: p.retail_supplier_id ?? null,
+        supplier_loc: shortLocFromNested(p.retail_suppliers),
         category: p.category ?? "",
         wholesale_price: p.wholesale_price?.toString() ?? "",
         wholesale_discount_price: p.wholesale_discount_price?.toString() ?? "",
@@ -456,12 +458,12 @@ export default function SamplesPage() {
   // 공급사 autocomplete — 매장명 텍스트 + retail_supplier_id 링크 한 번에 박제.
   // 타이핑 = (text, null) free text / 선택 = (매장명, retail_supplier_id). 마이그 036.
   // tbody row 만 autocomplete 노출(전부 id 있음) → 항상 자동저장 스케줄.
-  function setSupplier(rowKey: string, text: string, supplierId: string | null) {
+  function setSupplier(rowKey: string, text: string, supplierId: string | null, loc: string) {
     setRows(prev => {
       const idx = prev.findIndex(r => r._key === rowKey);
       if (idx < 0) return prev;
       const next = [...prev];
-      next[idx] = { ...next[idx], wholesale_supplier: text, retail_supplier_id: supplierId };
+      next[idx] = { ...next[idx], wholesale_supplier: text, retail_supplier_id: supplierId, supplier_loc: loc };
       return next;
     });
     if (rowsRef.current.find(r => r._key === rowKey)?.id) scheduleAutosave(rowKey);
@@ -794,9 +796,10 @@ export default function SamplesPage() {
                         tenantId={tenant.id}
                         value={row.wholesale_supplier}
                         supplierId={row.retail_supplier_id}
+                        loc={row.supplier_loc}
                         readOnly={isReg}
                         className={inp + lockTxt}
-                        onChange={(text, sid) => setSupplier(row._key, text, sid)}
+                        onChange={(text, sid, loc) => setSupplier(row._key, text, sid, loc ?? "")}
                         onKeyDownNav={e => handleNav(e, row._key, "wholesale_supplier")}
                       />
                     </td>

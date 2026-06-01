@@ -7,7 +7,7 @@
 // dropdown 은 표 overflow 에 안 잘리게 position:fixed.
 // [[project_retail_slot_order_portal_v2]]
 import { useRef, useState, type KeyboardEvent } from "react";
-import { searchSlotStores, ensureRetailSupplier, slotLabel, type SlotStoreHit } from "@/lib/retailSuppliers";
+import { searchSlotStores, ensureRetailSupplier, slotLabel, shortSlotLabel, type SlotStoreHit } from "@/lib/retailSuppliers";
 import SupplierRegisterModal from "@/components/SupplierRegisterModal";
 
 interface Props {
@@ -15,16 +15,17 @@ interface Props {
   tenantId: string;
   value: string;               // wholesale_supplier (표시 텍스트)
   supplierId: string | null;   // retail_supplier_id (선택된 링크) — 향후 표시용
+  loc?: string;                // 축약 위치 "디오트1J" (셀 옆 회색)
   readOnly?: boolean;
   className?: string;
-  // 타이핑/선택 양쪽 다 이 콜백. 타이핑 = (text, null), 선택 = (매장명, retail_supplier_id)
-  onChange: (text: string, supplierId: string | null) => void;
+  // 타이핑/선택 양쪽 다 이 콜백. 타이핑 = (text, null, ""), 선택 = (매장명, id, 축약위치)
+  onChange: (text: string, supplierId: string | null, loc?: string) => void;
   // dropdown 닫혀있을 때 그리드 키보드 네비로 위임
   onKeyDownNav?: (e: KeyboardEvent<HTMLInputElement>) => void;
 }
 
 export default function SupplierAutocomplete({
-  id, tenantId, value, readOnly, className, onChange, onKeyDownNav,
+  id, tenantId, value, loc, readOnly, className, onChange, onKeyDownNav,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [hits, setHits] = useState<SlotStoreHit[]>([]);
@@ -44,7 +45,7 @@ export default function SupplierAutocomplete({
 
   // 타이핑 시에만 검색 (mount/programmatic 변경엔 input onChange 안 불려서 query 안 나감)
   function handleInput(text: string) {
-    onChange(text, null); // 타이핑 = 링크 해제, free text
+    onChange(text, null, ""); // 타이핑 = 링크/위치 해제, free text
     if (timer.current) clearTimeout(timer.current);
     const t = text.trim();
     if (!t) { setHits([]); setOpen(false); return; }
@@ -62,7 +63,7 @@ export default function SupplierAutocomplete({
   async function choose(hit: SlotStoreHit) {
     setOpen(false);
     const sid = await ensureRetailSupplier(tenantId, hit.slot.id, hit.id);
-    onChange(hit.store_name, sid); // sid null 이면 텍스트만 (fallback)
+    onChange(hit.store_name, sid, shortSlotLabel(hit.slot)); // sid null 이면 텍스트만 (fallback)
   }
 
   function openRegister() {
@@ -86,19 +87,24 @@ export default function SupplierAutocomplete({
 
   return (
     <>
-      <input
-        id={id}
-        ref={inputRef}
-        value={value}
-        readOnly={readOnly}
-        autoComplete="off"
-        placeholder={readOnly ? "" : "매장명 검색"}
-        onChange={e => handleInput(e.target.value)}
-        onKeyDown={handleKey}
-        onFocus={() => { if (term) { anchor(); setOpen(true); } }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        className={className}
-      />
+      <div className="flex items-center w-full">
+        <input
+          id={id}
+          ref={inputRef}
+          value={value}
+          readOnly={readOnly}
+          autoComplete="off"
+          placeholder={readOnly ? "" : "매장명 검색"}
+          onChange={e => handleInput(e.target.value)}
+          onKeyDown={handleKey}
+          onFocus={() => { if (term) { anchor(); setOpen(true); } }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          className={(className ?? "") + " flex-1 min-w-0"}
+        />
+        {loc && (
+          <span className="shrink-0 px-1 text-[10px] text-gray-400 whitespace-nowrap" title={loc}>· {loc}</span>
+        )}
+      </div>
       {open && pos && term && (
         <div
           style={{ position: "fixed", left: pos.left, top: pos.top, width: pos.width, zIndex: 60 }}
@@ -128,7 +134,7 @@ export default function SupplierAutocomplete({
         <SupplierRegisterModal
           tenantId={tenantId}
           initialName={value}
-          onDone={(text, sid) => { setRegisterOpen(false); onChange(text, sid); }}
+          onDone={(text, sid, l) => { setRegisterOpen(false); onChange(text, sid, l); }}
           onClose={() => setRegisterOpen(false)}
         />
       )}

@@ -34,6 +34,23 @@ export function slotLabel(s: SlotBrief): string {
   return parts.join(" ");
 }
 
+// 축약 위치 (표 셀 옆 회색): "디오트1J" (건물 + 층숫자 + 열, 호/구분 생략)
+export function shortSlotLabel(s: { building: string; floor: number; section: string | null }): string {
+  const f = s.floor < 0 ? `B${-s.floor}` : `${s.floor}`;
+  return `${s.building}${f}${s.section ?? ""}`;
+}
+
+// products fetch 의 nested retail_suppliers(slots(...)) → 축약 위치 추출.
+interface SlotLocLite { building: string; floor: number; section: string | null }
+export interface NestedSupplier { slots: SlotLocLite | SlotLocLite[] | null }
+export function shortLocFromNested(rs: NestedSupplier | NestedSupplier[] | null | undefined): string {
+  const s = Array.isArray(rs) ? rs[0] : rs;
+  if (!s) return "";
+  const slot = Array.isArray(s.slots) ? s.slots[0] : s.slots;
+  if (!slot) return "";
+  return shortSlotLabel(slot);
+}
+
 type RawHit = {
   id: string;
   store_name: string;
@@ -146,7 +163,7 @@ export interface QuickRegisterInput {
 export async function createSlotStoreSupplier(
   tenantId: string,
   inp: QuickRegisterInput,
-): Promise<{ supplierId: string | null; storeName: string } | null> {
+): Promise<{ supplierId: string | null; storeName: string; loc: string } | null> {
   const building = inp.building.trim();
   const unit = inp.unit.trim();
   const storeName = inp.storeName.trim();
@@ -190,5 +207,6 @@ export async function createSlotStoreSupplier(
 
   // 3) retail_supplier 박제
   const supplierId = await ensureRetailSupplier(tenantId, slotId, store.id);
-  return { supplierId, storeName };
+  const loc = shortSlotLabel({ building, floor: inp.floor, section: null });
+  return { supplierId, storeName, loc };
 }
