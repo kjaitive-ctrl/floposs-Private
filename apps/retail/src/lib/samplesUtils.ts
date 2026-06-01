@@ -52,6 +52,9 @@ export type DbProduct = {
   // count 형태로 fetch — supabase nested aggregate. [{ count: N }]
   product_images?: { count: number }[] | null;
   product_measurements?: { count: number }[] | null;
+  product_shoots?: { count: number }[] | null;
+  // MD기능 멘트 박제 (products.comment_data) — 버튼 초록 판정용
+  comment_data?: string | null;
 };
 
 export interface EditableRow {
