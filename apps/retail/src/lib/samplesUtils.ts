@@ -25,6 +25,7 @@ export type DbProduct = {
   barcode: string | null;            // 마이그 198 — 진행 시 자동 발급(18자리). 샘플 회귀 시 NULL.
   wholesale_name: string | null;
   wholesale_supplier: string | null;
+  retail_supplier_id: string | null;  // 마이그 036 — slot 기반 거래처 링크 (안건1)
   category: string | null;
   wholesale_price: number | null;
   wholesale_discount_price: number | null;
@@ -63,6 +64,7 @@ export interface EditableRow {
   product_code: string;  // read-only 표시
   wholesale_name: string;
   wholesale_supplier: string;
+  retail_supplier_id: string | null;  // 마이그 036 — slot 기반 거래처 링크 (안건1)
   category: string;
   wholesale_price: string;
   wholesale_discount_price: string;
@@ -96,6 +98,7 @@ export const emptyRow = (): EditableRow => ({
   product_code: "",
   wholesale_name: "",
   wholesale_supplier: "",
+  retail_supplier_id: null,
   category: "",
   wholesale_price: "",
   wholesale_discount_price: "",

@@ -12,6 +12,7 @@ import {
 import { formatComma, formatShortDate, parseDigits, parseShortDate } from "@/lib/format";
 import SizeModal from "@/components/SizeModal";
 import MemoModal from "@/components/MemoModal";
+import SupplierAutocomplete from "@/components/SupplierAutocomplete";
 import HelpDot from "@/components/HelpDot";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
@@ -180,6 +181,7 @@ export default function SamplesPage() {
           name: row.wholesale_name.trim(),
           wholesale_name: row.wholesale_name.trim(),
           wholesale_supplier: row.wholesale_supplier.trim() || null,
+          retail_supplier_id: row.retail_supplier_id || null,
           category: row.category.trim() || null,
           wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
           wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,
@@ -248,6 +250,7 @@ export default function SamplesPage() {
       const { error } = await supabase.from("products").update({
         wholesale_name: row.wholesale_name.trim() || null,
         wholesale_supplier: row.wholesale_supplier.trim() || null,
+        retail_supplier_id: row.retail_supplier_id || null,
         category: row.category.trim() || null,
         wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
         wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,
@@ -324,7 +327,7 @@ export default function SamplesPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
+      .select("id, product_code, wholesale_name, wholesale_supplier, retail_supplier_id, category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .neq("status", "inactive");
@@ -360,6 +363,7 @@ export default function SamplesPage() {
         product_code: p.product_code ?? "",
         wholesale_name: p.wholesale_name ?? "",
         wholesale_supplier: p.wholesale_supplier ?? "",
+        retail_supplier_id: p.retail_supplier_id ?? null,
         category: p.category ?? "",
         wholesale_price: p.wholesale_price?.toString() ?? "",
         wholesale_discount_price: p.wholesale_discount_price?.toString() ?? "",
@@ -447,6 +451,20 @@ export default function SamplesPage() {
     const row = rowsRef.current.find(r => r._key === rowKey);
     if (!row?.id) return;
     scheduleAutosave(rowKey);
+  }
+
+  // 공급사 autocomplete — 매장명 텍스트 + retail_supplier_id 링크 한 번에 박제.
+  // 타이핑 = (text, null) free text / 선택 = (매장명, retail_supplier_id). 마이그 036.
+  // tbody row 만 autocomplete 노출(전부 id 있음) → 항상 자동저장 스케줄.
+  function setSupplier(rowKey: string, text: string, supplierId: string | null) {
+    setRows(prev => {
+      const idx = prev.findIndex(r => r._key === rowKey);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], wholesale_supplier: text, retail_supplier_id: supplierId };
+      return next;
+    });
+    if (rowsRef.current.find(r => r._key === rowKey)?.id) scheduleAutosave(rowKey);
   }
 
   // draft 의 도매상품명 셀에서 Enter → 즉시 INSERT 트리거.
@@ -771,7 +789,16 @@ export default function SamplesPage() {
                       <input {...cellProps(row, "material_composition")} readOnly={isReg} className={inp + lockTxt} />
                     </td>
                     <td className={td}>
-                      <input {...cellProps(row, "wholesale_supplier")} readOnly={isReg} className={inp + lockTxt} />
+                      <SupplierAutocomplete
+                        id={`cell-${row._key}-wholesale_supplier`}
+                        tenantId={tenant.id}
+                        value={row.wholesale_supplier}
+                        supplierId={row.retail_supplier_id}
+                        readOnly={isReg}
+                        className={inp + lockTxt}
+                        onChange={(text, sid) => setSupplier(row._key, text, sid)}
+                        onKeyDownNav={e => handleNav(e, row._key, "wholesale_supplier")}
+                      />
                     </td>
                     {/* 카테고리: dropdown (measurement_templates). 진행 시 그대로 /products 로 박제 박혀감. */}
                     <td className={td + " p-0" + (row.category ? "" : " bg-orange-50")}>
