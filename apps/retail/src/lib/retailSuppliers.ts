@@ -101,3 +101,83 @@ export async function ensureRetailSupplier(
   }
   return data.id;
 }
+
+// ── 빠른등록 (B2) ──────────────────────────────────────────
+// slot 정의 = admin StoresView 와 동일 단일 소스 (slot_buildings / slot_field_options).
+export interface BuildingDef { name: string; category: string; }
+export interface FieldOpt { value: string; label: string | null; }
+
+export async function loadSlotBuildings(): Promise<BuildingDef[]> {
+  const { data } = await supabase.from("slot_buildings").select("name, category").order("sort");
+  return (data ?? []) as BuildingDef[];
+}
+
+export async function loadFloorOptions(): Promise<FieldOpt[]> {
+  const { data } = await supabase
+    .from("slot_field_options").select("value, label").eq("field", "floor").order("sort");
+  return (data ?? []) as FieldOpt[];
+}
+
+export interface QuickRegisterInput {
+  building: string;
+  category: string | null;
+  isCustomBuilding?: boolean;   // 직접입력 건물 → slot_buildings 등록
+  floor: number;                // 숫자 (B2=-2). normalized_key 정합 (admin과 동일)
+  unit: string;
+  storeName: string;
+  phone?: string;               // 02/031/070
+  smartphone?: string;          // 010
+}
+
+// 빠른등록: slot find-or-create(normalized_key) + slot_store 추가 + retail_supplier 박제.
+// 빠른등록은 wing/section 없음 → normalized_key 의 해당 자리 "-".
+// admin SlotAddModal / StoreAddRow 의 박제 규칙과 동일 ([[feedback_central_source_of_truth]]).
+export async function createSlotStoreSupplier(
+  tenantId: string,
+  inp: QuickRegisterInput,
+): Promise<{ supplierId: string | null; storeName: string } | null> {
+  const building = inp.building.trim();
+  const unit = inp.unit.trim();
+  const storeName = inp.storeName.trim();
+  if (!building || !unit || !storeName) return null;
+
+  const nk = `${building}:${inp.floor}:-:-:${unit}`;
+
+  // 직접입력 건물 → slot_buildings 선등록 (다음 dropdown 노출)
+  if (inp.isCustomBuilding && inp.category) {
+    await supabase.from("slot_buildings")
+      .upsert({ name: building, category: inp.category, user_addable: true }, { onConflict: "name", ignoreDuplicates: true });
+  }
+
+  // 1) slot find-or-create — 같은 자리면 재사용 (중복 slot 방지)
+  let slotId: string;
+  const { data: existingSlot } = await supabase
+    .from("slots").select("id").eq("normalized_key", nk).maybeSingle();
+  if (existingSlot) {
+    slotId = existingSlot.id;
+  } else {
+    const { data: newSlot, error: slotErr } = await supabase.from("slots").insert({
+      building, category: inp.category, floor: inp.floor, wing: null, section: null,
+      unit, normalized_key: nk, is_physical: true,
+    }).select("id").single();
+    if (slotErr || !newSlot) { console.error("createSlot:", slotErr); return null; }
+    slotId = newSlot.id;
+  }
+
+  // 2) slot_store 추가 — store_order = max+1, 새 매장을 current 로 (기존 current off)
+  const { data: maxRow } = await supabase
+    .from("slot_stores").select("store_order")
+    .eq("slot_id", slotId).order("store_order", { ascending: false }).limit(1).maybeSingle();
+  const nextOrder = (maxRow?.store_order ?? 0) + 1;
+  await supabase.from("slot_stores").update({ is_current: false }).eq("slot_id", slotId);
+  const { data: store, error: storeErr } = await supabase.from("slot_stores").insert({
+    slot_id: slotId, store_name: storeName,
+    phone: inp.phone?.trim() || null, smartphone: inp.smartphone?.trim() || null,
+    store_order: nextOrder, is_current: true,
+  }).select("id").single();
+  if (storeErr || !store) { console.error("createSlotStore:", storeErr); return null; }
+
+  // 3) retail_supplier 박제
+  const supplierId = await ensureRetailSupplier(tenantId, slotId, store.id);
+  return { supplierId, storeName };
+}
