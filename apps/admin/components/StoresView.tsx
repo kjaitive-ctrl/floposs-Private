@@ -4,29 +4,12 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { Modal } from "@floposs/ui";
 
-// === enum 정의 (마이그 030 / [[project_retail_slot_register_ui]]) ===
-const FLOOR_OPTIONS: { value: number; label: string }[] = [
-  { value: -3, label: "B3층" }, { value: -2, label: "B2층" }, { value: -1, label: "B1층" },
-  { value: 1, label: "1층" }, { value: 2, label: "2층" }, { value: 3, label: "3층" },
-  { value: 4, label: "4층" }, { value: 5, label: "5층" }, { value: 6, label: "6층" },
-  { value: 7, label: "7층" }, { value: 8, label: "8층" }, { value: 9, label: "9층" },
-  { value: 10, label: "10층" },
-];
-const WING_OPTIONS = ["신관", "구관", "별관", "외곽", "A동", "B동", "C동", "D동"];
-const SECTION_OPTIONS = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N"];
+// === enum: slot_field_options / slot_buildings 테이블에서 동적 로드 (2026-06-01 db화) ===
 const SECTION_KOR: Record<string, string> = { A:"가", B:"나", C:"다", D:"라", E:"마", F:"바", G:"사" };
 const PAGE_SIZE = 50;
 
-// 기타건물 후보 — 시드엔 없지만 슬롯 추가 시 dropdown 노출 (2026-05-29 동대문DB 기준 29건)
-// 사장님이 신규 등록 가능 → 직접 입력 옵션도 제공
-const ETC_BUILDINGS = [
-  "테크노", "제일평화", "퀸즈스퀘어(광희)", "DWP (동원프라자)", "벨포스트",
-  "APM 럭스", "디자이너크럽", "DDP패션몰 (유어스)", "팀204", "APM PLACE",
-  "맥스타일", "신발상가 A동", "신발상가 B동", "신발상가 C동", "신발상가 D동",
-  "신평화 A동", "신평화 B동", "신평화 C동", "평화시장", "시즌상가 (JABA11)",
-  "아트프라자", "SANG SANG(상상)", "동문상가", "청계상가", "서평화",
-  "종합시장", "통일상가", "동일상가", "NYUNYU (골든타운)",
-];
+type FieldOpt = { value: string; label: string };
+type BuildingDef = { name: string; category: string };
 
 function floorLabel(f: number) { return f < 0 ? `B${-f}층` : `${f}층`; }
 function sectionLabel(s: string | null) {
@@ -62,7 +45,11 @@ type SlotWithMeta = Slot & { store_count: number; current_store: string | null; 
 // === 메인 뷰 ===
 export function StoresView() {
   // 검색 필터 상태
-  const [buildings, setBuildings] = useState<string[]>([]); // 모든 건물 후보
+  const [buildingDefs, setBuildingDefs] = useState<BuildingDef[]>([]);  // 신규/편집: 정의 + 카테고리
+  const [buildings, setBuildings] = useState<string[]>([]);             // 검색 필터: slots 실제 distinct
+  const [floorOpts, setFloorOpts] = useState<FieldOpt[]>([]);
+  const [wingOpts, setWingOpts] = useState<FieldOpt[]>([]);
+  const [sectionOpts, setSectionOpts] = useState<FieldOpt[]>([]);
   const [fBuilding, setFBuilding] = useState<Set<string>>(new Set());
   const [fWing, setFWing] = useState<Set<string>>(new Set());
   const [fFloor, setFFloor] = useState<Set<number>>(new Set());
@@ -77,14 +64,26 @@ export function StoresView() {
   const [openSlot, setOpenSlot] = useState<Slot | null>(null);
   const [addSlotOpen, setAddSlotOpen] = useState(false);
 
-  // 건물 후보 로드 (전체 distinct)
-  useEffect(() => {
-    supabase.from("slots").select("building").then(({ data }) => {
-      const set = new Set<string>();
-      (data || []).forEach((r: { building: string }) => set.add(r.building));
-      setBuildings(Array.from(set).sort());
+  // 정의 테이블 로드 (slot_buildings / slot_field_options) — db구조 단일 소스
+  const loadDefs = useCallback(() => {
+    supabase.from("slot_buildings").select("name,category").order("sort").then(({ data }) => {
+      const defs = (data as BuildingDef[]) || [];
+      setBuildingDefs(defs);  // 신규/편집용 정의
+      // 검색 필터 buildings = 정의(slot_buildings, 4상가+정의 모두) ∪ slots 에만 있는 직접등록 건물(test 등)
+      const names = defs.map(d => d.name);
+      const notIn = `(${(names.length ? names : [""]).map(n => `"${n.replace(/"/g, "")}"`).join(",")})`;
+      supabase.from("slots").select("building").not("building", "in", notIn).then(({ data: sd }) => {
+        const extra = [...new Set((sd || []).map((r: { building: string }) => r.building))];
+        setBuildings([...names, ...extra].sort((a, b) => a.localeCompare(b, "ko")));
+      });
+    });
+    supabase.from("slot_field_options").select("field,value,label").order("sort").then(({ data }) => {
+      const d = (data || []) as { field: string; value: string; label: string }[];
+      const pick = (f: string) => d.filter(o => o.field === f).map(o => ({ value: o.value, label: o.label }));
+      setFloorOpts(pick("floor")); setWingOpts(pick("wing")); setSectionOpts(pick("section"));
     });
   }, []);
+  useEffect(() => { loadDefs(); }, [loadDefs]);
 
   // 데이터 fetch (필터 + 페이지)
   const fetchRows = useCallback(async () => {
@@ -195,15 +194,15 @@ export function StoresView() {
             selected={fBuilding} onChange={s => { setFBuilding(s); setPage(0); }} />
           <MultiSelect label="구분" options={[
             { value: "(없음)", label: "(없음)" },
-            ...WING_OPTIONS.map(w => ({ value: w, label: w })),
+            ...wingOpts,
           ]}
             selected={fWing} onChange={s => { setFWing(s); setPage(0); }} />
-          <MultiSelect label="층" options={FLOOR_OPTIONS.map(f => ({ value: String(f.value), label: f.label }))}
+          <MultiSelect label="층" options={floorOpts}
             selected={new Set(Array.from(fFloor).map(String))}
             onChange={s => { setFFloor(new Set(Array.from(s).map(Number))); setPage(0); }} />
           <MultiSelect label="열" options={[
             { value: "(없음)", label: "(없음)" },
-            ...SECTION_OPTIONS.map(s => ({ value: s, label: sectionLabel(s) })),
+            ...sectionOpts,
           ]}
             selected={fSection} onChange={s => { setFSection(s); setPage(0); }} />
           <div>
@@ -288,10 +287,10 @@ export function StoresView() {
       </div>
 
       {openSlot && (
-        <SlotDetailModal slot={openSlot} onClose={() => setOpenSlot(null)} onUpdate={fetchRows} />
+        <SlotDetailModal slot={openSlot} buildingDefs={buildingDefs} floorOpts={floorOpts} wingOpts={wingOpts} sectionOpts={sectionOpts} onClose={() => setOpenSlot(null)} onUpdate={fetchRows} />
       )}
       {addSlotOpen && (
-        <SlotAddModal buildings={buildings} onClose={() => setAddSlotOpen(false)} onUpdate={fetchRows} />
+        <SlotAddModal buildingDefs={buildingDefs} floorOpts={floorOpts} wingOpts={wingOpts} sectionOpts={sectionOpts} onClose={() => setAddSlotOpen(false)} onUpdate={() => { fetchRows(); loadDefs(); }} />
       )}
     </div>
   );
@@ -347,7 +346,7 @@ function MultiSelect({ label, options, selected, onChange }:
 }
 
 // === 슬롯 상세 모달 (매장이력 + admin CRUD) ===
-function SlotDetailModal({ slot, onClose, onUpdate }: { slot: Slot; onClose: () => void; onUpdate: () => void }) {
+function SlotDetailModal({ slot, buildingDefs, floorOpts, wingOpts, sectionOpts, onClose, onUpdate }: { slot: Slot; buildingDefs: BuildingDef[]; floorOpts: FieldOpt[]; wingOpts: FieldOpt[]; sectionOpts: FieldOpt[]; onClose: () => void; onUpdate: () => void }) {
   const [stores, setStores] = useState<SlotStore[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -391,14 +390,15 @@ function SlotDetailModal({ slot, onClose, onUpdate }: { slot: Slot; onClose: () 
   }
   async function saveSlot() {
     if (!eb.trim() || !eu.trim()) { alert("건물명과 호수 필수"); return; }
-    const nk = `${eb.trim()}:${floorLabel(ef)}:${ew || "-"}:${es || "-"}:${eu.trim()}`;
+    const nk = `${eb.trim()}:${ef}:${ew || "-"}:${es || "-"}:${eu.trim()}`;
     // 변경 없으면 그냥 닫기
     if (nk === slot.normalized_key) { setEditSlot(false); return; }
     // 다른 슬롯과 normalized_key 충돌 검증
     const { data: dup } = await supabase.from("slots").select("id").eq("normalized_key", nk).neq("id", slot.id).maybeSingle();
     if (dup) { alert(`이미 같은 슬롯이 존재합니다.\n${nk}`); return; }
+    const category = buildingDefs.find(b => b.name === eb.trim())?.category ?? null;
     const { error } = await supabase.from("slots").update({
-      building: eb.trim(), floor: ef, wing: ew || null, section: es || null,
+      building: eb.trim(), category, floor: ef, wing: ew || null, section: es || null,
       unit: eu.trim(), normalized_key: nk,
       updated_at: new Date().toISOString(),
     }).eq("id", slot.id);
@@ -415,15 +415,15 @@ function SlotDetailModal({ slot, onClose, onUpdate }: { slot: Slot; onClose: () 
               <div className="grid grid-cols-5 gap-2 mb-2">
                 <input value={eb} onChange={e => setEb(e.target.value)} className="border rounded px-2 py-1 text-sm" placeholder="건물" />
                 <select value={ef} onChange={e => setEf(parseInt(e.target.value, 10))} className="border rounded px-2 py-1 text-sm">
-                  {FLOOR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {floorOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <select value={ew} onChange={e => setEw(e.target.value)} className="border rounded px-2 py-1 text-sm">
                   <option value="">(없음)</option>
-                  {WING_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+                  {wingOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <select value={es} onChange={e => setEs(e.target.value)} className="border rounded px-2 py-1 text-sm">
                   <option value="">(없음)</option>
-                  {SECTION_OPTIONS.map(s => <option key={s} value={s}>{sectionLabel(s)}</option>)}
+                  {sectionOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
                 <input value={eu} onChange={e => setEu(e.target.value)} className="border rounded px-2 py-1 text-sm" placeholder="호" />
               </div>
@@ -587,16 +587,15 @@ function StoreAddRow({ slotId, nextOrder, onClose, onSaved }:
 
 // === 신규 슬롯 추가 ===
 const CUSTOM_BUILDING = "__custom__";
-function SlotAddModal({ buildings, onClose, onUpdate }:
-  { buildings: string[]; onClose: () => void; onUpdate: () => void }) {
-  // dropdown 옵션: DB 시드 building distinct + ETC_BUILDINGS (중복 제거) + 직접 입력
-  const dropdownOptions = useMemo(() => {
-    const set = new Set<string>([...buildings, ...ETC_BUILDINGS]);
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
-  }, [buildings]);
+function SlotAddModal({ buildingDefs, floorOpts, wingOpts, sectionOpts, onClose, onUpdate }:
+  { buildingDefs: BuildingDef[]; floorOpts: FieldOpt[]; wingOpts: FieldOpt[]; sectionOpts: FieldOpt[]; onClose: () => void; onUpdate: () => void }) {
+  // dropdown 옵션: slot_buildings 정의 (+ 직접 입력)
+  const dropdownOptions = buildingDefs.map(b => b.name);
 
   const [buildingSelect, setBuildingSelect] = useState("");
   const [buildingCustom, setBuildingCustom] = useState("");
+  const [customCategory, setCustomCategory] = useState("");
+  const categories = Array.from(new Set(buildingDefs.map(b => b.category)));
   const [floor, setFloor] = useState(1);
   const [wing, setWing] = useState("");
   const [section, setSection] = useState("");
@@ -607,7 +606,13 @@ function SlotAddModal({ buildings, onClose, onUpdate }:
 
   async function save() {
     if (!building || !unit.trim()) { alert("건물명과 호수 필수"); return; }
-    const nk = `${building}:${floorLabel(floor)}:${wing || "-"}:${section || "-"}:${unit.trim()}`;
+    // 직접입력 건물 = 카테고리 필수 (slot_buildings 등록용)
+    let category = buildingDefs.find(b => b.name === building)?.category ?? null;
+    if (buildingSelect === CUSTOM_BUILDING) {
+      if (!customCategory) { alert("새 건물은 카테고리를 선택하세요"); return; }
+      category = customCategory;
+    }
+    const nk = `${building}:${floor}:${wing || "-"}:${section || "-"}:${unit.trim()}`;
     // 1) 중복 검증 — normalized_key 가 이미 있으면 거부
     setSaving(true);
     const { data: existing } = await supabase.from("slots").select("id").eq("normalized_key", nk).maybeSingle();
@@ -624,8 +629,12 @@ function SlotAddModal({ buildings, onClose, onUpdate }:
         setSaving(false); return;
       }
     }
+    // 직접입력 건물 → slot_buildings 에 먼저 등록 (있으면 무시) → 다음 등록 시 dropdown 에 노출
+    if (buildingSelect === CUSTOM_BUILDING) {
+      await supabase.from("slot_buildings").upsert({ name: building, category, user_addable: true }, { onConflict: "name", ignoreDuplicates: true });
+    }
     const { error } = await supabase.from("slots").insert({
-      building, floor, wing: wing || null, section: section || null,
+      building, category, floor, wing: wing || null, section: section || null,
       unit: unit.trim(), normalized_key: nk, is_physical: true,
     });
     setSaving(false);
@@ -646,29 +655,36 @@ function SlotAddModal({ buildings, onClose, onUpdate }:
               <option value={CUSTOM_BUILDING}>+ 직접 입력</option>
             </select>
             {buildingSelect === CUSTOM_BUILDING && (
-              <input value={buildingCustom} onChange={e => setBuildingCustom(e.target.value)}
-                placeholder="새 건물명 입력" autoFocus
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm mt-2" />
+              <>
+                <input value={buildingCustom} onChange={e => setBuildingCustom(e.target.value)}
+                  placeholder="새 건물명 입력" autoFocus
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm mt-2" />
+                <select value={customCategory} onChange={e => setCustomCategory(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm mt-2">
+                  <option value="">카테고리 선택...</option>
+                  {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </>
             )}
           </Field>
           <Field label="층 *">
             <select value={floor} onChange={e => setFloor(parseInt(e.target.value, 10))}
               className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm">
-              {FLOOR_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {floorOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
           <Field label="구분">
             <select value={wing} onChange={e => setWing(e.target.value)}
               className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm">
               <option value="">(없음)</option>
-              {WING_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+              {wingOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
           <Field label="열">
             <select value={section} onChange={e => setSection(e.target.value)}
               className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm">
               <option value="">(없음)</option>
-              {SECTION_OPTIONS.map(s => <option key={s} value={s}>{sectionLabel(s)}</option>)}
+              {sectionOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
           <Field label="호 *">
