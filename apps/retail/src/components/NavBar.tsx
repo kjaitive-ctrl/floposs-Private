@@ -5,9 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
 
-const LINKS = [
+const LINKS: { href: string; label: string }[] = [
   { href: "/samples", label: "샘플" },
   { href: "/products", label: "내 상품" },
+  // TEST 전용 — dev 서버에서만 노출. production 빌드 시 NODE_ENV='production' 으로 자동 숨김.
+  // 라벨에 "COMMIT 안 함" 명시 — 사장 규칙([[test-menu-no-commit]]).
+  ...(process.env.NODE_ENV !== "production"
+    ? [{ href: "/sku-test", label: "SKU (TEST · COMMIT 안 함)" }]
+    : []),
 ];
 
 export default function NavBar() {
