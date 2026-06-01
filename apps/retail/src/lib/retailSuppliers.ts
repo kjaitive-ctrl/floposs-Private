@@ -42,22 +42,33 @@ type RawHit = {
   slots: SlotBrief | SlotBrief[] | null;
 };
 
-// 매장명 자동완성 — slot_stores 를 store_name ilike 로 검색 (숨김 제외).
-// 브라우저 직통 (속도가 생명).
+type RpcRow = {
+  id: string; store_name: string; phone: string | null; smartphone: string | null;
+  slot_id: string; building: string; floor: number; wing: string | null; section: string | null; unit: string;
+};
+
+// 매장명 자동완성 — 트라이그램 유사검색 (오타 허용, 마이그 037 RPC). 브라우저 직통 (속도가 생명).
+// 037 미적용 환경에선 substring(ilike) fallback.
 export async function searchSlotStores(q: string, limit = 12): Promise<SlotStoreHit[]> {
   const term = q.trim();
   if (!term) return [];
-  const { data, error } = await supabase
+
+  const { data, error } = await supabase.rpc("search_slot_stores", { q: term, lim: limit });
+  if (!error && data) {
+    return (data as RpcRow[]).map(r => ({
+      id: r.id, store_name: r.store_name, phone: r.phone, smartphone: r.smartphone,
+      slot: { id: r.slot_id, building: r.building, floor: r.floor, wing: r.wing, section: r.section, unit: r.unit },
+    }));
+  }
+
+  // fallback — RPC(037) 미적용. substring only.
+  const { data: d2 } = await supabase
     .from("slot_stores")
     .select("id, store_name, phone, smartphone, slots!inner(id, building, floor, wing, section, unit)")
     .eq("is_hidden", false)
     .ilike("store_name", `%${term}%`)
     .limit(limit);
-  if (error) {
-    console.error("searchSlotStores:", error);
-    return [];
-  }
-  return ((data ?? []) as RawHit[]).map(r => ({
+  return ((d2 ?? []) as RawHit[]).map(r => ({
     id: r.id,
     store_name: r.store_name,
     phone: r.phone,
