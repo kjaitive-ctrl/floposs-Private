@@ -323,7 +323,7 @@ export default function ProductsPage() {
   const thTopInput = thBase + " bg-yellow-50 sticky top-0";
   // 아래 줄 — samples 박제 헤더 (공급가/할인가/제조국/혼용율/공급사) + 액션. 메모~옵션3 자리 공란
   const thBot = thBase + " bg-gray-100 sticky top-9";
-  const td = "border-r border-gray-100 align-middle";
+  const td = "border-r border-r-gray-100 align-middle";
   const inp = "w-full px-2 py-1.5 text-xs bg-transparent text-black placeholder:text-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset";
 
   function cellProps(row: ProductRow, col: EditField) {
@@ -405,7 +405,7 @@ export default function ProductsPage() {
       <main className="flex-1 overflow-hidden min-h-0 flex flex-col">
         <div className="flex-1 overflow-auto bg-white">
           <table className="min-w-full" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
-            <thead className="border-b-2 border-gray-300 shadow">
+            <thead className="border-b-2 border-b-gray-300 shadow">
               {/* 위 줄: 노란 음영 5개 (입력 가능 컬럼명). 그 외 공란. ● 는 rowSpan=2 */}
               <tr>
                 <th rowSpan={2} className={thTop + " w-6"}></th>
@@ -455,12 +455,11 @@ export default function ProductsPage() {
                 <th className={thBot + " w-32 border-r-0"}>액션</th>
               </tr>
             </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr>
+            {loading ? (
+              <tbody><tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr></tbody>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr>
-              ) : rows.map(row => {
+              <tbody><tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr></tbody>
+              ) : rows.map((row, i) => {
                 // 한 상품 = 2 tr (사장 결정).
                 //   ● 만 rowSpan=2. 나머지는 모두 위/아래 분할.
                 //   위 줄 = 입력 가능 셀 (메모/상품명/옵션1·2·3). 사장 미지정 칸은 공란 (레이아웃만).
@@ -468,15 +467,17 @@ export default function ProductsPage() {
                 //   한 상품 단위 구분 = 아래 tr td 에 border-b-gray-200 진한 선.
                 //   한 상품 안 위/아래 사이 = 옅은 선 (border-b-gray-100).
                 // 위/아래 줄 높이 통일 = h-9 (36px). input/텍스트 모두 align-middle 로 가운데 정렬.
-                const tdTop  = "border-r border-b border-gray-100 align-middle h-9";
-                const tdBot  = "px-2 py-1.5 border-r border-b border-gray-200 text-xs text-gray-500 align-middle h-9";
+                const tdTop  = "border-r border-r-gray-100 align-middle h-9";
+                const tdBot  = "px-2 py-1.5 border-r border-r-gray-100 border-b-2 border-b-gray-300 text-xs text-gray-500 align-middle h-9";
+                // 상품 단위 zebra (짝수 행 옅은 음영) — 100개 리스트에서 상품 덩어리 구분 (Gestalt 공통영역)
+                const zebra  = i % 2 === 1 ? "bg-gray-100/70" : "";
                 return (
-                  <Fragment key={row._key}>
-                    <tr className="hover:bg-gray-50/40">
-                      <td rowSpan={2} className={td + " text-center border-b border-gray-200"}><SaveStatusDot status={saveState[row._key]} /></td>
+                  <tbody key={row._key} className={"group " + zebra}>
+                    <tr className="group-hover:bg-sky-50/60">
+                      <td rowSpan={2} className={td + " text-center border-b-2 border-b-gray-300"}><SaveStatusDot status={saveState[row._key]} /></td>
                       <td rowSpan={2}
                         onClick={() => toggleSelect(row.id)}
-                        className={td + " text-center border-b border-gray-200 cursor-pointer hover:bg-gray-50"}>
+                        className={td + " text-center border-b-2 border-b-gray-300 cursor-pointer hover:bg-gray-50"}>
                         <input type="checkbox"
                           checked={selectedIds.has(row.id)}
                           onChange={() => {}}
@@ -493,7 +494,7 @@ export default function ProductsPage() {
                       <td className={tdTop + " p-0" + (row.consumer_name.trim() ? "" : " bg-orange-50")}>
                         <div className="flex items-center gap-1 pr-1 h-full">
                           <input {...cellProps(row, "consumer_name")} placeholder="소비자 상품명"
-                            className={inp + " font-medium" + (row.sold_out ? " line-through text-gray-400" : "")} />
+                            className={inp + " font-medium" + (row.sold_out ? " line-through text-gray-400" : " text-blue-800")} />
                           <button onClick={() => toggleProductSoldOut(row)}
                             title={row.sold_out ? "전체품절 해제" : "상품 전체 품절 처리"}
                             className={"text-[10px] px-1.5 py-0.5 rounded border whitespace-nowrap shrink-0 " + (
@@ -565,15 +566,15 @@ export default function ProductsPage() {
                       <td className={tdTop + " border-r-0 text-center"}>
                         <div className="flex gap-1 justify-center">
                           <button onClick={() => setCommentModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>멘트</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
                           <button onClick={() => setShootModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>촬영</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
                           <button onClick={() => setImagesModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>IMG</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>IMG</button>
                         </div>
                       </td>
                     </tr>
-                    <tr className="hover:bg-gray-50/40">
+                    <tr className="group-hover:bg-sky-50/60">
                       {/* ● 자리는 위 tr 의 rowSpan=2 가 차지 */}
                       {/* 메모(샘플): 아래=description read-only. 클릭 시 모달로 전체 보기 */}
                       <td className={tdBot + " cursor-pointer hover:bg-gray-100 truncate max-w-[140px]"}
@@ -608,10 +609,9 @@ export default function ProductsPage() {
                         </div>
                       </td>
                     </tr>
-                  </Fragment>
+                  </tbody>
                 );
               })}
-            </tbody>
           </table>
         </div>
         <Pagination page={page} pageSize={pageSize} total={total} onChange={setPage} />
