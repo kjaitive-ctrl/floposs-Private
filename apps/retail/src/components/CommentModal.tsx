@@ -88,9 +88,9 @@ export default function CommentModal({ tenantId, productId, productName, onClose
     setMemo(template);
   }
 
+  // 바깥 클릭 닫기 없음 — 글 쓰다가 밖 클릭으로 초기화되는 사고 방지.
+  // 닫기는 하단 "닫기"/저장 버튼으로만.
   return (
-    {/* 바깥 클릭 닫기 없음 — 글 쓰다가 밖 클릭으로 초기화되는 사고 방지.
-        닫기는 하단 "닫기"/저장 버튼으로만. */}
     <div className={styles.modalOverlay}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-start justify-between">
