@@ -59,6 +59,9 @@ interface ProductRow {
   image_count: number;
   // product_measurements 박제 row 수 — 0 이면 SIZE 버튼 옅은 주황 (사이즈 측정값 미박제)
   measurements_count: number;
+  // MD기능 버튼 초록 표시용: 멘트(products.comment_data) / 촬영(product_shoots) 등록 여부
+  has_comment: boolean;
+  shoot_count: number;
 }
 
 export default function ProductsPage() {
@@ -119,7 +122,7 @@ export default function ProductsPage() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -167,6 +170,8 @@ export default function ProductsPage() {
       sold_out:            p.sold_out ?? false,
       image_count:         p.product_images?.[0]?.count ?? 0,
       measurements_count:  p.product_measurements?.[0]?.count ?? 0,
+      has_comment:         !!(p.comment_data && p.comment_data.trim()),
+      shoot_count:         p.product_shoots?.[0]?.count ?? 0,
     };
   }
 
@@ -554,16 +559,17 @@ export default function ProductsPage() {
                           {row.barcode ?? <span className="text-gray-300">-</span>}
                         </span>
                       </td>
-                      {/* MD기능: 멘트 / 촬영 / AI. AI 는 Anthropic 연결 대기 — 비활성 회색.
-                          w-32 컬럼에 text-xs 정상 크기 3 버튼 가로 한 줄. */}
+                      {/* MD기능: 멘트 / 촬영 / IMG.
+                          하나라도 등록(멘트=comment_data, 촬영=product_shoots, 이미지=product_images)되면
+                          해당 버튼 배경 초록으로 (등록됨 시각 표시). */}
                       <td className={tdTop + " border-r-0 text-center"}>
                         <div className="flex gap-1 justify-center">
                           <button onClick={() => setCommentModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap"}>멘트</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>멘트</button>
                           <button onClick={() => setShootModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap"}>촬영</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>촬영</button>
                           <button onClick={() => setImagesModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap"}>IMG</button>
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-green-100 !border-green-600 !text-green-800 hover:!bg-green-200" : "")}>IMG</button>
                         </div>
                       </td>
                     </tr>
