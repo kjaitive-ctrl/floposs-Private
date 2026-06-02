@@ -2,6 +2,7 @@
 // 안건1(샘플 공급사 picker) / 안건3(주문포털 거래처 선택) / 미래 C 단계 공용.
 // [[project_retail_slot_order_portal_v2]] [[feedback_retail_browser_supabase_direct]]
 import { supabase } from "@/lib/supabase";
+import type { PortalProduct, ProductOption } from "@/lib/orderPortal";
 
 export interface SlotBrief {
   id: string;
@@ -94,6 +95,118 @@ export async function searchSlotStores(q: string, limit = 12): Promise<SlotStore
   }));
 }
 
+// ── 내 거래처 목록 (안건3 C2 — 주문포털 거래처 선택) ──────────
+export interface MySupplier {
+  id: string;                 // retail_suppliers.id
+  store_name: string;         // selected_store_id → slot_stores.store_name
+  loc: string;                // 축약 위치 "디오트1J"
+  phone: string | null;
+  smartphone: string | null;
+}
+
+type MySupplierRow = {
+  id: string;
+  slots: SlotLocLite | SlotLocLite[] | null;
+  store: { store_name: string; phone: string | null; smartphone: string | null }
+       | { store_name: string; phone: string | null; smartphone: string | null }[]
+       | null;
+};
+
+// 내 거래처(retail_suppliers) 전체 — 주문포털에서 검색/선택. 브라우저 직통(내 데이터, cross-tenant X).
+// 건수가 tenant 단위로 bounded → 전체 load 후 클라이언트 필터.
+export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
+  const { data, error } = await supabase
+    .from("retail_suppliers")
+    .select("id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .eq("retail_tenant_id", tenantId);
+  if (error || !data) { console.error("loadMySuppliers:", error); return []; }
+  return (data as MySupplierRow[])
+    .map(r => {
+      const store = Array.isArray(r.store) ? r.store[0] : r.store;
+      return {
+        id: r.id,
+        store_name: store?.store_name ?? "(이름 없음)",
+        loc: shortLocFromNested({ slots: r.slots }),
+        phone: store?.phone ?? null,
+        smartphone: store?.smartphone ?? null,
+      };
+    })
+    .sort((a, b) => a.store_name.localeCompare(b.store_name, "ko"));
+}
+
+// 단일 거래처 brief — 주문 페이지(C3) 헤더용.
+export async function loadSupplierBrief(tenantId: string, supplierId: string): Promise<MySupplier | null> {
+  const { data, error } = await supabase
+    .from("retail_suppliers")
+    .select("id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .eq("retail_tenant_id", tenantId)
+    .eq("id", supplierId)
+    .maybeSingle();
+  if (error || !data) { if (error) console.error("loadSupplierBrief:", error); return null; }
+  const r = data as MySupplierRow;
+  const store = Array.isArray(r.store) ? r.store[0] : r.store;
+  return {
+    id: r.id,
+    store_name: store?.store_name ?? "(이름 없음)",
+    loc: shortLocFromNested({ slots: r.slots }),
+    phone: store?.phone ?? null,
+    smartphone: store?.smartphone ?? null,
+  };
+}
+
+// 이 거래처(retail_supplier_id 태깅)로 등록된 "내 상품" + variants → ProductGrid 용 PortalProduct.
+// 내 데이터(cross-tenant X) 브라우저 직통. 단가는 hidden 이지만 staging 박제용으로 계산해 흐름.
+// 단가 규칙 = API(SaleForm 패턴): variant.is_sale 이면 sale_price 우선, 없으면 base_price. (안건3 C3)
+export async function loadSupplierProducts(tenantId: string, supplierId: string): Promise<PortalProduct[]> {
+  const { data: products, error: pErr } = await supabase
+    .from("products")
+    .select("id, name, product_code, consumer_name, base_price, sale_price")
+    .eq("tenant_id", tenantId)
+    .eq("retail_supplier_id", supplierId)
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+  if (pErr || !products || products.length === 0) {
+    if (pErr) console.error("loadSupplierProducts:", pErr);
+    return [];
+  }
+
+  const ids = products.map(p => p.id);
+  const { data: variants } = await supabase
+    .from("product_variants")
+    .select("id, product_id, color, size, option3, is_sale, consumer_label_color, consumer_label_size, consumer_label_option3")
+    .in("product_id", ids)
+    .eq("is_active", true)
+    .order("color", { ascending: true })
+    .order("size", { ascending: true });
+
+  const priceMap = new Map(
+    products.map(p => [p.id, {
+      base: Number(p.base_price ?? 0),
+      sale: p.sale_price == null ? null : Number(p.sale_price),
+    }])
+  );
+
+  const byProduct = new Map<string, ProductOption[]>();
+  for (const v of variants ?? []) {
+    const pr = priceMap.get(v.product_id);
+    const unit_price = v.is_sale && pr?.sale != null && pr.sale > 0 ? pr.sale : pr?.base ?? 0;
+    const list = byProduct.get(v.product_id) ?? [];
+    list.push({
+      variant_id: v.id, color: v.color, size: v.size, option3: v.option3, unit_price,
+      consumer_color: v.consumer_label_color, consumer_size: v.consumer_label_size, consumer_option3: v.consumer_label_option3,
+    });
+    byProduct.set(v.product_id, list);
+  }
+
+  return products.map(p => ({
+    product_id: p.id,
+    product_name: p.name,
+    product_code: p.product_code,
+    consumer_name: p.consumer_name,
+    variants: byProduct.get(p.id) ?? [],
+  }));
+}
+
 // (tenant, slot) 거래처 매핑 find-or-create → retail_supplier_id 반환.
 // 선택한 매장(slotStoreId) 을 selected_store_id 로 반영. 실패 시 null (호출부 텍스트 fallback).
 export async function ensureRetailSupplier(
@@ -141,9 +254,48 @@ export async function loadSlotBuildings(): Promise<BuildingDef[]> {
 }
 
 export async function loadFloorOptions(): Promise<FieldOpt[]> {
+  return loadFieldOptions("floor");
+}
+
+// slot_field_options 의 임의 필드(floor/section/wing) 옵션 로드 — 주소검색 캐스케이드용.
+export async function loadFieldOptions(field: string): Promise<FieldOpt[]> {
   const { data } = await supabase
-    .from("slot_field_options").select("value, label").eq("field", "floor").order("sort");
+    .from("slot_field_options").select("value, label").eq("field", field).order("sort");
   return (data ?? []) as FieldOpt[];
+}
+
+// 주소(건물→층→구분→열→호)로 slot 검색 → 그 자리 매장 목록. 채운 만큼 좁힘.
+// 이름 대신 주소(normalized 자리)로 찾아 중복등록 최소화 (안건3 C2). 브라우저 직통.
+export interface AddressQuery {
+  building: string;             // 필수
+  floor?: number | null;
+  section?: string | null;
+  wing?: string | null;
+  unit?: string;                // 부분일치(ilike)
+}
+export async function searchSlotsByAddress(p: AddressQuery, limit = 50): Promise<SlotStoreHit[]> {
+  let q = supabase
+    .from("slot_stores")
+    .select("id, store_name, phone, smartphone, is_current, store_order, slots!inner(id, building, floor, wing, section, unit)")
+    .eq("is_hidden", false)
+    .eq("slots.building", p.building);
+  if (p.floor != null) q = q.eq("slots.floor", p.floor);
+  if (p.section) q = q.eq("slots.section", p.section);
+  if (p.wing) q = q.eq("slots.wing", p.wing);
+  if (p.unit && p.unit.trim()) q = q.ilike("slots.unit", `%${p.unit.trim()}%`);
+  // 현재 매장 우선, 그다음 최신 등록순 (is_current 플래그 누락 seed 대비 — eq 필터 대신 정렬)
+  const { data, error } = await q
+    .order("is_current", { ascending: false, nullsFirst: false })
+    .order("store_order", { ascending: false })
+    .limit(limit);
+  if (error || !data) { console.error("searchSlotsByAddress:", error); return []; }
+  return (data as RawHit[]).map(r => ({
+    id: r.id,
+    store_name: r.store_name,
+    phone: r.phone,
+    smartphone: r.smartphone,
+    slot: (Array.isArray(r.slots) ? r.slots[0] : r.slots) as SlotBrief,
+  }));
 }
 
 export interface QuickRegisterInput {

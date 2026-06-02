@@ -3,7 +3,6 @@
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { styles } from "@/common/styles";
-import OrderHeader from "@/components/order/OrderHeader";
 
 function CompleteInner() {
   const router = useRouter();
@@ -52,7 +51,6 @@ function CompleteInner() {
 export default function CompletePage() {
   return (
     <>
-      <OrderHeader />
       <Suspense fallback={<div className={styles.main}>…</div>}>
         <CompleteInner />
       </Suspense>

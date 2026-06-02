@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { styles } from "@/common/styles";
-import OrderHeader from "@/components/order/OrderHeader";
 import type { PaymentMethod } from "@/lib/orderPortal";
 import type { TenantBase, OutstandingTotals } from "@/lib/types";
 
@@ -114,7 +113,6 @@ export default function MePage() {
 
   return (
     <>
-      <OrderHeader />
       <main className={styles.main}>
         <div className="max-w-md mx-auto">
           <div className="flex items-center gap-3 mb-4">

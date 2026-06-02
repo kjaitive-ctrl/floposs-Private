@@ -17,19 +17,24 @@ const CUSTOM_BUILDING = "__custom__";
 interface Props {
   tenantId: string;
   initialName: string;
+  initialBuilding?: string;   // 주소검색 → "이 자리 신규등록" prefill (안건3 C2)
+  initialFloor?: number;
+  initialUnit?: string;
   onDone: (text: string, supplierId: string | null, loc: string) => void;
   onClose: () => void;
 }
 
-export default function SupplierRegisterModal({ tenantId, initialName, onDone, onClose }: Props) {
+export default function SupplierRegisterModal({
+  tenantId, initialName, initialBuilding, initialFloor, initialUnit, onDone, onClose,
+}: Props) {
   const [buildings, setBuildings] = useState<BuildingDef[]>([]);
   const [floorOpts, setFloorOpts] = useState<FieldOpt[]>([]);
 
-  const [buildingSelect, setBuildingSelect] = useState("");
+  const [buildingSelect, setBuildingSelect] = useState(initialBuilding ?? "");
   const [buildingCustom, setBuildingCustom] = useState("");
   const [customCategory, setCustomCategory] = useState("");
-  const [floor, setFloor] = useState<number>(1);
-  const [unit, setUnit] = useState("");
+  const [floor, setFloor] = useState<number>(initialFloor ?? 1);
+  const [unit, setUnit] = useState(initialUnit ?? "");
   const [storeName, setStoreName] = useState(initialName);
   const [phone, setPhone] = useState("");
   const [smart, setSmart] = useState("");
@@ -46,8 +51,8 @@ export default function SupplierRegisterModal({ tenantId, initialName, onDone, o
     loadSlotBuildings().then(setBuildings);
     loadFloorOptions().then(opts => {
       setFloorOpts(opts);
-      // 기본 층 = "1" 있으면 1, 없으면 첫 옵션
-      if (opts.length && !opts.some(o => o.value === "1")) setFloor(parseInt(opts[0].value, 10));
+      // 기본 층 = "1" 있으면 1, 없으면 첫 옵션 (단 prefill 된 initialFloor 는 보존)
+      if (initialFloor == null && opts.length && !opts.some(o => o.value === "1")) setFloor(parseInt(opts[0].value, 10));
     });
   }, []);
 

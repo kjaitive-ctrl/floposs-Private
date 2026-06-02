@@ -46,6 +46,10 @@ export default function OrderHeader() {
 
   return (
     <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4">
+      {/* 리테일 본진으로 돌아가기 — 포털이 retail 탭으로 들어와 별도모듈 느낌이라 추가(C1) */}
+      <Link href="/samples" className="text-xs text-gray-500 hover:text-black whitespace-nowrap">
+        ← 리테일
+      </Link>
       <Link href="/order/browse" className="text-sm font-bold text-black">
         주문 포털
       </Link>

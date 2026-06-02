@@ -10,6 +10,8 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/products", label: "내 상품" },
   // TEST 전용 — dev 서버에서만 노출. production 빌드 시 NODE_ENV='production' 으로 자동 숨김.
   // 라벨에 "COMMIT 안 함" 명시 — 사장 규칙([[test-menu-no-commit]]).
+  // 발주 포털(=/order/browse, 안건3 C1~C3)은 C4(전자노트 박제) 미완이라 진입점 보류.
+  //   dev 테스트는 직접 URL. C4 검증 후 여기 탭 추가. (메뉴로 닿을 데 없어 코드 전체 커밋해도 안전)
   ...(process.env.NODE_ENV !== "production"
     ? [{ href: "/sku-test", label: "SKU (TEST · COMMIT 안 함)" }]
     : []),
@@ -21,8 +23,9 @@ export default function NavBar() {
   // NavBar 는 TenantContext 의 공유값 사용 — 자체 fetch 없음 (한 페이지 진입 시 me 1번만 호출)
   const { tenant } = useTenant();
 
-  // 외부 주문 포털 (v1 자체 흐름) 과 인증 페이지는 NavBar 숨김
-  if (pathname.startsWith("/order")) return null;
+  // 포털 로그인/회원가입(로그인 前)은 NavBar 숨김.
+  // 발주 내부 페이지(/order/browse·/me·/complete)는 리테일 셸로 통합 → NavBar 노출 (안건3 C1-B).
+  if (pathname === "/order" || pathname === "/order/signup") return null;
   if (pathname === "/login" || pathname === "/signup") return null;
   if (pathname === "/subscription-required") return null;
 
