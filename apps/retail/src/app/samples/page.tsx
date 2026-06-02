@@ -181,8 +181,9 @@ export default function SamplesPage() {
           product_code: productCode,
           name: row.wholesale_name.trim(),
           wholesale_name: row.wholesale_name.trim(),
-          wholesale_supplier: row.wholesale_supplier.trim() || null,
-          retail_supplier_id: row.retail_supplier_id || null,
+          ...(row.retail_supplier_id
+            ? { wholesale_supplier: row.wholesale_supplier.trim() || null, retail_supplier_id: row.retail_supplier_id }
+            : {}),  // 거래처는 링크됐을 때만 박제 — 미연결 자유텍스트 방지 (안건1 가드)
           category: row.category.trim() || null,
           wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
           wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,
@@ -250,8 +251,9 @@ export default function SamplesPage() {
       // ─────────── UPDATE ───────────
       const { error } = await supabase.from("products").update({
         wholesale_name: row.wholesale_name.trim() || null,
-        wholesale_supplier: row.wholesale_supplier.trim() || null,
-        retail_supplier_id: row.retail_supplier_id || null,
+        ...(row.retail_supplier_id
+          ? { wholesale_supplier: row.wholesale_supplier.trim() || null, retail_supplier_id: row.retail_supplier_id }
+          : {}),  // 미연결 자유텍스트는 저장 생략 (레거시 값 보존 + 신규 미연결 차단)
         category: row.category.trim() || null,
         wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
         wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,

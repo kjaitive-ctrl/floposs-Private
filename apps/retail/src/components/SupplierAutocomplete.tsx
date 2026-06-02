@@ -25,7 +25,7 @@ interface Props {
 }
 
 export default function SupplierAutocomplete({
-  id, tenantId, value, loc, readOnly, className, onChange, onKeyDownNav,
+  id, tenantId, value, supplierId, loc, readOnly, className, onChange, onKeyDownNav,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [hits, setHits] = useState<SlotStoreHit[]>([]);
@@ -37,6 +37,8 @@ export default function SupplierAutocomplete({
   const seq = useRef(0);
 
   const term = value.trim();
+  // 미연결 경고 — 텍스트는 있는데 거래처(retail_supplier) 링크 안 됨 → DB 박제 안 됨 (안건1 가드)
+  const warn = !readOnly && term.length > 0 && !supplierId;
 
   function anchor() {
     const r = inputRef.current?.getBoundingClientRect();
@@ -99,11 +101,13 @@ export default function SupplierAutocomplete({
           onKeyDown={handleKey}
           onFocus={() => { if (term) { anchor(); setOpen(true); } }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          className={(className ?? "") + " flex-1 min-w-0"}
+          className={(className ?? "") + " flex-1 min-w-0" + (warn ? " ring-1 ring-inset ring-red-400" : "")}
         />
-        {loc && (
+        {loc ? (
           <span className="shrink-0 px-1 text-[10px] text-gray-400 whitespace-nowrap" title={loc}>· {loc}</span>
-        )}
+        ) : warn ? (
+          <span className="shrink-0 px-1 text-[10px] text-red-500 whitespace-nowrap" title="거래처 미연결 — 저장 안 됨">미연결</span>
+        ) : null}
       </div>
       {open && pos && term && (
         <div

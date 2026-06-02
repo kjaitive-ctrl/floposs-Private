@@ -65,12 +65,18 @@ export interface ProductOption {
   // retail UI 표시는 정책에 따라 off 가능 (현재 v1 정책 = 숨김).
   // 인프라적으로는 항상 흐름 (staging 박제 + 미처리 탭 표시 + derived 매출 박제).
   unit_price: number;
+  // 3축 옵션 + 내(소비자) 옵션 라벨 — 안건3 C3 표시용. optional (옛 API 응답엔 없음).
+  option3?: string | null;
+  consumer_color?: string | null;
+  consumer_size?: string | null;
+  consumer_option3?: string | null;
 }
 
 export interface PortalProduct {
   product_id: string;
   product_name: string;
   product_code: string | null;
+  consumer_name?: string | null;   // 내 상품명 — 안건3 C3 (마이그 186, optional)
   variants: ProductOption[];
 }
 

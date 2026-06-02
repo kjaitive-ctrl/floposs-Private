@@ -60,8 +60,10 @@ export default function ProductGrid({ products, value, onChange }: Props) {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className={styles.thLeft}>상품</th>
-              <th className={styles.th}>옵션</th>
+              <th className={styles.thLeft}>내 상품명</th>
+              <th className={styles.th}>내 옵션</th>
+              <th className={styles.thLeft}>공급사 상품명</th>
+              <th className={styles.th}>공급사 옵션</th>
               <th className={styles.th} style={{ width: 100 }}>
                 수량
               </th>
@@ -70,19 +72,32 @@ export default function ProductGrid({ products, value, onChange }: Props) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={3} className="text-center text-gray-400 py-8">
+                <td colSpan={5} className="text-center text-gray-400 py-8">
                   표시할 상품이 없습니다.
                 </td>
               </tr>
             ) : (
               rows.map(({ product, variant }) => {
                 const optionLabel =
-                  [variant.color, variant.size].filter(Boolean).join(" / ") || "기본";
+                  [variant.color, variant.size, variant.option3].filter(Boolean).join(" / ") || "기본";
+                const consumerName = product.consumer_name?.trim();
+                const consumerOption = [variant.consumer_color, variant.consumer_size, variant.consumer_option3]
+                  .filter(Boolean).join(" / ");
                 const qty = value.get(variant.variant_id) ?? 0;
                 return (
                   <tr key={variant.variant_id} className={styles.tr}>
                     <td className={styles.tdText}>
-                      <div className="font-medium text-black">{product.product_name}</div>
+                      {consumerName
+                        ? <span className="font-medium text-black">{consumerName}</span>
+                        : <span className="text-gray-300">미입력</span>}
+                    </td>
+                    <td className={styles.tdCenter}>
+                      {consumerOption
+                        ? consumerOption
+                        : <span className="text-gray-300">미입력</span>}
+                    </td>
+                    <td className={styles.tdText}>
+                      <div className="text-black">{product.product_name}</div>
                       {product.product_code && (
                         <div className="text-[11px] text-gray-400">{product.product_code}</div>
                       )}

@@ -308,6 +308,12 @@ function Td({ children, className = "" }: { children?: React.ReactNode; classNam
 function MultiSelect({ label, options, selected, onChange }:
   { label: string; options: { value: string; label: string }[]; selected: Set<string>; onChange: (s: Set<string>) => void }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  // 옵션 많을 때(건물명 등)만 검색창 노출 — admin 빠른 찾기
+  const showSearch = options.length > 8;
+  const filtered = q.trim()
+    ? options.filter(o => o.label.toLowerCase().includes(q.trim().toLowerCase()))
+    : options;
   const summary = selected.size === 0 ? "전체"
     : selected.size <= 2 ? Array.from(selected).slice(0, 2).join(", ")
     : `${selected.size}개 선택`;
@@ -326,14 +332,23 @@ function MultiSelect({ label, options, selected, onChange }:
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-300 rounded shadow-lg max-h-64 overflow-y-auto">
-            {options.map(o => (
+          <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); setQ(""); }} />
+          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-300 rounded shadow-lg max-h-72 overflow-y-auto">
+            {showSearch && (
+              <div className="sticky top-0 bg-white px-1.5 py-1.5 border-b border-gray-100">
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="건물명 검색…"
+                  className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
+              </div>
+            )}
+            {filtered.map(o => (
               <label key={o.value} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 cursor-pointer">
                 <input type="checkbox" checked={selected.has(o.value)} onChange={() => toggle(o.value)} />
                 <span className="text-sm">{o.label}</span>
               </label>
             ))}
+            {showSearch && filtered.length === 0 && (
+              <div className="px-2 py-2 text-xs text-gray-400">결과 없음</div>
+            )}
             {selected.size > 0 && (
               <button onClick={() => onChange(new Set())}
                 className="w-full text-xs text-gray-500 hover:bg-gray-100 py-1 border-t border-gray-200">초기화</button>
