@@ -31,6 +31,7 @@ export default function NavBar() {
   if (pathname === "/order" || pathname === "/order/signup") return null;
   if (pathname === "/login" || pathname === "/signup") return null;
   if (pathname === "/subscription-required") return null;
+  if (pathname.startsWith("/s/")) return null;  // 전자노트 공개 보드 (도매용, 로그인 X)
 
   async function handleLogout() {
     await fetch("/api/order-portal/logout", { method: "POST" });

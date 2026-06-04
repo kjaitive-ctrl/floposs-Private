@@ -17,6 +17,8 @@ import ShootModal from "@/components/ShootModal";
 import ProductImagesModal from "@/components/ProductImagesModal";
 import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
+import PriceModal from "@/components/PriceModal";
+import PriceHistoryModal from "@/components/PriceHistoryModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
 import ProductsToolbar, { type SearchCol, type SoldOutFilter } from "@/components/ProductsToolbar";
@@ -41,8 +43,9 @@ interface ProductRow {
   wholesale_name: string;
   wholesale_supplier: string;
   supplier_loc: string;          // 축약 위치 "디오트1J" (마이그 036 nested)
-  wholesale_price: number | null;
+  wholesale_price: number | null;          // 원본 도매가 (샘플 박제, read-only 참고)
   wholesale_discount_price: number | null;
+  wholesale_price_current: string;          // 현재 도매가 (편집 — 빈값이면 원본 사용). 마이그 206
   country_of_origin: string;
   material_composition: string;
   wholesale_options: { o1: string; o2: string; o3: string };
@@ -74,6 +77,8 @@ export default function ProductsPage() {
   const [commentModalRow, setCommentModalRow] = useState<ProductRow | null>(null);
   const [shootModalRow, setShootModalRow] = useState<ProductRow | null>(null);
   const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
+  const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
+  const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
@@ -124,7 +129,7 @@ export default function ProductsPage() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -157,6 +162,7 @@ export default function ProductsPage() {
       supplier_loc: shortLocFromNested(p.retail_suppliers),
       wholesale_price: p.wholesale_price,
       wholesale_discount_price: p.wholesale_discount_price,
+      wholesale_price_current: p.wholesale_price_current?.toString() ?? "",
       country_of_origin: p.country_of_origin ?? "",
       material_composition: materialToText(p.material_composition),
       wholesale_options: {
@@ -589,8 +595,19 @@ export default function ProductsPage() {
                       <td className={tdBot}>{row.wholesale_options.o1 || "-"}</td>
                       <td className={tdBot}>{row.wholesale_options.o2 || "-"}</td>
                       <td className={tdBot}>{row.wholesale_options.o3 || "-"}</td>
-                      {/* 공급가/할인가/제조국/혼용율/공급사: 아래=samples 박제 read-only */}
-                      <td className={tdBot + " text-right"}>{formatComma(row.wholesale_price) || "-"}</td>
+                      {/* 공급가: 통제형 편집(모달 +/- 버튼) + 이력. 원본 보존, 현재가는 다음 전송부터. 마이그 206/207 */}
+                      <td className={tdBot + " text-right"}>
+                        <div className="flex items-center justify-end gap-1">
+                          <button type="button" onClick={() => setPriceModalRow(row)}
+                            title={row.wholesale_price != null ? `원본 ${formatComma(String(row.wholesale_price))}원 (눌러서 수정)` : "도매가 수정"}
+                            className={"px-1.5 py-0.5 rounded border text-xs " + (row.wholesale_price_current ? "border-rose-300 text-rose-700 bg-rose-50" : "border-gray-200 text-gray-700 hover:bg-gray-50")}>
+                            {formatComma(row.wholesale_price_current) || formatComma(String(row.wholesale_price ?? "")) || "-"}
+                          </button>
+                          <button type="button" onClick={() => setHistoryRow(row)} title="가격 변경 이력"
+                            className="text-gray-300 hover:text-gray-600">📜</button>
+                        </div>
+                      </td>
+                      {/* 할인가/제조국/혼용율/공급사: 아래=samples 박제 read-only */}
                       <td className={tdBot + " text-right"}>{formatComma(row.wholesale_discount_price) || "-"}</td>
                       <td className={tdBot + " text-center"}>{row.country_of_origin || "-"}</td>
                       <td className={tdBot}>{row.material_composition || "-"}</td>
@@ -696,6 +713,25 @@ export default function ProductsPage() {
           onSaved={() => {
             // 모달 안에서 즉시 갱신하므로 list 만 별도 refresh 안 함 — 닫을 때 page refetch.
           }}
+        />
+      )}
+
+      {priceModalRow && (
+        <PriceModal
+          productId={priceModalRow.id}
+          productName={priceModalRow.consumer_name || priceModalRow.wholesale_name || ""}
+          originalPrice={priceModalRow.wholesale_price}
+          currentPrice={priceModalRow.wholesale_price_current ? Number(priceModalRow.wholesale_price_current) : null}
+          onClose={() => setPriceModalRow(null)}
+          onSaved={() => { setPriceModalRow(null); if (tenant?.id) fetchItems(tenant.id); }}
+        />
+      )}
+
+      {historyRow && (
+        <PriceHistoryModal
+          productId={historyRow.id}
+          productName={historyRow.consumer_name || historyRow.wholesale_name || ""}
+          onClose={() => setHistoryRow(null)}
         />
       )}
     </div>

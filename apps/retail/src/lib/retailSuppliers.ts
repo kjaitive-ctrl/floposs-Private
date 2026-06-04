@@ -42,7 +42,7 @@ export function shortSlotLabel(s: { building: string; floor: number; section: st
 }
 
 // products fetch 의 nested retail_suppliers(slots(...)) → 축약 위치 추출.
-interface SlotLocLite { building: string; floor: number; section: string | null }
+interface SlotLocLite { building: string; floor: number; section: string | null; public_code?: string | null }
 export interface NestedSupplier { slots: SlotLocLite | SlotLocLite[] | null }
 export function shortLocFromNested(rs: NestedSupplier | NestedSupplier[] | null | undefined): string {
   const s = Array.isArray(rs) ? rs[0] : rs;
@@ -99,6 +99,7 @@ export async function searchSlotStores(q: string, limit = 12): Promise<SlotStore
 export interface MySupplier {
   id: string;                 // retail_suppliers.id
   slot_id: string;            // 수신 slot (전자노트 recipient_slot_id)
+  public_code?: string | null; // slot 공유 URL 코드 (loadSupplierBrief 에서만 채움)
   store_name: string;         // selected_store_id → slot_stores.store_name
   loc: string;                // 축약 위치 "디오트1J"
   phone: string | null;
@@ -141,16 +142,18 @@ export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
 export async function loadSupplierBrief(tenantId: string, supplierId: string): Promise<MySupplier | null> {
   const { data, error } = await supabase
     .from("retail_suppliers")
-    .select("id, slot_id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .select("id, slot_id, slots(building, floor, section, public_code), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
     .eq("retail_tenant_id", tenantId)
     .eq("id", supplierId)
     .maybeSingle();
   if (error || !data) { if (error) console.error("loadSupplierBrief:", error); return null; }
   const r = data as MySupplierRow;
   const store = Array.isArray(r.store) ? r.store[0] : r.store;
+  const slotObj = Array.isArray(r.slots) ? r.slots[0] : r.slots;
   return {
     id: r.id,
     slot_id: r.slot_id,
+    public_code: slotObj?.public_code ?? null,
     store_name: store?.store_name ?? "(이름 없음)",
     loc: shortLocFromNested({ slots: r.slots }),
     phone: store?.phone ?? null,
@@ -164,7 +167,7 @@ export async function loadSupplierBrief(tenantId: string, supplierId: string): P
 export async function loadSupplierProducts(tenantId: string, supplierId: string): Promise<PortalProduct[]> {
   const { data: products, error: pErr } = await supabase
     .from("products")
-    .select("id, name, product_code, consumer_name, wholesale_price, wholesale_discount_price")
+    .select("id, name, product_code, consumer_name, wholesale_price, wholesale_discount_price, wholesale_price_current")
     .eq("tenant_id", tenantId)
     .eq("retail_supplier_id", supplierId)
     .eq("is_active", true)
@@ -186,9 +189,12 @@ export async function loadSupplierProducts(tenantId: string, supplierId: string)
   // 단가 = 도매가 (할인가 있으면 우선). 전송 시점에 노트로 박제됨 [결정2/A].
   const priceMap = new Map(
     products.map(p => {
+      const cur = p.wholesale_price_current == null ? null : Number(p.wholesale_price_current);
       const price = Number(p.wholesale_price ?? 0);
       const disc = p.wholesale_discount_price == null ? null : Number(p.wholesale_discount_price);
-      return [p.id, disc != null && disc > 0 ? disc : price];
+      // 우선순위: 현재가 → 할인가 → 원본
+      const effective = cur != null && cur > 0 ? cur : (disc != null && disc > 0 ? disc : price);
+      return [p.id, effective];
     })
   );
 

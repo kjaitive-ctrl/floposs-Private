@@ -24,6 +24,20 @@ export default function SupplierOrderPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [sentMsg, setSentMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // 도매에 공유할 slot 고유 URL (영구 고정, 날짜 무관) 복사
+  async function copyShareLink() {
+    if (!supplier?.public_code) return;
+    const url = `${window.location.origin}/s/${supplier.public_code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("이 링크를 복사해 도매에게 공유하세요:", url);
+    }
+  }
 
   useEffect(() => {
     if (!tenant?.id || !supplierId) return;
@@ -123,6 +137,15 @@ export default function SupplierOrderPage() {
           <Link href="/order/browse" className="text-xs text-gray-500 hover:text-black">
             ← 거래처 목록
           </Link>
+          {supplier?.public_code && (
+            <button
+              type="button"
+              onClick={copyShareLink}
+              className="ml-auto text-xs text-gray-600 hover:text-black border border-gray-200 rounded px-2 py-1"
+            >
+              {copied ? "✓ 링크 복사됨" : "📤 도매에 공유"}
+            </button>
+          )}
         </div>
 
         <h1 className="text-xl font-bold text-black mb-1">

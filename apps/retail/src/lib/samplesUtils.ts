@@ -31,6 +31,7 @@ export type DbProduct = {
   category: string | null;
   wholesale_price: number | null;
   wholesale_discount_price: number | null;
+  wholesale_price_current?: number | null;   // 편집 현재 도매가 (마이그 206, 원본 보존)
   status: string | null;
   launch_date: string | null;
   return_deadline: string | null;

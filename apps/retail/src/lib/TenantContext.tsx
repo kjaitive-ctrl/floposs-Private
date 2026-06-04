@@ -27,6 +27,7 @@ const Ctx = createContext<TenantState | null>(null);
 function isAuthPage(pathname: string): boolean {
   if (pathname === "/login" || pathname === "/signup") return true;
   if (pathname === "/order" || pathname === "/order/signup") return true;
+  if (pathname.startsWith("/s/")) return true;  // 전자노트 공개 보드 — 로그인 없음 (안건3 받는쪽 v1)
   return false;
 }
 
