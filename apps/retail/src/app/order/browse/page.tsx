@@ -66,7 +66,12 @@ export default function BrowsePage() {
   return (
     <>
       <main className={styles.main}>
-        <h1 className="text-xl font-bold text-black mb-1">거래처 선택</h1>
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-xl font-bold text-black">거래처 선택</h1>
+          <Link href="/order/notes" className="text-xs text-gray-600 hover:text-black border border-gray-200 rounded px-2 py-1">
+            📋 내 주문내역
+          </Link>
+        </div>
         <p className="text-xs text-gray-500 mb-4">주문할 거래처(도매 매장)를 검색해서 선택하세요.</p>
 
         {/* 거래처 추가 — 전체 매장(slot DB)에서 검색해 내 거래처로 실시간 등록 */}

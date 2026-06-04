@@ -98,6 +98,7 @@ export async function searchSlotStores(q: string, limit = 12): Promise<SlotStore
 // ── 내 거래처 목록 (안건3 C2 — 주문포털 거래처 선택) ──────────
 export interface MySupplier {
   id: string;                 // retail_suppliers.id
+  slot_id: string;            // 수신 slot (전자노트 recipient_slot_id)
   store_name: string;         // selected_store_id → slot_stores.store_name
   loc: string;                // 축약 위치 "디오트1J"
   phone: string | null;
@@ -106,6 +107,7 @@ export interface MySupplier {
 
 type MySupplierRow = {
   id: string;
+  slot_id: string;
   slots: SlotLocLite | SlotLocLite[] | null;
   store: { store_name: string; phone: string | null; smartphone: string | null }
        | { store_name: string; phone: string | null; smartphone: string | null }[]
@@ -117,7 +119,7 @@ type MySupplierRow = {
 export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
   const { data, error } = await supabase
     .from("retail_suppliers")
-    .select("id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .select("id, slot_id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
     .eq("retail_tenant_id", tenantId);
   if (error || !data) { console.error("loadMySuppliers:", error); return []; }
   return (data as MySupplierRow[])
@@ -125,6 +127,7 @@ export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
       const store = Array.isArray(r.store) ? r.store[0] : r.store;
       return {
         id: r.id,
+        slot_id: r.slot_id,
         store_name: store?.store_name ?? "(이름 없음)",
         loc: shortLocFromNested({ slots: r.slots }),
         phone: store?.phone ?? null,
@@ -138,7 +141,7 @@ export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
 export async function loadSupplierBrief(tenantId: string, supplierId: string): Promise<MySupplier | null> {
   const { data, error } = await supabase
     .from("retail_suppliers")
-    .select("id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .select("id, slot_id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
     .eq("retail_tenant_id", tenantId)
     .eq("id", supplierId)
     .maybeSingle();
@@ -147,6 +150,7 @@ export async function loadSupplierBrief(tenantId: string, supplierId: string): P
   const store = Array.isArray(r.store) ? r.store[0] : r.store;
   return {
     id: r.id,
+    slot_id: r.slot_id,
     store_name: store?.store_name ?? "(이름 없음)",
     loc: shortLocFromNested({ slots: r.slots }),
     phone: store?.phone ?? null,
@@ -160,7 +164,7 @@ export async function loadSupplierBrief(tenantId: string, supplierId: string): P
 export async function loadSupplierProducts(tenantId: string, supplierId: string): Promise<PortalProduct[]> {
   const { data: products, error: pErr } = await supabase
     .from("products")
-    .select("id, name, product_code, consumer_name, base_price, sale_price")
+    .select("id, name, product_code, consumer_name, wholesale_price, wholesale_discount_price")
     .eq("tenant_id", tenantId)
     .eq("retail_supplier_id", supplierId)
     .eq("is_active", true)
@@ -173,26 +177,27 @@ export async function loadSupplierProducts(tenantId: string, supplierId: string)
   const ids = products.map(p => p.id);
   const { data: variants } = await supabase
     .from("product_variants")
-    .select("id, product_id, color, size, option3, is_sale, consumer_label_color, consumer_label_size, consumer_label_option3")
+    .select("id, product_id, color, size, option3, barcode, consumer_label_color, consumer_label_size, consumer_label_option3")
     .in("product_id", ids)
     .eq("is_active", true)
     .order("color", { ascending: true })
     .order("size", { ascending: true });
 
+  // 단가 = 도매가 (할인가 있으면 우선). 전송 시점에 노트로 박제됨 [결정2/A].
   const priceMap = new Map(
-    products.map(p => [p.id, {
-      base: Number(p.base_price ?? 0),
-      sale: p.sale_price == null ? null : Number(p.sale_price),
-    }])
+    products.map(p => {
+      const price = Number(p.wholesale_price ?? 0);
+      const disc = p.wholesale_discount_price == null ? null : Number(p.wholesale_discount_price);
+      return [p.id, disc != null && disc > 0 ? disc : price];
+    })
   );
 
   const byProduct = new Map<string, ProductOption[]>();
   for (const v of variants ?? []) {
-    const pr = priceMap.get(v.product_id);
-    const unit_price = v.is_sale && pr?.sale != null && pr.sale > 0 ? pr.sale : pr?.base ?? 0;
     const list = byProduct.get(v.product_id) ?? [];
     list.push({
-      variant_id: v.id, color: v.color, size: v.size, option3: v.option3, unit_price,
+      variant_id: v.id, color: v.color, size: v.size, option3: v.option3,
+      barcode: v.barcode ?? null, unit_price: priceMap.get(v.product_id) ?? 0,
       consumer_color: v.consumer_label_color, consumer_size: v.consumer_label_size, consumer_option3: v.consumer_label_option3,
     });
     byProduct.set(v.product_id, list);

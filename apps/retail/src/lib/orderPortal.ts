@@ -67,6 +67,7 @@ export interface ProductOption {
   unit_price: number;
   // 3축 옵션 + 내(소비자) 옵션 라벨 — 안건3 C3 표시용. optional (옛 API 응답엔 없음).
   option3?: string | null;
+  barcode?: string | null;          // variant 바코드 (전자노트 식별 소켓, C4)
   consumer_color?: string | null;
   consumer_size?: string | null;
   consumer_option3?: string | null;

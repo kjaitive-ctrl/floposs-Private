@@ -64,6 +64,7 @@ export default function ProductGrid({ products, value, onChange }: Props) {
               <th className={styles.th}>내 옵션</th>
               <th className={styles.thLeft}>공급사 상품명</th>
               <th className={styles.th}>공급사 옵션</th>
+              <th className={styles.th} style={{ width: 90 }}>단가</th>
               <th className={styles.th} style={{ width: 100 }}>
                 수량
               </th>
@@ -72,7 +73,7 @@ export default function ProductGrid({ products, value, onChange }: Props) {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="text-center text-gray-400 py-8">
+                <td colSpan={6} className="text-center text-gray-400 py-8">
                   표시할 상품이 없습니다.
                 </td>
               </tr>
@@ -103,6 +104,11 @@ export default function ProductGrid({ products, value, onChange }: Props) {
                       )}
                     </td>
                     <td className={styles.tdCenter}>{optionLabel}</td>
+                    <td className={styles.tdRight}>
+                      {variant.unit_price > 0
+                        ? <span className="text-gray-700">{variant.unit_price.toLocaleString()}</span>
+                        : <span className="text-gray-300">-</span>}
+                    </td>
                     <td className={styles.tdRight}>
                       <input
                         type="number"

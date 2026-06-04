@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { styles } from "@/common/styles";
+import { supabase } from "@/lib/supabase";
 import { useTenant } from "@/lib/TenantContext";
 import ProductGrid from "@/components/order/ProductGrid";
 import { loadSupplierBrief, loadSupplierProducts, type MySupplier } from "@/lib/retailSuppliers";
@@ -21,6 +22,8 @@ export default function SupplierOrderPage() {
   const [products, setProducts] = useState<PortalProduct[]>([]);
   const [qty, setQty] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [sentMsg, setSentMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tenant?.id || !supplierId) return;
@@ -42,10 +45,75 @@ export default function SupplierOrderPage() {
   }, [tenant?.id, supplierId]);
 
   const totalQty = useMemo(() => Array.from(qty.values()).reduce((a, b) => a + b, 0), [qty]);
+  const totalAmount = useMemo(() => {
+    let sum = 0;
+    for (const p of products) for (const v of p.variants) {
+      const q = qty.get(v.variant_id) ?? 0;
+      if (q > 0) sum += q * (v.unit_price ?? 0);
+    }
+    return sum;
+  }, [products, qty]);
 
-  function handleSubmit() {
-    // C4 에서 orders(전자노트) 박제로 연결 예정. 지금은 stub.
-    alert("주문 전송은 다음 단계(C4)에서 orders 전자노트로 연결됩니다.");
+  // 전송 = order_notes + order_note_items 박제 (browser-direct). dev 면 is_test=true 자동격리.
+  async function handleSubmit() {
+    if (!tenant?.id || !supplier || submitting) return;
+
+    const items: Record<string, unknown>[] = [];
+    for (const p of products) {
+      for (const v of p.variants) {
+        const q = qty.get(v.variant_id) ?? 0;
+        if (q <= 0) continue;
+        items.push({
+          retail_product_id: p.product_id,
+          retail_variant_id: v.variant_id,
+          supplier_product_name: p.product_name,
+          consumer_product_name: p.consumer_name ?? null,
+          supplier_option_label: [v.color, v.size, v.option3].filter(Boolean).join(" / ") || null,
+          consumer_option_label: [v.consumer_color, v.consumer_size, v.consumer_option3].filter(Boolean).join(" / ") || null,
+          variant_barcode: v.barcode ?? null,
+          quantity: q,
+          unit_price: v.unit_price ?? 0,
+        });
+      }
+    }
+    if (items.length === 0) { alert("주문할 수량을 입력해주세요."); return; }
+
+    setSubmitting(true);
+    setSentMsg(null);
+    const isTest = process.env.NODE_ENV !== "production";
+    const sentQty = totalQty;
+
+    // 1) 노트 (거래처 1전송, slot 주소)
+    const { data: note, error: noteErr } = await supabase
+      .from("order_notes")
+      .insert({
+        sender_retail_tenant_id: tenant.id,
+        sender_retail_supplier_id: supplierId,
+        recipient_slot_id: supplier.slot_id,
+        is_test: isTest,
+      })
+      .select("id")
+      .single();
+    if (noteErr || !note) {
+      setSubmitting(false);
+      alert("전송 실패: " + (noteErr?.message ?? "알 수 없는 오류"));
+      return;
+    }
+
+    // 2) 라인 스냅샷 박제
+    const { error: itemsErr } = await supabase
+      .from("order_note_items")
+      .insert(items.map(it => ({ ...it, note_id: note.id })));
+    if (itemsErr) {
+      await supabase.from("order_notes").delete().eq("id", note.id); // 롤백
+      setSubmitting(false);
+      alert("전송 실패(items): " + itemsErr.message);
+      return;
+    }
+
+    setSubmitting(false);
+    setQty(new Map());
+    setSentMsg(`전송 완료 — ${items.length}건 (${sentQty}개)${isTest ? " · 테스트" : ""}`);
   }
 
   return (
@@ -81,17 +149,21 @@ export default function SupplierOrderPage() {
         )}
 
         {products.length > 0 && (
-          <div className="sticky bottom-0 mt-4 bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <div className="sticky bottom-0 mt-4 bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
             <div className="text-xs text-gray-500">
               선택 합계 <span className="text-black font-semibold">{totalQty}</span> 개
+              {totalAmount > 0 && <> · <span className="text-black font-semibold">{totalAmount.toLocaleString()}</span> 원</>}
             </div>
+            {sentMsg && (
+              <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">{sentMsg}</div>
+            )}
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={totalQty === 0}
+              disabled={submitting || totalQty === 0}
               className={`${styles.btnPrimary} ml-auto disabled:opacity-50`}
             >
-              주문 전송 (C4 예정)
+              {submitting ? "전송 중…" : "주문 전송"}
             </button>
           </div>
         )}
