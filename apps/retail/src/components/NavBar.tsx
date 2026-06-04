@@ -10,10 +10,13 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/products", label: "내 상품" },
   // TEST 전용 — dev 서버에서만 노출. production 빌드 시 NODE_ENV='production' 으로 자동 숨김.
   // 라벨에 "COMMIT 안 함" 명시 — 사장 규칙([[test-menu-no-commit]]).
-  // 발주 포털(=/order/browse, 안건3 C1~C3)은 C4(전자노트 박제) 미완이라 진입점 보류.
-  //   dev 테스트는 직접 URL. C4 검증 후 여기 탭 추가. (메뉴로 닿을 데 없어 코드 전체 커밋해도 안전)
+  // 발주(DEV) = 외부주문포털(안건3). dev 작업/테스트용 — Vercel(prod+preview) 빌드는 NODE_ENV=production 이라 숨김.
+  //   C4(전자노트 박제) 완료 후 게이트 해제해 정식 노출.
   ...(process.env.NODE_ENV !== "production"
-    ? [{ href: "/sku-test", label: "SKU (TEST · COMMIT 안 함)" }]
+    ? [
+        { href: "/sku-test", label: "SKU (TEST · COMMIT 안 함)" },
+        { href: "/order/browse", label: "발주 (DEV)" },
+      ]
     : []),
 ];
 
