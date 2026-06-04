@@ -8,6 +8,7 @@ import { useTenant } from "@/lib/TenantContext";
 const LINKS: { href: string; label: string }[] = [
   { href: "/samples", label: "샘플" },
   { href: "/products", label: "내 상품" },
+  { href: "/routines", label: "업무루틴" },
   // TEST 전용 — dev 서버에서만 노출. production 빌드 시 NODE_ENV='production' 으로 자동 숨김.
   // 라벨에 "COMMIT 안 함" 명시 — 사장 규칙([[test-menu-no-commit]]).
   // 발주(DEV) = 외부주문포털(안건3). dev 작업/테스트용 — Vercel(prod+preview) 빌드는 NODE_ENV=production 이라 숨김.
@@ -40,7 +41,7 @@ export default function NavBar() {
 
   return (
     <nav className={styles.nav}>
-      <span className={styles.navBrand}>RETAIL</span>
+      <Link href="/dashboard" className={styles.navBrand}>FLO</Link>
       {LINKS.map(link => {
         const active = pathname === link.href || pathname.startsWith(link.href + "/");
         return (
