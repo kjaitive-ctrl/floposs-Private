@@ -40,7 +40,7 @@ export default function NavBar() {
   }
 
   return (
-    <nav className={styles.nav}>
+    <nav className={styles.nav + " sticky top-0 z-40 bg-white"}>
       <Link href="/dashboard" className={styles.navBrand}>FLO</Link>
       {LINKS.map(link => {
         const active = pathname === link.href || pathname.startsWith(link.href + "/");
