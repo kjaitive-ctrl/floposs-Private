@@ -317,6 +317,12 @@ export default function SamplesPage() {
         }));
       }
 
+      // 진행(바코드 발급된) 상품에 옵션을 추가하면 새 variant 는 바코드가 없음
+      // (issue_product_barcode 는 진행 시점만 발급) → 채워줌. 샘플 상태면 RPC noop. 마이그 203.
+      if (toInsert.length > 0) {
+        await supabase.rpc("sync_variant_barcodes", { p_product_id: row.id });
+      }
+
       return { ok: true };
     },
   });
