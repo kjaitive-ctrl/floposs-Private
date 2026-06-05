@@ -85,11 +85,14 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
       {/* 선택일 이벤트 */}
       <div className="bg-white border border-gray-200 rounded-xl p-3">
         <div className="text-sm font-bold text-black mb-2">{selected} 일정</div>
-        <div className="flex gap-1.5 mb-2">
+        <div className="mb-3 space-y-1.5">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="일정 추가"
-            onKeyDown={(e) => { if (e.key === "Enter") add(); }} className={`${styles.inputMd} flex-1 min-w-0`} />
-          <input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="담당" className={`${styles.inputMd} w-20 shrink-0`} />
-          <button onClick={add} className={`${styles.btnPrimary} shrink-0`}>추가</button>
+            onKeyDown={(e) => { if (e.key === "Enter") add(); }} className={styles.inputMd} />
+          <div className="flex gap-1.5">
+            <input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="담당"
+              className={`${styles.inputMd} w-28 shrink-0`} />
+            <button onClick={add} className={`${styles.btnPrimary} ml-auto`}>추가</button>
+          </div>
         </div>
         {selEvents.length === 0 ? (
           <div className="text-xs text-gray-400 py-4 text-center">일정 없음</div>
