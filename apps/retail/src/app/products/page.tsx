@@ -651,11 +651,10 @@ export default function ProductsPage() {
             await supabase.from("products")
               .update({ [field]: val.trim() || null, updated_at: new Date().toISOString() })
               .eq("id", memoModal.row.id);
+            // 로컬 state 갱신 — 재 fetch 없이 표 반영 (samples 와 동일 패턴, 새로고침 방지)
+            setRows(prev => prev.map(r => r.id === memoModal.row.id ? { ...r, [field]: val } : r));
           }}
-          onClose={() => {
-            setMemoModal(null);
-            if (tenant?.id) fetchItems(tenant.id);
-          }}
+          onClose={() => setMemoModal(null)}
         />
       )}
 

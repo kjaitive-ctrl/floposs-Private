@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isValidPhone, isValidPin, bizNumberDigits, formatBizNumber, type PaymentMethod } from "@/lib/orderPortal";
+import { isValidPhone, isValidPassword, PASSWORD_RULE_MSG, bizNumberDigits, formatBizNumber, type PaymentMethod } from "@/lib/orderPortal";
 import { styles } from "@/common/styles";
 
 // retail v2 가입 폼 (마이그 189).
@@ -25,6 +25,7 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [companyName, setCompanyName] = useState("");
   const [ownerName, setOwnerName] = useState("");
   const [businessNumber, setBusinessNumber] = useState("");
@@ -44,7 +45,7 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
     e.preventDefault();
     setError(null);
     if (!isValidPhone(phone))    { setError("휴대폰 번호를 정확히 입력해주세요 (010-XXXX-XXXX)."); return; }
-    if (!isValidPin(pin))        { setError("비밀번호는 숫자 4자리로 설정해주세요."); return; }
+    if (!isValidPassword(pin))   { setError(PASSWORD_RULE_MSG); return; }
     if (pin !== pinConfirm)      { setError("비밀번호가 일치하지 않습니다."); return; }
     if (!companyName.trim())     { setError("업체명을 입력해주세요."); return; }
 
@@ -110,20 +111,28 @@ export default function SignupForm({ redirect, loginHref, subtitle }: Props) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>비밀번호 (4자리)</label>
-              <input type="password" inputMode="numeric" maxLength={4} required
+              <label className={labelClass}>비밀번호</label>
+              <input type={showPin ? "text" : "password"} required
+                autoComplete="new-password"
+                placeholder="영문+숫자+특수문자 8자 이상"
                 value={pin}
-                onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+                onChange={e => setPin(e.target.value)}
                 className={inputClass} />
             </div>
             <div>
               <label className={labelClass}>비밀번호 확인</label>
-              <input type="password" inputMode="numeric" maxLength={4} required
+              <input type={showPin ? "text" : "password"} required
+                autoComplete="new-password"
                 value={pinConfirm}
-                onChange={e => setPinConfirm(e.target.value.replace(/\D/g, ""))}
+                onChange={e => setPinConfirm(e.target.value)}
                 className={inputClass} />
             </div>
           </div>
+          <label className="flex items-center gap-1.5 text-xs text-gray-500 -mt-1">
+            <input type="checkbox" checked={showPin}
+              onChange={e => setShowPin(e.target.checked)} className="rounded" />
+            비밀번호 표시
+          </label>
 
           {/* ── 업체 정보 ── */}
           <div className={sectionLabel}>업체 정보</div>

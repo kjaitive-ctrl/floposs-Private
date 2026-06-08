@@ -19,12 +19,12 @@ const sections = [
         decision: "",
       },
       {
-        field: "비밀번호 (PIN)",
+        field: "비밀번호",
         column: "Supabase Auth password",
-        type: "TEXT (4자리 숫자)",
+        type: "TEXT (영문+숫자+특수문자 8자 이상)",
         required: "필수",
         definition:
-          "로그인 비밀번호. 사장 진입장벽 최소화 위해 4자리 숫자 PIN. Auth 에 bcrypt 해시로 저장.",
+          "로그인 비밀번호. 영문·숫자·특수문자 포함 8자 이상. Auth 에 bcrypt 해시로 저장. (레거시 4자리 PIN 가입자는 로그인 허용·점진 승격)",
         status: "가입 폼 입력 + 확인 칸 일치 검증.",
         decision: "",
       },

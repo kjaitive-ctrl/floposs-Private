@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   isValidPhone,
-  isValidPin,
+  isValidPassword,
+  PASSWORD_RULE_MSG,
   normalizePhone,
   phoneToEmail,
   type PaymentMethod,
@@ -48,8 +49,8 @@ export async function POST(req: NextRequest) {
   if (!isValidPhone(phone)) {
     return NextResponse.json({ error: "휴대폰 번호를 정확히 입력해주세요 (010-XXXX-XXXX)." }, { status: 400 });
   }
-  if (!isValidPin(pin)) {
-    return NextResponse.json({ error: "비밀번호는 숫자 4자리로 설정해주세요." }, { status: 400 });
+  if (!isValidPassword(pin)) {
+    return NextResponse.json({ error: PASSWORD_RULE_MSG }, { status: 400 });
   }
   if (!companyName) {
     return NextResponse.json({ error: "업체명을 입력해주세요." }, { status: 400 });

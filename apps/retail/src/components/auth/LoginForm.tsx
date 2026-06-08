@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { isValidPhone, isValidPin } from "@/lib/orderPortal";
+import { isValidPhone, isLoginSecretShape } from "@/lib/orderPortal";
 import { styles } from "@/common/styles";
 import { usePlatformSettings, BusinessInfoFooter } from "@floposs/ui";
 import { supabase } from "@/lib/supabase";
@@ -23,6 +23,7 @@ export default function LoginForm({ redirect, signupHref, subtitle }: Props) {
   const settings = usePlatformSettings(supabase);
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -33,8 +34,8 @@ export default function LoginForm({ redirect, signupHref, subtitle }: Props) {
       setError("휴대폰 번호를 정확히 입력해주세요 (010-XXXX-XXXX).");
       return;
     }
-    if (!isValidPin(pin)) {
-      setError("비밀번호는 숫자 4자리로 입력해주세요.");
+    if (!isLoginSecretShape(pin)) {
+      setError("비밀번호를 입력해주세요.");
       return;
     }
     const res = await fetch("/api/order-portal/login", {
@@ -77,18 +78,21 @@ export default function LoginForm({ redirect, signupHref, subtitle }: Props) {
             />
           </div>
           <div>
-            <label className={styles.formLabel}>비밀번호 (숫자 4자리)</label>
+            <label className={styles.formLabel}>비밀번호</label>
             <input
-              type="password"
-              inputMode="numeric"
-              maxLength={4}
+              type={showPin ? "text" : "password"}
               value={pin}
-              onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+              onChange={e => setPin(e.target.value)}
               required
               autoComplete="current-password"
-              placeholder="••••"
+              placeholder="비밀번호"
               className={styles.inputLg}
             />
+            <label className="flex items-center gap-1.5 text-xs text-gray-500 mt-1.5">
+              <input type="checkbox" checked={showPin}
+                onChange={e => setShowPin(e.target.checked)} className="rounded" />
+              비밀번호 표시
+            </label>
             {error && (
               <div className="flex items-start gap-1.5 text-sm text-red-600 mt-1.5">
                 <span className="leading-none mt-0.5">⚠</span>

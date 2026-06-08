@@ -840,23 +840,24 @@ function StatusBadge({ status }: { status: TenantStatus }) {
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>{label}</span>;
 }
 
-// 비밀번호/PIN 강제 재설정 — admin 이 사장 비번을 직접 발급해주는 흐름.
-// retail order-portal(@order-portal.local) 계정은 휴대폰+4자리 PIN → PIN 모드로 분기.
+// 비밀번호 강제 재설정 — admin 이 사장 비번을 직접 발급해주는 흐름.
+// retail order-portal(@order-portal.local) 도 일반 계정과 동일 정책(영문+숫자+특수문자 8자 이상).
 // (이메일 self-reset 불필요 / CS 부담 최소화)
 function PasswordResetSection({ email }: { email: string }) {
-  const isPortal = email.endsWith(ORDER_PORTAL_SUFFIX);
-  const noun = isPortal ? "PIN" : "비밀번호";
+  const noun = "비밀번호";
   const [open, setOpen] = useState(false);
   const [newSecret, setNewSecret] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   function validate(): string | null {
-    if (isPortal) {
-      if (!/^\d{4}$/.test(newSecret)) return "PIN 은 숫자 4자리여야 합니다.";
-    } else if (newSecret.length < 6) {
-      return "비밀번호는 6자 이상이어야 합니다.";
-    }
+    const complex =
+      newSecret.length >= 8 &&
+      /[A-Za-z]/.test(newSecret) &&
+      /\d/.test(newSecret) &&
+      /[^A-Za-z0-9]/.test(newSecret);
+    if (!complex) return "비밀번호는 영문·숫자·특수문자를 포함해 8자 이상이어야 합니다.";
     return null;
   }
 
@@ -900,12 +901,10 @@ function PasswordResetSection({ email }: { email: string }) {
       <p className="text-xs font-semibold text-yellow-700">{noun} 강제 재설정</p>
       <div className="flex gap-2">
         <input
-          type="text"
-          inputMode={isPortal ? "numeric" : "text"}
-          maxLength={isPortal ? 4 : undefined}
+          type={showSecret ? "text" : "password"}
           value={newSecret}
-          onChange={e => setNewSecret(isPortal ? e.target.value.replace(/\D/g, "") : e.target.value)}
-          placeholder={isPortal ? "새 PIN (숫자 4자리)" : "새 비밀번호 (6자 이상)"}
+          onChange={e => setNewSecret(e.target.value)}
+          placeholder="새 비밀번호 (영문+숫자+특수문자 8자 이상)"
           className="flex-1 input-md" />
         <button type="button" onClick={handleReset} disabled={submitting}
           className="px-3 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary-hover disabled:opacity-50">
@@ -916,6 +915,11 @@ function PasswordResetSection({ email }: { email: string }) {
           취소
         </button>
       </div>
+      <label className="flex items-center gap-1.5 text-xs text-gray-500">
+        <input type="checkbox" checked={showSecret}
+          onChange={e => setShowSecret(e.target.checked)} className="rounded" />
+        비밀번호 표시
+      </label>
       {message && (
         <p className={`text-xs ${message.kind === "ok" ? "text-green-600" : "text-red-500"}`}>{message.text}</p>
       )}

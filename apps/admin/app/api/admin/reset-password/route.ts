@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-// admin (super_admin) 이 특정 계정의 비밀번호/PIN 을 강제로 새 값으로 교체.
+// admin (super_admin) 이 특정 계정의 비밀번호를 강제로 새 값으로 교체.
 // 이메일 기반 self-reset 대신 admin 이 직접 발급해주는 흐름.
-// retail order-portal 계정(@order-portal.local)은 휴대폰+4자리 PIN 로그인 → PIN(숫자 4자리)로 검증.
+// retail order-portal 계정(@order-portal.local)도 일반 계정과 동일 정책(영문+숫자+특수문자 8자 이상)으로 발급.
 const ORDER_PORTAL_SUFFIX = "@order-portal.local";
+
+// 신규 비밀번호 정책: 8자 이상 + 영문 + 숫자 + 특수문자. (retail orderPortal.isValidPassword 와 동일)
+function isValidPassword(pw: string): boolean {
+  return (
+    pw.length >= 8 &&
+    /[A-Za-z]/.test(pw) &&
+    /\d/.test(pw) &&
+    /[^A-Za-z0-9]/.test(pw)
+  );
+}
 
 export async function POST(req: NextRequest) {
   // 요청자 super_admin 검증
@@ -23,14 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "email, new_password 누락" }, { status: 400 });
   }
 
-  // retail(휴대폰+PIN) vs 일반(이메일+비밀번호) 검증 분기
-  const isPortal = String(email).endsWith(ORDER_PORTAL_SUFFIX);
-  if (isPortal) {
-    if (!/^\d{4}$/.test(String(new_password))) {
-      return NextResponse.json({ error: "PIN 은 숫자 4자리여야 합니다." }, { status: 400 });
-    }
-  } else if (String(new_password).length < 6) {
-    return NextResponse.json({ error: "비밀번호는 6자 이상이어야 합니다." }, { status: 400 });
+  // retail(@order-portal.local) 도 일반 계정과 동일 정책으로 통일.
+  if (!isValidPassword(String(new_password))) {
+    return NextResponse.json(
+      { error: "비밀번호는 영문·숫자·특수문자를 포함해 8자 이상이어야 합니다." },
+      { status: 400 },
+    );
   }
 
   // public.users.id != auth.users.id 일 수 있으므로 email 로 auth user 조회

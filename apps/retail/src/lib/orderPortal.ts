@@ -18,8 +18,27 @@ export function isValidPhone(phone: string): boolean {
   return /^010\d{8}$/.test(d);
 }
 
+// 레거시 4자리 PIN 검증 — 로그인 완화용으로만 유지(기존 가입자 보호).
 export function isValidPin(pin: string): boolean {
   return /^\d{4}$/.test(pin);
+}
+
+// 신규 비밀번호 정책: 8자 이상 + 영문 + 숫자 + 특수문자.
+export function isValidPassword(pw: string): boolean {
+  return (
+    pw.length >= 8 &&
+    /[A-Za-z]/.test(pw) &&
+    /\d/.test(pw) &&
+    /[^A-Za-z0-9]/.test(pw)
+  );
+}
+
+export const PASSWORD_RULE_MSG = "비밀번호는 영문·숫자·특수문자를 포함해 8자 이상으로 설정해주세요.";
+
+// 로그인 입력 완화 검증 — 레거시 4자리 ∪ 신규 복잡 비번 모두 통과.
+// 실제 일치 판정은 Supabase Auth 가 함. 여기선 명백히 빈/짧은 값만 거름.
+export function isLoginSecretShape(pw: string): boolean {
+  return pw.length >= 4;
 }
 
 // 사업자등록번호 — 저장은 숫자만(문자열, 앞자리 0 보존), 표시는 XXX-XX-XXXXX.
