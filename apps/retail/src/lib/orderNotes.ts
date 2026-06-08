@@ -19,6 +19,7 @@ export interface OrderNote {
   sent_at: string;
   is_test: boolean;
   status: string;
+  pickup_status: "pending" | "picked" | "failed";   // 물류(삼촌) 픽업 상태 [[project_logi_axis]]
   store_name: string;   // 수신 거래처(도매) 매장명
   loc: string;          // 축약 위치
   items: OrderNoteItem[];
@@ -36,6 +37,7 @@ type NoteRow = {
   sent_at: string;
   is_test: boolean;
   status: string;
+  pickup_status: "pending" | "picked" | "failed";
   supplier: NoteSupplier | NoteSupplier[] | null;
   items: OrderNoteItem[] | null;
 };
@@ -45,7 +47,7 @@ export async function loadMyOrderNotes(tenantId: string): Promise<OrderNote[]> {
   const { data, error } = await supabase
     .from("order_notes")
     .select(`
-      id, sent_at, is_test, status,
+      id, sent_at, is_test, status, pickup_status,
       supplier:retail_suppliers!sender_retail_supplier_id (
         slots ( building, floor, section ),
         store:slot_stores!selected_store_id ( store_name )
@@ -70,6 +72,7 @@ export async function loadMyOrderNotes(tenantId: string): Promise<OrderNote[]> {
       sent_at: r.sent_at,
       is_test: r.is_test,
       status: r.status,
+      pickup_status: r.pickup_status ?? "pending",
       store_name: storeRaw?.store_name ?? "(거래처)",
       loc: shortLocFromNested(sup ? { slots: sup.slots } : null),
       items,

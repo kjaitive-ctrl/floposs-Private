@@ -81,6 +81,8 @@ export default function OrderNotesPage() {
                           <div className="font-medium text-black truncate">
                             {n.store_name}
                             {n.loc && <span className="text-gray-400 font-normal"> · {n.loc}</span>}
+                            {n.pickup_status === "picked" && <span className="ml-2 text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1">픽업완료</span>}
+                            {n.pickup_status === "failed" && <span className="ml-2 text-[10px] text-red-700 bg-red-50 border border-red-200 rounded px-1">픽업실패</span>}
                             {n.is_test && <span className="ml-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1">테스트</span>}
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">

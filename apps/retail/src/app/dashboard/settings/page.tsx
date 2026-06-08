@@ -63,6 +63,12 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // 물류회사(삼촌) 배정 — 베타·DEV 전용 [[project_logi_axis]]
+  const [logiOptions, setLogiOptions] = useState<{ id: string; company_name: string }[]>([]);
+  const [logiId, setLogiId] = useState("");
+  const [logiSaving, setLogiSaving] = useState(false);
+  const [logiSaved, setLogiSaved] = useState(false);
+
   // 편집 state
   const [companyName, setCompanyName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -109,6 +115,7 @@ export default function SettingsPage() {
             warehouse_address, warehouse_same_as_office, warehouse_phone,
             store_name, store_url,
             plan_id, subscription_expires_at, cancel_at_period_end,
+            default_logi_tenant_id,
             r2_usage_bytes, r2_image_count,
             subscription_plans(id, name, description, price, billing_cycle, features, r2_storage_quota_mb)
           `)
@@ -140,10 +147,20 @@ export default function SettingsPage() {
         setWarehousePhone(t.warehouse_phone ?? "");
         setStoreName(t.store_name ?? "");
         setStoreUrl(t.store_url ?? "");
+        setLogiId((data as { default_logi_tenant_id?: string | null }).default_logi_tenant_id ?? "");
       }
       setLoading(false);
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  // 물류회사 옵션 로드 — 베타·DEV 전용 (prod 빌드 시 NODE_ENV='production' 으로 스킵).
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    supabase.from("tenants").select("id, company_name")
+      .eq("tenant_type", "logistics").eq("is_active", true)
+      .order("company_name")
+      .then(({ data }) => setLogiOptions((data as { id: string; company_name: string }[]) ?? []));
   }, []);
 
   async function handleSave(e: React.FormEvent) {
@@ -187,6 +204,18 @@ export default function SettingsPage() {
     const updated = data as unknown as MeTenant;
     setTenant(prev => prev ? { ...prev, ...updated } : updated);
     setSavedAt(Date.now());
+  }
+
+  // 물류회사(삼촌) 배정 저장 — 베타·DEV 전용. browser-direct.
+  async function handleSaveLogi() {
+    if (!tenant) return;
+    setLogiSaving(true);
+    const { error: err } = await supabase.from("tenants")
+      .update({ default_logi_tenant_id: logiId || null })
+      .eq("id", tenant.id);
+    setLogiSaving(false);
+    if (err) { alert(err.message); return; }
+    setLogiSaved(true);
   }
 
   // ── 구독: 플랜 선택/변경 ──
@@ -261,6 +290,7 @@ export default function SettingsPage() {
         ) : !tenant ? (
           <div className="text-xs text-red-600">{error ?? "정보 없음"}</div>
         ) : (
+          <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             {/* ── 왼쪽: 내정보 폼 (긴 컬럼) ── */}
             <form onSubmit={handleSave} className={`${styles.card} space-y-4`}>
@@ -518,6 +548,35 @@ export default function SettingsPage() {
               <ModelsSection tenantId={tenant.id} />
             </div>
           </div>
+
+          {/* 물류 / 배송 (베타·DEV 전용) — prod 빌드 시 자동 숨김. [[project_logi_axis]] */}
+          {process.env.NODE_ENV !== "production" && (
+            <div className={`${styles.card} mt-4`}>
+              <div className="flex items-center gap-2 mb-1">
+                <h2 className="text-sm font-bold text-black">물류 / 배송</h2>
+                <span className="text-[10px] px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">베타 · DEV 전용</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                발주 시 픽업을 맡길 기본 물류회사(사입삼촌). 베타 기능이라 dev 에서만 노출됩니다.
+              </p>
+              <div className="flex items-end gap-2 max-w-md">
+                <div className="flex-1">
+                  <label className={styles.modalLabel}>기본 물류회사</label>
+                  <select className={styles.modalInput} value={logiId}
+                    onChange={e => { setLogiId(e.target.value); setLogiSaved(false); }}>
+                    <option value="">(지정 안 함)</option>
+                    {logiOptions.map(o => <option key={o.id} value={o.id}>{o.company_name}</option>)}
+                  </select>
+                </div>
+                <button type="button" onClick={handleSaveLogi} disabled={logiSaving}
+                  className={`${styles.btnPrimary} disabled:opacity-50`}>
+                  {logiSaving ? "저장 중…" : "저장"}
+                </button>
+              </div>
+              {logiSaved && <div className={`${styles.msgOk} mt-2`}>물류회사가 저장되었습니다.</div>}
+            </div>
+          )}
+          </>
         )}
       </div>
     </main>

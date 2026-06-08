@@ -97,6 +97,13 @@ export default function SupplierOrderPage() {
     const isTest = process.env.NODE_ENV !== "production";
     const sentQty = totalQty;
 
+    // 계약한 물류회사(삼촌) → 픽업 자동 배정. 미계약이면 null (배정 없이 노트만). [[project_logi_axis]]
+    const { data: meTenant } = await supabase
+      .from("tenants")
+      .select("default_logi_tenant_id")
+      .eq("id", tenant.id)
+      .maybeSingle();
+
     // 1) 노트 (거래처 1전송, slot 주소)
     const { data: note, error: noteErr } = await supabase
       .from("order_notes")
@@ -104,6 +111,7 @@ export default function SupplierOrderPage() {
         sender_retail_tenant_id: tenant.id,
         sender_retail_supplier_id: supplierId,
         recipient_slot_id: supplier.slot_id,
+        logi_tenant_id: (meTenant as { default_logi_tenant_id: string | null } | null)?.default_logi_tenant_id ?? null,
         is_test: isTest,
       })
       .select("id")

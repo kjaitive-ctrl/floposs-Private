@@ -24,6 +24,9 @@ const menuGroups: MenuGroup[] = [
   { label: "wholesale", items: [
     { label: "계정관리",         path: "/accounts",        badgeKey: "pendingAccounts" },
   ] },
+  { label: "logi", items: [
+    { label: "삼촌계정관리",      path: "/accounts-logi" },
+  ] },
   { label: "admin", items: [
     { label: "매장관리",         path: "/stores" },
     { label: "구독플랜 (전체)",  path: "/plans" },
