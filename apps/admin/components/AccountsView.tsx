@@ -159,6 +159,24 @@ export function AccountsView({ lockedVertical }: { lockedVertical?: TenantTypeTa
     setShowModal(true);
   }
 
+  // A/S — retail 매장 계정으로 진입. magiclink 토큰 발급 → retail /impersonate 새 탭. 비번 미변경.
+  async function handleImpersonate(t: Tenant) {
+    const email = ownerOf(t)?.email;
+    if (!email) { alert("이 매장의 로그인 이메일을 찾을 수 없습니다."); return; }
+    if (!confirm(`${t.company_name} 매장 계정으로 로그인합니다 (A/S).\n진입 기록이 남고, 변경은 매장 명의로 박힙니다.`)) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch("/api/admin/impersonate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+      body: JSON.stringify({ tenant_id: t.id, email }),
+    });
+    const r = await res.json();
+    if (!res.ok) { alert(r.error || "진입 실패"); return; }
+    const base = process.env.NEXT_PUBLIC_RETAIL_SITE_URL ?? "";
+    const url = `${base}/impersonate?token_hash=${encodeURIComponent(r.token_hash)}&label=${encodeURIComponent(t.company_name)}`;
+    window.open(url, "_blank");
+  }
+
   function openEdit(t: Tenant) {
     setEditing(t);
     setForm({
@@ -520,6 +538,13 @@ export function AccountsView({ lockedVertical }: { lockedVertical?: TenantTypeTa
                       className="text-xs px-2.5 py-1 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50">
                       수정
                     </button>
+                    {/* A/S — retail 매장 계정으로 진입 (super_admin). 비번 미변경 + 진입 로그. */}
+                    {t.tenant_type === "retail" && (
+                      <button onClick={() => handleImpersonate(t)}
+                        className="text-xs px-2.5 py-1 border border-primary-border text-primary-hover rounded-lg hover:bg-primary-soft">
+                        이 매장 로그인
+                      </button>
+                    )}
                     {/* 승인 = status pending→active. retail 은 status 로 진입 가드 안 하므로
                         (TenantContext 는 구독 만료만 검사) 소매 뷰에서는 승인 버튼 미노출.
                         retail 가입은 자동 활성(아래 signup) — 승인 개념 자체가 없음. */}
