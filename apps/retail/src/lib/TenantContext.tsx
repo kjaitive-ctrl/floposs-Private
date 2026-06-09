@@ -66,8 +66,11 @@ export function TenantProvider({ children, redirectOnUnauth = true }: { children
           if (redirectOnUnauth && typeof window !== "undefined") {
             const loginPath = pathname.startsWith("/order") ? "/order" : "/login";
             window.location.href = `${loginPath}?redirect=${encodeURIComponent(pathname)}`;
+            // 리다이렉트 진행 중 — 페이지가 에러(빨간 flash) 대신 로딩을 표시하도록 loading 유지.
+            setState({ tenant: null, loading: true, error: null });
+          } else {
+            setState({ tenant: null, loading: false, error: "unauthenticated" });
           }
-          setState({ tenant: null, loading: false, error: "unauthenticated" });
           return;
         }
 
@@ -96,8 +99,10 @@ export function TenantProvider({ children, redirectOnUnauth = true }: { children
             !isSubscriptionActive(t.plan_id, t.subscription_expires_at)) {
           if (typeof window !== "undefined") {
             window.location.href = "/subscription-required";
+            setState({ tenant: t, loading: true, error: null });  // 리다이렉트 중 — flash 방지
+          } else {
+            setState({ tenant: t, loading: false, error: "subscription_expired" });
           }
-          setState({ tenant: t, loading: false, error: "subscription_expired" });
           return;
         }
 
