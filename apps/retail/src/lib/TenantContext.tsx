@@ -55,6 +55,10 @@ export function TenantProvider({ children, redirectOnUnauth = true }: { children
       return;
     }
 
+    // 페이지 이동 직후 — 이전 상태(예: /login 의 tenant:null) 가 가드(!tenant)에 걸려
+    // "조회 실패" 빨간 글씨가 깜빡이는 것 방지. 새 fetch 동안 loading 으로 리셋.
+    setState(prev => ({ ...prev, loading: true, error: null }));
+
     let cancelled = false;
     (async () => {
       try {
