@@ -8,6 +8,11 @@
   --foreground: #171717;
 }
 
+/* 스크롤바 공간 항상 예약 — 콘텐츠 늦게 로드돼 스크롤바 생겨도 가로 reflow(떨림) 없음 */
+html {
+  scrollbar-gutter: stable;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

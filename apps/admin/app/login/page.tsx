@@ -65,7 +65,7 @@ export default function AdminLoginPage() {
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
           <div className="text-center mb-6">
             <div className="inline-flex w-12 h-12 rounded-xl bg-primary text-white items-center justify-center text-lg font-bold mb-2">
-              {settings?.service_brand_letter ?? ""}
+              {settings?.service_brand_letter ?? "F"}
             </div>
             <h1 className="text-2xl font-bold text-gray-900">관리자 로그인</h1>
             <p className="text-sm text-gray-500 mt-1">super_admin 전용 — 플로포스 통합 관리</p>
@@ -95,7 +95,10 @@ export default function AdminLoginPage() {
             </button>
           </form>
         </div>
-        <BusinessInfoFooter settings={settings} />
+        {/* 공간 미리 예약 — settings 비동기 로드돼도 높이 안 변해 카드 떨림 방지 */}
+        <div className="min-h-[140px]">
+          <BusinessInfoFooter settings={settings} />
+        </div>
       </div>
     </div>
   );

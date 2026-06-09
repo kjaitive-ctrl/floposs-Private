@@ -52,14 +52,17 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 px-4 py-10">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
-          <Header mode={mode} brandLetter={settings?.service_brand_letter ?? ""} />
+          <Header mode={mode} brandLetter={settings?.service_brand_letter ?? "F"} />
           {mode === "login" ? (
             <LoginForm router={router} onGoSignup={() => setMode("signup")} />
           ) : (
             <SignupFlow onBackToLogin={() => setMode("login")} />
           )}
         </div>
-        <BusinessInfoFooter settings={settings} />
+        {/* 공간 미리 예약 — settings 비동기 로드돼도 높이 안 변해 카드 떨림 방지 */}
+        <div className="min-h-[140px]">
+          <BusinessInfoFooter settings={settings} />
+        </div>
       </div>
     </div>
   );
