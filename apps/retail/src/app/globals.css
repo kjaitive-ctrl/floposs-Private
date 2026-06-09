@@ -8,6 +8,10 @@
   --foreground: #171717;
 }
 
+html {
+  /* 스크롤바 공간 항상 예약 — 콘텐츠 늦게 로드돼 스크롤바 생겨도 가로 reflow(떨림) 없음 */
+  scrollbar-gutter: stable;
+}
 html, body {
   background-color: #ffffff;
 }
