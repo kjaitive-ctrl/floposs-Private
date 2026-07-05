@@ -13,7 +13,9 @@ export async function GET(req: NextRequest) {
   if (!mallId) return NextResponse.json({ error: "mall_id 가 필요합니다." }, { status: 400 });
 
   const state = crypto.randomUUID();
-  const res = NextResponse.redirect(buildAuthorizeUrl(mallId, state));
+  const authorizeUrl = buildAuthorizeUrl(mallId, state);
+  console.log("[cafe24 authorize] url →", authorizeUrl);
+  const res = NextResponse.redirect(authorizeUrl);
   const opts = { httpOnly: true, secure: true, sameSite: "lax" as const, maxAge: 600, path: "/" };
   res.cookies.set("cafe24_state", state, opts);
   res.cookies.set("cafe24_mall", mallId, opts);
