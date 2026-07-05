@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   const mallId = req.cookies.get("cafe24_mall")?.value;
 
   if (!code || !state || !cookieState || state !== cookieState || !mallId) {
-    return NextResponse.redirect(`${origin}/dashboard?cafe24=error`);
+    return NextResponse.redirect(`${origin}/dashboard/settings?cafe24=error`);
   }
 
   const supabase = await getSupabaseRouteClient();
@@ -35,10 +35,10 @@ export async function GET(req: NextRequest) {
     }, { onConflict: "retail_tenant_id" });
   } catch (e) {
     console.error("cafe24 callback:", e);
-    return NextResponse.redirect(`${origin}/dashboard?cafe24=error`);
+    return NextResponse.redirect(`${origin}/dashboard/settings?cafe24=error`);
   }
 
-  const res = NextResponse.redirect(`${origin}/dashboard?cafe24=connected`);
+  const res = NextResponse.redirect(`${origin}/dashboard/settings?cafe24=connected`);
   res.cookies.delete("cafe24_state");
   res.cookies.delete("cafe24_mall");
   return res;

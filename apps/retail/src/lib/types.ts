@@ -45,6 +45,8 @@ export interface TenantFull extends TenantBase {
   // 마이그 200: R2 이미지 사용량 캐시 (trigger 자동 갱신)
   r2_usage_bytes?: number;
   r2_image_count?: number;
+  // 카페24 연동 몰 ID
+  cafe24_mall_id?: string | null;
 }
 
 // ── 외상 합계 (me API ?include=outstanding) ──

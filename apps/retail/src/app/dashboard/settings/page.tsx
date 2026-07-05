@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { styles } from "@/common/styles";
 import { supabase } from "@/lib/supabase";
@@ -15,6 +16,23 @@ import type { TenantFull } from "@/lib/types";
 // 본 페이지는 NavBar 의 "내정보" 진입점.
 
 type MeTenant = TenantFull;
+
+// useSearchParams는 Suspense 필수 — 별도 컴포넌트로 분리.
+function Cafe24OAuthBanner() {
+  const searchParams = useSearchParams();
+  const param = searchParams.get("cafe24");
+  if (!param) return null;
+  return param === "connected"
+    ? <div className={`${styles.msgOk} mb-3`}>카페24 연동이 완료되었습니다.</div>
+    : <div className={`${styles.msgError} mb-3`}>카페24 연동 중 오류가 발생했습니다. 다시 시도해주세요.</div>;
+}
+
+type Cafe24Status = {
+  connected: boolean;
+  mall_id: string | null;
+  expires_at?: string | null;
+  updated_at?: string | null;
+};
 
 const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   cash: "현금",
@@ -63,6 +81,12 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // 카페24 연동
+  const [cafe24Status, setCafe24Status] = useState<Cafe24Status | null>(null);
+  const [cafe24MallId, setCafe24MallId] = useState("");
+  const [cafe24Saving, setCafe24Saving] = useState(false);
+  const [cafe24Saved, setCafe24Saved] = useState(false);
+
   // 물류회사(삼촌) 배정 — 베타·DEV 전용 [[project_logi_axis]]
   const [logiOptions, setLogiOptions] = useState<{ id: string; company_name: string }[]>([]);
   const [logiId, setLogiId] = useState("");
@@ -106,14 +130,14 @@ export default function SettingsPage() {
         setLoading(false);
         return;
       }
-      const [{ data, error: fetchError }, { data: planRows }] = await Promise.all([
+      const [{ data, error: fetchError }, { data: planRows }, cafe24Res] = await Promise.all([
         supabase
           .from("tenants")
           .select(`
             id, company_name, owner_name, phone, address, business_number, default_payment_method,
             tax_invoice_email, contact_email,
             warehouse_address, warehouse_same_as_office, warehouse_phone,
-            store_name, store_url,
+            store_name, store_url, cafe24_mall_id,
             plan_id, subscription_expires_at, cancel_at_period_end,
             default_logi_tenant_id,
             r2_usage_bytes, r2_image_count,
@@ -127,9 +151,11 @@ export default function SettingsPage() {
           .eq("vertical", "retail")
           .eq("is_active", true)
           .order("price", { ascending: true }),
+        fetch("/api/cafe24/status").then(r => r.json() as Promise<Cafe24Status>).catch(() => null),
       ]);
       if (cancelled) return;
       if (planRows) setPlans(planRows as RetailPlan[]);
+      if (cafe24Res) setCafe24Status(cafe24Res);
       if (fetchError || !data) {
         setError(fetchError?.message ?? "정보를 불러오지 못했습니다.");
       } else {
@@ -147,6 +173,7 @@ export default function SettingsPage() {
         setWarehousePhone(t.warehouse_phone ?? "");
         setStoreName(t.store_name ?? "");
         setStoreUrl(t.store_url ?? "");
+        setCafe24MallId(t.cafe24_mall_id ?? "");
         setLogiId((data as { default_logi_tenant_id?: string | null }).default_logi_tenant_id ?? "");
       }
       setLoading(false);
@@ -204,6 +231,20 @@ export default function SettingsPage() {
     const updated = data as unknown as MeTenant;
     setTenant(prev => prev ? { ...prev, ...updated } : updated);
     setSavedAt(Date.now());
+  }
+
+  // 카페24 몰 ID 저장 (tenants.cafe24_mall_id). browser-direct.
+  async function handleSaveCafe24MallId() {
+    if (!tenant) return;
+    setCafe24Saving(true);
+    const { error: err } = await supabase.from("tenants")
+      .update({ cafe24_mall_id: cafe24MallId.trim() || null })
+      .eq("id", tenant.id);
+    setCafe24Saving(false);
+    if (err) { alert(err.message); return; }
+    setTenant(prev => prev ? { ...prev, cafe24_mall_id: cafe24MallId.trim() || null } : prev);
+    setCafe24Saved(true);
+    setTimeout(() => setCafe24Saved(false), 3000);
   }
 
   // 물류회사(삼촌) 배정 저장 — 베타·DEV 전용. browser-direct.
@@ -546,6 +587,88 @@ export default function SettingsPage() {
 
               {/* 모델 관리 — 구독 아래 */}
               <ModelsSection tenantId={tenant.id} />
+            </div>
+          </div>
+
+          {/* 카페24 연동 */}
+          <div className={`${styles.card} mt-4`}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-black">카페24 연동</h2>
+              {cafe24Status?.connected ? (
+                <span className="text-[11px] px-2 py-0.5 bg-green-50 text-green-700 border border-green-200 rounded-full font-medium">
+                  연동됨
+                </span>
+              ) : (
+                <span className="text-[11px] px-2 py-0.5 bg-gray-100 text-gray-500 border border-gray-200 rounded-full">
+                  미연동
+                </span>
+              )}
+            </div>
+
+            {/* OAuth 콜백 결과 */}
+            <Suspense>
+              <Cafe24OAuthBanner />
+            </Suspense>
+
+            {cafe24Status?.connected && (
+              <div className="text-xs text-gray-500 bg-gray-50 rounded px-3 py-2 mb-3">
+                <span className="font-medium text-black">{cafe24Status.mall_id}.cafe24.com</span>
+                {cafe24Status.updated_at && (
+                  <span className="ml-2 text-gray-400">
+                    · 마지막 연동 {new Date(cafe24Status.updated_at).toLocaleDateString("ko-KR")}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className={styles.modalLabel}>카페24 몰 ID</label>
+                <p className="text-[11px] text-gray-400 mb-1">
+                  쇼핑몰 주소 <span className="font-mono">몰ID.cafe24.com</span> 에서 앞부분
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    className={`${styles.modalInput} flex-1 font-mono`}
+                    placeholder="예: ggommie"
+                    value={cafe24MallId}
+                    onChange={e => { setCafe24MallId(e.target.value.trim()); setCafe24Saved(false); }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCafe24MallId}
+                    disabled={cafe24Saving}
+                    className={`${styles.btnSecondary} whitespace-nowrap disabled:opacity-50`}
+                  >
+                    {cafe24Saving ? "저장 중…" : "저장"}
+                  </button>
+                </div>
+                {cafe24Saved && (
+                  <div className={`${styles.msgOk} mt-1.5`}>저장되었습니다.</div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-gray-100">
+                {tenant?.cafe24_mall_id ? (
+                  <a
+                    href={`/api/cafe24/authorize?mall_id=${encodeURIComponent(tenant.cafe24_mall_id)}`}
+                    className={`${styles.btnPrimary} inline-block text-center w-full`}
+                  >
+                    {cafe24Status?.connected ? "카페24 재연동" : "카페24 연동 시작"}
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className={`${styles.btnPrimary} w-full opacity-40 cursor-not-allowed`}
+                  >
+                    몰 ID를 먼저 저장하세요
+                  </button>
+                )}
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  카페24 판매자 계정으로 로그인 후 권한을 허용하면 자동으로 연동됩니다.
+                </p>
+              </div>
             </div>
           </div>
 
