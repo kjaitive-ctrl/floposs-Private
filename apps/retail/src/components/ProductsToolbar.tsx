@@ -6,7 +6,7 @@ import { useState, KeyboardEvent, ReactNode } from "react";
 // 좌측: 검색(셀렉트+입력, Enter) + 카테고리 + 거래처(예정,비활성) + 페이지사이즈
 // 우측: rightActions (페이지별 다른 버튼)
 
-export type SearchCol = "wholesale_name" | "wholesale_supplier";
+export type SearchCol = "consumer_name" | "wholesale_name" | "wholesale_supplier";
 export type SoldOutFilter = "all" | "active" | "sold_out";
 
 interface Props {
@@ -62,7 +62,8 @@ export default function ProductsToolbar({
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <select value={searchCol} onChange={e => onSearchColChange(e.target.value as SearchCol)} className={sel}>
-        <option value="wholesale_name">상품명</option>
+        <option value="consumer_name">상품명</option>
+        <option value="wholesale_name">도매상품명</option>
         <option value="wholesale_supplier">거래처</option>
       </select>
       <input

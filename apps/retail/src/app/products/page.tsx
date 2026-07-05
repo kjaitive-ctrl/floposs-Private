@@ -88,7 +88,7 @@ export default function ProductsPage() {
 
   // ── 검색/필터/페이지네이션 ──
   // 한 상품 = 2 tr 이라 기본 25개 (= 50 tr). samples 와 동일 인터페이스.
-  const [searchCol, setSearchCol] = useState<SearchCol>("wholesale_name");
+  const [searchCol, setSearchCol] = useState<SearchCol>("consumer_name");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [category, setCategory] = useState("");
   const [soldOutFilter, setSoldOutFilter] = useState<SoldOutFilter>("all");
