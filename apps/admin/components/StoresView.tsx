@@ -267,6 +267,24 @@ export function StoresView() {
                 <Td>
                   <button onClick={() => setOpenSlot(r)}
                     className="text-primary text-xs hover:underline">상세/이력</button>
+                  <button
+                    onClick={async () => {
+                      const pw = window.prompt(`${r.current_store || r.building} 보드 비밀번호 발급/리셋 (6자 이상)\n도매가 전화매칭이 안 될 때 관리자가 직접 발급합니다.`);
+                      if (!pw) return;
+                      if (pw.length < 6) { alert("비밀번호는 6자 이상이어야 합니다."); return; }
+                      const { data: { session } } = await supabase.auth.getSession();
+                      const res = await fetch("/api/admin/issue-board", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+                        body: JSON.stringify({ slot_id: r.id, password: pw }),
+                      });
+                      const j = await res.json().catch(() => ({}));
+                      alert(res.ok
+                        ? `보드 ${j.reset ? "비밀번호 리셋" : "발급"} 완료\n주소: /s/${j.code}\n도매에 주소 + 비밀번호를 전달하세요.`
+                        : (j.error || "실패"));
+                      fetchRows();
+                    }}
+                    className="text-amber-600 text-xs hover:underline ml-2">보드</button>
                 </Td>
               </tr>
             ))}

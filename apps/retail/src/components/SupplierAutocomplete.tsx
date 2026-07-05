@@ -97,6 +97,7 @@ export default function SupplierAutocomplete({
           readOnly={readOnly}
           autoComplete="off"
           placeholder={readOnly ? "" : "매장명 검색"}
+          title={value || undefined}
           onChange={e => handleInput(e.target.value)}
           onKeyDown={handleKey}
           onFocus={() => { if (term) { anchor(); setOpen(true); } }}
@@ -104,7 +105,7 @@ export default function SupplierAutocomplete({
           className={(className ?? "") + " flex-1 min-w-0" + (warn ? " ring-1 ring-inset ring-red-400" : "")}
         />
         {loc ? (
-          <span className="shrink-0 px-1 text-[10px] text-gray-400 whitespace-nowrap" title={loc}>· {loc}</span>
+          <span className="shrink-0 px-1 text-[10px] text-gray-400 whitespace-nowrap" title={loc}>{loc}</span>
         ) : warn ? (
           <span className="shrink-0 px-1 text-[10px] text-red-500 whitespace-nowrap" title="거래처 미연결 — 저장 안 됨">미연결</span>
         ) : null}

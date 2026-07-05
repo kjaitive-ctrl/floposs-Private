@@ -129,7 +129,7 @@ export default function ProductsPage() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -460,7 +460,7 @@ export default function ProductsPage() {
                 <th className={thBot + " w-32"}>할인가</th>
                 <th className={thBot + " w-32"}>제조국</th>
                 <th className={thBot + " w-24"}>혼용율</th>
-                <th className={thBot + " w-32"}>공급사</th>
+                <th className={thBot + " min-w-[180px]"}>공급사</th>
                 <th className={thBot + " w-32 border-r-0"}>액션</th>
               </tr>
             </thead>
@@ -611,7 +611,7 @@ export default function ProductsPage() {
                       <td className={tdBot + " text-right"}>{formatComma(row.wholesale_discount_price) || "-"}</td>
                       <td className={tdBot + " text-center"}>{row.country_of_origin || "-"}</td>
                       <td className={tdBot}>{row.material_composition || "-"}</td>
-                      <td className={tdBot}>
+                      <td className={tdBot} title={row.wholesale_supplier ? [row.wholesale_supplier, row.supplier_loc].filter(Boolean).join(" · ") : undefined}>
                         {row.wholesale_supplier
                           ? <>{row.wholesale_supplier}{row.supplier_loc && <span className="text-gray-400"> · {row.supplier_loc}</span>}</>
                           : "-"}

@@ -12,6 +12,8 @@ export interface OrderNoteItem {
   supplier_option_label: string | null;
   consumer_option_label: string | null;
   variant_barcode: string | null;
+  shipped_quantity: number | null;   // 도매 출고 회신 (마이그 210)
+  ship_memo: string | null;          // 도매 메모 (입고예정 등)
 }
 
 export interface OrderNote {
@@ -54,7 +56,8 @@ export async function loadMyOrderNotes(tenantId: string): Promise<OrderNote[]> {
       ),
       items:order_note_items (
         quantity, unit_price, supplier_product_name, consumer_product_name,
-        supplier_option_label, consumer_option_label, variant_barcode
+        supplier_option_label, consumer_option_label, variant_barcode,
+        shipped_quantity, ship_memo
       )
     `)
     .eq("sender_retail_tenant_id", tenantId)

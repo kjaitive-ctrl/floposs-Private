@@ -15,6 +15,7 @@ type Row = {
   color: string | null;
   size: string | null;
   option3: string | null;
+  sort_order: number | null;       // 마이그 033 — 등록순 (정렬 안정화 기준)
   barcode: string | null;          // variant 바코드 (마이그 198, 22자리)
   is_active: boolean;
   sold_out: boolean;
@@ -40,7 +41,7 @@ export default function SkuTestPage() {
     const { data } = await supabase
       .from("product_variants")
       .select(`
-        id, color, size, option3, barcode, is_active, sold_out,
+        id, color, size, option3, sort_order, barcode, is_active, sold_out,
         products!inner(id, consumer_name, wholesale_name, sale_price, barcode, status, tenant_id, updated_at)
       `)
       .eq("products.tenant_id", tenantId)
@@ -53,11 +54,13 @@ export default function SkuTestPage() {
       const at = a.products?.updated_at ?? "";
       const bt = b.products?.updated_at ?? "";
       if (at !== bt) return at < bt ? 1 : -1;
-      // 2순위: 같은 product 안에서는 바코드 발급된 것 위로
-      const aHas = !!a.barcode;
-      const bHas = !!b.barcode;
-      if (aHas !== bHas) return aHas ? -1 : 1;
-      return 0;
+      // 2순위: 같은 product 안 — 등록순(sort_order) → 바코드 → id 로 완전 결정적.
+      //   기존엔 return 0 이라 tiebreak 없어 DB 리턴 순서대로 스크램블됐음 (SML 순서 버그 원인).
+      const aso = a.sort_order ?? 0, bso = b.sort_order ?? 0;
+      if (aso !== bso) return bso - aso;           // 최신(나중 등록 = 높은 sort_order) 위
+      const ac = a.barcode ?? "", bc = b.barcode ?? "";
+      if (ac !== bc) return ac < bc ? 1 : -1;      // 바코드 나중 것 위
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
     });
     setRows(sorted);
     setLastFetchedAt(Date.now());

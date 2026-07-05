@@ -336,7 +336,7 @@ export default function SamplesPage() {
     const offset = (page - 1) * pageSize;
     let query = supabase
       .from("products")
-      .select("id, product_code, wholesale_name, wholesale_supplier, retail_supplier_id, retail_suppliers(slots(building, floor, section)), category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
+      .select("id, product_code, wholesale_name, wholesale_supplier, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), category, wholesale_price, wholesale_discount_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order)", { count: "exact" })
       .eq("tenant_id", tenantId)
       .eq("is_active", true)
       .neq("status", "inactive");
@@ -646,7 +646,7 @@ export default function SamplesPage() {
                 <th className={th + " w-32"}>할인가</th>
                 <th className={th + " w-20"}>제조국</th>
                 <th className={th + " min-w-[140px]"}>혼용율</th>
-                <th className={th + " min-w-[120px]"}>공급사</th>
+                <th className={th + " min-w-[180px]"}>공급사</th>
                 <th className={th + " w-32"}>카테고리</th>
                 <th className={th + " w-10 text-center border-r-0"}>×</th>
               </tr>

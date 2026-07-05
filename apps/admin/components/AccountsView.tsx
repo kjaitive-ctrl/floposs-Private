@@ -57,6 +57,7 @@ type Tenant = {
   plan_id: string | null;
   subscription_expires_at: string | null;
   cancel_at_period_end: boolean;
+  is_provisional?: boolean;   // 보드 클레임으로 생긴 임시 도매 계정 (마이그 212)
   created_at: string;
   // retail 추가 정보 (마이그 175/189) — 마스터 admin 이 전부 편집 가능
   store_name: string | null;
@@ -492,7 +493,12 @@ export function AccountsView({ lockedVertical }: { lockedVertical?: TenantTypeTa
               const activeStaff = staff.filter(u => u.is_active).length;
               return (
               <tr key={t.id} className={`border-b border-gray-100 hover:bg-gray-50 ${t.status === "suspended" ? "opacity-50" : ""}`}>
-                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{t.company_name}</td>
+                <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
+                  {t.company_name}
+                  {t.is_provisional && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded align-middle">임시·보드</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">{loginIdOf(t)}</td>
                 {!lockedVertical && (
                   <td className="px-4 py-3 text-center">

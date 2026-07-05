@@ -101,6 +101,7 @@ export default function OrderNotesPage() {
                                 <th className="py-1 font-medium">옵션</th>
                                 <th className="py-1 font-medium text-right">수량</th>
                                 <th className="py-1 font-medium text-right">단가</th>
+                                <th className="py-1 font-medium text-center">출고(도매)</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -116,6 +117,12 @@ export default function OrderNotesPage() {
                                   <td className="py-1.5 text-right text-black">{it.quantity}</td>
                                   <td className="py-1.5 text-right text-gray-600">
                                     {it.unit_price > 0 ? Number(it.unit_price).toLocaleString() : "-"}
+                                  </td>
+                                  <td className="py-1.5 text-center">
+                                    {it.shipped_quantity != null
+                                      ? <span className={it.shipped_quantity < it.quantity ? "text-amber-600 font-medium" : "text-emerald-600 font-medium"}>{it.shipped_quantity}</span>
+                                      : <span className="text-gray-300">대기</span>}
+                                    {it.ship_memo && <div className="text-[11px] text-amber-600">{it.ship_memo}</div>}
                                   </td>
                                 </tr>
                               ))}

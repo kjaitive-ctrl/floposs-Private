@@ -35,14 +35,14 @@ export function slotLabel(s: SlotBrief): string {
   return parts.join(" ");
 }
 
-// 축약 위치 (표 셀 옆 회색): "디오트1J" (건물 + 층숫자 + 열, 호/구분 생략)
-export function shortSlotLabel(s: { building: string; floor: number; section: string | null }): string {
+// 축약 위치 (표 셀 옆 회색): "디오트 1층 C 124호"
+export function shortSlotLabel(s: { building: string; floor: number; section: string | null; unit?: string | null }): string {
   const f = s.floor < 0 ? `B${-s.floor}` : `${s.floor}`;
-  return `${s.building}${f}${s.section ?? ""}`;
+  return [s.building, `${f}층`, s.section, s.unit ? `${s.unit}호` : null].filter(Boolean).join(" ");
 }
 
 // products fetch 의 nested retail_suppliers(slots(...)) → 축약 위치 추출.
-interface SlotLocLite { building: string; floor: number; section: string | null; public_code?: string | null }
+interface SlotLocLite { building: string; floor: number; section: string | null; unit?: string | null; public_code?: string | null }
 export interface NestedSupplier { slots: SlotLocLite | SlotLocLite[] | null }
 export function shortLocFromNested(rs: NestedSupplier | NestedSupplier[] | null | undefined): string {
   const s = Array.isArray(rs) ? rs[0] : rs;
