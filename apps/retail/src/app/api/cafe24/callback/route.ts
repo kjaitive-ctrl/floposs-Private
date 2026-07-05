@@ -12,15 +12,7 @@ export async function GET(req: NextRequest) {
   const cookieState = req.cookies.get("cafe24_state")?.value;
   const mallId = req.cookies.get("cafe24_mall")?.value;
 
-  console.log("[cafe24 callback]", {
-    hasCode: !!code, hasState: !!state,
-    hasCookieState: !!cookieState, stateMatch: state === cookieState,
-    hasMallId: !!mallId,
-    url: req.nextUrl.toString(),
-  });
-
   if (!code || !state || !cookieState || state !== cookieState || !mallId) {
-    console.log("[cafe24 callback] CSRF fail → redirect error");
     return NextResponse.redirect(`${origin}/dashboard/settings?cafe24=error`);
   }
 
