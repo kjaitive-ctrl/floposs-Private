@@ -162,10 +162,6 @@ export default function SamplesPage() {
       if (!row.id) {
         // ─────────── INSERT ───────────
         // wholesale_name 빈값이면 호출부에서 차단 (Enter 트리거 가드). 여기 도달 시 값 있음 보장.
-        const { count } = await supabase.from("products")
-          .select("*", { count: "exact", head: true })
-          .eq("tenant_id", tenant.id);
-        const productCode = `R-${String((count ?? 0) + 1).padStart(3, "0")}`;
 
         // 등록 시 자동 박제: 입고일=KST 오늘, 반납기한=입고일+14일.
         const kstToday = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
@@ -176,29 +172,49 @@ export default function SamplesPage() {
           return d.toISOString().slice(0, 10);
         })();
 
-        const { data, error } = await supabase.from("products").insert({
-          tenant_id: tenant.id,
-          product_code: productCode,
-          name: row.wholesale_name.trim(),
-          wholesale_name: row.wholesale_name.trim(),
-          ...(row.retail_supplier_id
-            ? { wholesale_supplier: row.wholesale_supplier.trim() || null, retail_supplier_id: row.retail_supplier_id }
-            : {}),  // 거래처는 링크됐을 때만 박제 — 미연결 자유텍스트 방지 (안건1 가드)
-          category: row.category.trim() || null,
-          wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
-          wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,
-          launch_date: launchDate,
-          return_deadline: deadlineDate,
-          return_shipped_date: row.return_shipped_date || null,
-          status: row.status,
-          description: row.description.trim() || null,
-          country_of_origin: row.country_of_origin.trim() || null,
-          material_composition: textToMaterial(row.material_composition),
-          option1_label: o1.length > 0 ? "색상" : null,
-          option2_label: o2.length > 0 ? "사이즈" : null,
-          option3_label: null,
-          is_active: true,
-        }).select("id, product_code").single();
+        // product_code = 실제 존재하는 최대 코드 + 1 (COUNT 기반이면 대량입력/삭제로 생긴 gap 과 충돌 — 2026-07-06 발견).
+        // 그래도 동시입력(두 탭 동시 Enter) 은 race 가능 → 23505 충돌 시 다음 번호로 재시도.
+        const { data: maxRow } = await supabase.from("products")
+          .select("product_code")
+          .eq("tenant_id", tenant.id)
+          .order("product_code", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        let nextNum = maxRow?.product_code ? parseInt(maxRow.product_code.replace("R-", ""), 10) + 1 : 1;
+
+        let data: { id: string; product_code: string } | null = null;
+        let error: { message: string; code?: string } | null = null;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const productCode = `R-${String(nextNum).padStart(3, "0")}`;
+          const res = await supabase.from("products").insert({
+            tenant_id: tenant.id,
+            product_code: productCode,
+            name: row.wholesale_name.trim(),
+            wholesale_name: row.wholesale_name.trim(),
+            ...(row.retail_supplier_id
+              ? { wholesale_supplier: row.wholesale_supplier.trim() || null, retail_supplier_id: row.retail_supplier_id }
+              : {}),  // 거래처는 링크됐을 때만 박제 — 미연결 자유텍스트 방지 (안건1 가드)
+            category: row.category.trim() || null,
+            wholesale_price: row.wholesale_price ? Number(row.wholesale_price) : null,
+            wholesale_discount_price: row.wholesale_discount_price ? Number(row.wholesale_discount_price) : null,
+            launch_date: launchDate,
+            return_deadline: deadlineDate,
+            return_shipped_date: row.return_shipped_date || null,
+            status: row.status,
+            description: row.description.trim() || null,
+            country_of_origin: row.country_of_origin.trim() || null,
+            material_composition: textToMaterial(row.material_composition),
+            option1_label: o1.length > 0 ? "색상" : null,
+            option2_label: o2.length > 0 ? "사이즈" : null,
+            option3_label: null,
+            is_active: true,
+          }).select("id, product_code").single();
+
+          if (!res.error) { data = res.data; error = null; break; }
+          if (res.error.code === "23505") { nextNum++; continue; } // product_code 충돌 — 다음 번호 재시도
+          error = res.error;
+          break;
+        }
 
         if (error || !data) {
           console.error("INSERT failed:", error);
