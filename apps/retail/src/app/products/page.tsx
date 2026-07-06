@@ -450,6 +450,7 @@ export default function ProductsPage() {
                   </div>
                 </th>
                 <th className={thTopInput + " min-w-[140px]"}>메모(진행)</th>
+                <th rowSpan={2} className={thTop + " w-8"} title="플랫폼 전송 현황"></th>
                 <th className={thTopInput + " min-w-[160px]"}>상품명</th>
                 <th className={thTopInput + " min-w-[130px]"}>옵션1</th>
                 <th className={thTopInput + " min-w-[130px]"}>옵션2 (사이즈)</th>
@@ -477,9 +478,9 @@ export default function ProductsPage() {
               </tr>
             </thead>
             {loading ? (
-              <tbody><tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr></tbody>
+              <tbody><tr><td colSpan={14} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr></tbody>
               ) : rows.length === 0 ? (
-              <tbody><tr><td colSpan={13} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr></tbody>
+              <tbody><tr><td colSpan={14} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr></tbody>
               ) : rows.map((row, i) => {
                 // 한 상품 = 2 tr (사장 결정).
                 //   ● 만 rowSpan=2. 나머지는 모두 위/아래 분할.
@@ -509,6 +510,25 @@ export default function ProductsPage() {
                         onClick={() => setMemoModal({ row, kind: "progress" })}>
                         <div className="px-2 py-1.5 text-xs text-black truncate max-w-[140px]">
                           {row.progress_memo || <span className="text-gray-400">메모 (클릭)</span>}
+                        </div>
+                      </td>
+                      {/* 플랫폼 아이콘 셀 (rowSpan=2) — 전송된 플랫폼 뱃지 표시. 플랫폼 추가 시 아이콘만 추가 */}
+                      <td rowSpan={2} className={td + " text-center border-b-2 border-b-gray-300 w-8"}>
+                        <div className="flex flex-col items-center gap-1">
+                          {row.cafe24_product_no ? (
+                            <div
+                              title={`카페24 상품번호: ${row.cafe24_product_no}`}
+                              className="w-[18px] h-[18px] rounded flex items-center justify-center text-white text-[10px] font-bold leading-none select-none"
+                              style={{ backgroundColor: "#0C6FFF" }}>
+                              C
+                            </div>
+                          ) : (
+                            <div
+                              title="카페24 미전송"
+                              className="w-[18px] h-[18px] rounded flex items-center justify-center text-[10px] font-bold leading-none select-none border border-gray-200 text-gray-300">
+                              C
+                            </div>
+                          )}
                         </div>
                       </td>
                       {/* 상품명: 위=consumer_name input + 전체품절 토글 (사장 결정 2026-05-29, 마이그 201) */}
