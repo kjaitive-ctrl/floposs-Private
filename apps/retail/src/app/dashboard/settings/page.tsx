@@ -92,6 +92,7 @@ export default function SettingsPage() {
   const [cafe24Cats, setCafe24Cats] = useState<Cafe24Cat[] | null>(null);
   const [retailCategories, setRetailCategories] = useState<string[]>([]);
   const [catMapping, setCatMapping] = useState<Record<string, number | "">>({});
+  const [globalCatSlots, setGlobalCatSlots] = useState<(number | "")[]>(["", "", ""]);
   const [catSyncing, setCatSyncing] = useState(false);
   const [catSaving, setCatSaving] = useState(false);
   const [catSaved, setCatSaved] = useState(false);
@@ -146,7 +147,7 @@ export default function SettingsPage() {
             id, company_name, owner_name, phone, address, business_number, default_payment_method,
             tax_invoice_email, contact_email,
             warehouse_address, warehouse_same_as_office, warehouse_phone,
-            store_name, store_url, cafe24_mall_id,
+            store_name, store_url, cafe24_mall_id, cafe24_global_category_nos,
             plan_id, subscription_expires_at, cancel_at_period_end,
             default_logi_tenant_id,
             r2_usage_bytes, r2_image_count,
@@ -202,6 +203,8 @@ export default function SettingsPage() {
         setStoreName(t.store_name ?? "");
         setStoreUrl(t.store_url ?? "");
         setCafe24MallId(t.cafe24_mall_id ?? "");
+        const savedGlobal = (t.cafe24_global_category_nos ?? []) as number[];
+        setGlobalCatSlots([savedGlobal[0] ?? "", savedGlobal[1] ?? "", savedGlobal[2] ?? ""]);
         setLogiId((data as { default_logi_tenant_id?: string | null }).default_logi_tenant_id ?? "");
       }
       setLoading(false);
@@ -287,21 +290,28 @@ export default function SettingsPage() {
     setCatSyncing(false);
   }
 
-  // 카테고리 매핑 저장
+  // 카테고리 매핑 저장 (개별 매핑 + 공통 슬롯 동시 저장)
   async function saveCategoryMapping() {
+    if (!tenant) return;
     setCatSaving(true);
     const mappings = retailCategories.map(rc => ({
       retail_category: rc,
       cafe24_category_no: catMapping[rc] ? Number(catMapping[rc]) : null,
     }));
+    const globalNos = globalCatSlots.filter(v => !!v).map(v => Number(v));
     try {
-      const res = await fetch("/api/cafe24/category-map", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mappings }),
-      });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok || data.error) { alert(data.error ?? "저장 실패"); return; }
+      const [mapRes] = await Promise.all([
+        fetch("/api/cafe24/category-map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mappings }),
+        }),
+        supabase.from("tenants")
+          .update({ cafe24_global_category_nos: globalNos.length > 0 ? globalNos : null })
+          .eq("id", tenant.id),
+      ]);
+      const data = await mapRes.json() as { ok?: boolean; error?: string };
+      if (!mapRes.ok || data.error) { alert(data.error ?? "저장 실패"); return; }
       setCatSaved(true);
       setTimeout(() => setCatSaved(false), 3000);
     } catch (e) { alert(String(e)); }
@@ -768,21 +778,52 @@ export default function SettingsPage() {
                           return opts;
                         };
                         const catOptions = buildOptions();
-                        return retailCategories.map(rc => (
-                          <div key={rc} className="flex items-center gap-2">
-                            <span className="text-xs text-black w-28 shrink-0">{rc}</span>
-                            <select
-                              value={catMapping[rc] ?? ""}
-                              onChange={e => setCatMapping(prev => ({ ...prev, [rc]: e.target.value ? Number(e.target.value) : "" }))}
-                              className={`${styles.modalInput} flex-1 text-xs`}
-                            >
-                              <option value="">(매핑 없음)</option>
-                              {catOptions.map(o => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
+                        return (
+                          <>
+                            {/* 카테고리별 매핑 */}
+                            {retailCategories.map(rc => (
+                              <div key={rc} className="flex items-center gap-2">
+                                <span className="text-xs text-black w-28 shrink-0">{rc}</span>
+                                <select
+                                  value={catMapping[rc] ?? ""}
+                                  onChange={e => setCatMapping(prev => ({ ...prev, [rc]: e.target.value ? Number(e.target.value) : "" }))}
+                                  className={`${styles.modalInput} flex-1 text-xs`}
+                                >
+                                  <option value="">(매핑 없음)</option>
+                                  {catOptions.map(o => (
+                                    <option key={o.value} value={o.value}>{o.label}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+
+                            {/* 공통 카테고리 슬롯 — 모든 전송 상품에 항상 포함 */}
+                            <div className="pt-2 mt-1 border-t border-gray-100">
+                              <p className="text-[11px] text-gray-500 mb-1.5">
+                                공통 카테고리 <span className="text-gray-400">(모든 상품 전송 시 자동 포함)</span>
+                              </p>
+                              {[0, 1, 2].map(i => (
+                                <div key={i} className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-[11px] text-gray-400 w-28 shrink-0">공통 {i + 1}</span>
+                                  <select
+                                    value={globalCatSlots[i] ?? ""}
+                                    onChange={e => setGlobalCatSlots(prev => {
+                                      const next = [...prev] as (number | "")[];
+                                      next[i] = e.target.value ? Number(e.target.value) : "";
+                                      return next;
+                                    })}
+                                    className={`${styles.modalInput} flex-1 text-xs`}
+                                  >
+                                    <option value="">(없음)</option>
+                                    {catOptions.map(o => (
+                                      <option key={o.value} value={o.value}>{o.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
                               ))}
-                            </select>
-                          </div>
-                        ));
+                            </div>
+                          </>
+                        );
                       })()}
                       <div className="flex items-center gap-2 pt-1">
                         <button

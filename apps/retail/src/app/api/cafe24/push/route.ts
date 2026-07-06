@@ -77,16 +77,23 @@ export async function POST(req: NextRequest) {
 
   const db = admin();
 
-  // 카테고리 매핑 로드
-  const { data: mappingRows } = await db
-    .from("tenant_category_mapping")
-    .select("retail_category, cafe24_category_no")
-    .eq("retail_tenant_id", tenantId);
+  // 카테고리 매핑 + 공통 카테고리 로드
+  const [{ data: mappingRows }, { data: tenantRow }] = await Promise.all([
+    db.from("tenant_category_mapping")
+      .select("retail_category, cafe24_category_no")
+      .eq("retail_tenant_id", tenantId),
+    db.from("tenants")
+      .select("cafe24_global_category_nos")
+      .eq("id", tenantId)
+      .single(),
+  ]);
   const categoryMap = new Map<string, number>(
     (mappingRows ?? []).map((m: { retail_category: string; cafe24_category_no: number }) =>
       [m.retail_category, m.cafe24_category_no]
     )
   );
+  const globalCategoryNos: number[] = (tenantRow as { cafe24_global_category_nos?: number[] | null } | null)
+    ?.cafe24_global_category_nos ?? [];
 
   // 상품 로드
   const { data: products } = await db
@@ -131,7 +138,13 @@ export async function POST(req: NextRequest) {
       if (sizeValues.length > 0)  optionList.push({ option_name: "사이즈", option_value: sizeValues });
       if (opt3Values.length > 0)  optionList.push({ option_name: "기타", option_value: opt3Values });
 
-      const cafe24CategoryNo = categoryMap.get(p.category ?? "");
+      // 카테고리 조합: 상품별 매핑 + 공통 슬롯 (중복 제거)
+      const mappedNo = categoryMap.get(p.category ?? "");
+      const categoryNos = [...new Set([
+        ...(mappedNo ? [mappedNo] : []),
+        ...globalCategoryNos,
+      ])];
+
       const productName = (p.consumer_name || p.wholesale_name || "").trim() || "상품명 미입력";
       const price = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
       const retailPrice = p.consumer_price ? Number(p.consumer_price) : undefined;
@@ -146,7 +159,7 @@ export async function POST(req: NextRequest) {
         detail_image: mainImageUrl,
         list_image: mainImageUrl,
         small_image: mainImageUrl,
-        ...(cafe24CategoryNo ? { category: [{ category_no: cafe24CategoryNo }] } : {}),
+        ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(buildDetailHtml(p) ? { detail_content: buildDetailHtml(p) } : {}),
         ...(optionList.length > 0 ? {
           options: { has_option: "T", option_type: "T", option_list: optionList },
