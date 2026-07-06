@@ -29,6 +29,19 @@ import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
 
+// 마진율 구간별 색상: <10% 빨강 / 10~20% 주황 / 20~30% 노랑 / 30%+ 초록 / 미입력 회색
+function marginRateColor(sellStr: string, costStr: string): string {
+  const sell = Number(sellStr);
+  const cost = Number(costStr);
+  if (!sell || !cost) return "text-gray-300 hover:text-gray-500";
+  const fee = Math.round(sell * 0.11 + 2200);
+  const rate = (sell - fee - cost) / sell * 100;
+  if (rate < 10)  return "text-red-500    hover:text-red-700";
+  if (rate < 20)  return "text-orange-400 hover:text-orange-600";
+  if (rate < 30)  return "text-yellow-400 hover:text-yellow-600";
+  return                  "text-emerald-400 hover:text-emerald-600";
+}
+
 // /products = 정식 등록된 상품 (status IN registered/inactive).
 // 4개 컬럼(상품명/옵션1/2/3) 은 samples 와 동일 인터페이스로 인라인 input + 자동저장.
 // 컬럼 박제: products.consumer_name + consumer_option1/2/3 (마이그 186). 공급(wholesale_*) 과 별개 set.
@@ -573,7 +586,7 @@ export default function ProductsPage() {
                             className={inp + " text-right flex-1 min-w-0"} />
                           <button type="button" title="마진 계산"
                             onClick={() => setMarginRow(row)}
-                            className="text-emerald-400 hover:text-emerald-600 font-semibold shrink-0">%</button>
+                            className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? "")) + " font-semibold shrink-0"}>%</button>
                         </div>
                       </td>
                       <td className={tdTop}>
