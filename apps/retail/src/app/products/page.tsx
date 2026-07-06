@@ -573,7 +573,7 @@ export default function ProductsPage() {
                             className={inp + " text-right flex-1 min-w-0"} />
                           <button type="button" title="마진 계산"
                             onClick={() => setMarginRow(row)}
-                            className="text-gray-300 hover:text-gray-600 shrink-0">%</button>
+                            className="text-emerald-400 hover:text-emerald-600 font-semibold shrink-0">%</button>
                         </div>
                       </td>
                       <td className={tdTop}>
