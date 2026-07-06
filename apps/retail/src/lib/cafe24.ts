@@ -2,6 +2,15 @@
 // 절차: authorize redirect → callback(code) → token 교환 → 박제 → API 호출(Bearer).
 // [[project_cafe24_export_design]] [[feedback_presigned_url_exception]]
 
+import { createClient } from "@supabase/supabase-js";
+
+// supabase-admin 직접 생성 (순환 import 방지 — supabase-admin.ts 가 이 파일 import 안 하므로 OK)
+const _admin = () => createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { autoRefreshToken: false, persistSession: false } }
+);
+
 const CLIENT_ID = process.env.CAFE24_CLIENT_ID ?? "";
 const CLIENT_SECRET = process.env.CAFE24_CLIENT_SECRET ?? "";
 const REDIRECT_URI = process.env.CAFE24_REDIRECT_URI ?? "";
@@ -50,6 +59,33 @@ export function exchangeCodeForToken(mallId: string, code: string): Promise<Cafe
 // refresh → 새 access token
 export function refreshAccessToken(mallId: string, refreshToken: string): Promise<Cafe24Token> {
   return tokenRequest(mallId, { grant_type: "refresh_token", refresh_token: refreshToken });
+}
+
+// 유효한 access token 반환 (만료 5분 전이면 자동 refresh). null = 미연동 or refresh 실패.
+export interface ValidToken { mall_id: string; access_token: string; }
+
+export async function getValidTokenForTenant(tenantId: string): Promise<ValidToken | null> {
+  const db = _admin();
+  const { data } = await db
+    .from("tenant_cafe24_tokens")
+    .select("mall_id, access_token, refresh_token, expires_at")
+    .eq("retail_tenant_id", tenantId)
+    .single();
+  if (!data) return null;
+
+  if (new Date(data.expires_at).getTime() < Date.now() + 5 * 60_000) {
+    try {
+      const t = await refreshAccessToken(data.mall_id, data.refresh_token);
+      await db.from("tenant_cafe24_tokens").update({
+        access_token: t.access_token,
+        expires_at: t.expires_at,
+        ...(t.refresh_token ? { refresh_token: t.refresh_token } : {}),
+        updated_at: new Date().toISOString(),
+      }).eq("retail_tenant_id", tenantId);
+      return { mall_id: data.mall_id, access_token: t.access_token };
+    } catch { return null; }
+  }
+  return { mall_id: data.mall_id, access_token: data.access_token };
 }
 
 // Admin API 호출 (Bearer + 버전 헤더). path 예: "products", "categories"

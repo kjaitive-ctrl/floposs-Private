@@ -19,6 +19,7 @@ import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
 import PriceModal from "@/components/PriceModal";
 import PriceHistoryModal from "@/components/PriceHistoryModal";
+import Cafe24PushModal from "@/components/Cafe24PushModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
 import ProductsToolbar, { type SearchCol, type SoldOutFilter } from "@/components/ProductsToolbar";
@@ -67,6 +68,8 @@ interface ProductRow {
   // MD기능 버튼 초록 표시용: 멘트(products.comment_data) / 촬영(product_shoots) 등록 여부
   has_comment: boolean;
   shoot_count: number;
+  // 카페24 전송 여부 (마이그 209 — products.cafe24_product_no)
+  cafe24_product_no: number | null;
 }
 
 export default function ProductsPage() {
@@ -81,6 +84,7 @@ export default function ProductsPage() {
   const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [cafe24PushOpen, setCafe24PushOpen] = useState(false);
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
   // 카테고리 dropdown 옵션 (measurement_templates 시스템 공통 + tenant 커스텀)
@@ -129,7 +133,7 @@ export default function ProductsPage() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, cafe24_product_no, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -181,6 +185,7 @@ export default function ProductsPage() {
       measurements_count:  p.product_measurements?.[0]?.count ?? 0,
       has_comment:         !!(p.comment_data && p.comment_data.trim()),
       shoot_count:         p.product_shoots?.[0]?.count ?? 0,
+      cafe24_product_no:   (p as { cafe24_product_no?: number | null }).cafe24_product_no ?? null,
     };
   }
 
@@ -361,6 +366,13 @@ export default function ProductsPage() {
           soldOutFilter={soldOutFilter}
           onSoldOutFilterChange={f => { setSoldOutFilter(f); setPage(1); }}
           rightActions={<>
+            {selectedIds.size > 0 && (
+              <button
+                onClick={() => setCafe24PushOpen(true)}
+                className={styles.btnSmall + " py-1 !border-blue-400 !text-blue-700 hover:!bg-blue-50"}>
+                카페24 전송 {selectedIds.size}개
+              </button>
+            )}
             <button onClick={async () => {
               const { exportProductsToExcel } = await import("@/lib/excelUtils");
               exportProductsToExcel(rows.map(r => ({
@@ -731,6 +743,28 @@ export default function ProductsPage() {
           productId={historyRow.id}
           productName={historyRow.consumer_name || historyRow.wholesale_name || ""}
           onClose={() => setHistoryRow(null)}
+        />
+      )}
+
+      {cafe24PushOpen && (
+        <Cafe24PushModal
+          selectedIds={[...selectedIds]}
+          rows={rows.map(r => ({
+            id: r.id,
+            consumer_name: r.consumer_name,
+            wholesale_name: r.wholesale_name,
+            image_count: r.image_count,
+            cafe24_product_no: r.cafe24_product_no,
+          }))}
+          onClose={() => setCafe24PushOpen(false)}
+          onDone={(updatedMap) => {
+            // 성공한 상품의 cafe24_product_no 를 rows 에 반영 (재fetch 없이 즉시)
+            setRows(prev => prev.map(r => {
+              const no = updatedMap.get(r.id);
+              return no != null ? { ...r, cafe24_product_no: no } : r;
+            }));
+            setCafe24PushOpen(false);
+          }}
         />
       )}
     </div>

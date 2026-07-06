@@ -87,6 +87,15 @@ export default function SettingsPage() {
   const [cafe24Saving, setCafe24Saving] = useState(false);
   const [cafe24Saved, setCafe24Saved] = useState(false);
 
+  // 카페24 카테고리 매핑
+  type Cafe24Cat = { category_no: number; parent_category_no: number | null; category_name: string };
+  const [cafe24Cats, setCafe24Cats] = useState<Cafe24Cat[] | null>(null);
+  const [retailCategories, setRetailCategories] = useState<string[]>([]);
+  const [catMapping, setCatMapping] = useState<Record<string, number | "">>({});
+  const [catSyncing, setCatSyncing] = useState(false);
+  const [catSaving, setCatSaving] = useState(false);
+  const [catSaved, setCatSaved] = useState(false);
+
   // 물류회사(삼촌) 배정 — 베타·DEV 전용 [[project_logi_axis]]
   const [logiOptions, setLogiOptions] = useState<{ id: string; company_name: string }[]>([]);
   const [logiId, setLogiId] = useState("");
@@ -130,7 +139,7 @@ export default function SettingsPage() {
         setLoading(false);
         return;
       }
-      const [{ data, error: fetchError }, { data: planRows }, cafe24Res] = await Promise.all([
+      const [{ data, error: fetchError }, { data: planRows }, cafe24Res, catMapRes, retailCatRes] = await Promise.all([
         supabase
           .from("tenants")
           .select(`
@@ -152,10 +161,29 @@ export default function SettingsPage() {
           .eq("is_active", true)
           .order("price", { ascending: true }),
         fetch("/api/cafe24/status").then(r => r.json() as Promise<Cafe24Status>).catch(() => null),
+        fetch("/api/cafe24/category-map").then(r => r.ok ? r.json() : null).catch(() => null),
+        supabase
+          .from("measurement_templates")
+          .select("category")
+          .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
       ]);
       if (cancelled) return;
       if (planRows) setPlans(planRows as RetailPlan[]);
       if (cafe24Res) setCafe24Status(cafe24Res);
+      // 카테고리 매핑 초기화
+      if (catMapRes?.mappings) {
+        const map: Record<string, number | ""> = {};
+        (catMapRes.mappings as { retail_category: string; cafe24_category_no: number }[])
+          .forEach(m => { map[m.retail_category] = m.cafe24_category_no; });
+        setCatMapping(map);
+      }
+      if (retailCatRes.data) {
+        const set = new Set<string>();
+        (retailCatRes.data as { category: string }[]).forEach(r => set.add(r.category));
+        setRetailCategories(Array.from(set));
+      }
       if (fetchError || !data) {
         setError(fetchError?.message ?? "정보를 불러오지 못했습니다.");
       } else {
@@ -245,6 +273,39 @@ export default function SettingsPage() {
     setTenant(prev => prev ? { ...prev, cafe24_mall_id: cafe24MallId.trim() || null } : prev);
     setCafe24Saved(true);
     setTimeout(() => setCafe24Saved(false), 3000);
+  }
+
+  // 카페24 카테고리 동기화 — API 호출로 카테고리 fetch + state 저장
+  async function syncCafe24Categories() {
+    setCatSyncing(true);
+    try {
+      const res = await fetch("/api/cafe24/categories");
+      const data = await res.json() as { categories?: { category_no: number; parent_category_no: number | null; category_name: string }[]; error?: string };
+      if (!res.ok || data.error) { alert(data.error ?? "카테고리 동기화 실패"); return; }
+      setCafe24Cats(data.categories ?? []);
+    } catch (e) { alert(String(e)); }
+    setCatSyncing(false);
+  }
+
+  // 카테고리 매핑 저장
+  async function saveCategoryMapping() {
+    setCatSaving(true);
+    const mappings = retailCategories.map(rc => ({
+      retail_category: rc,
+      cafe24_category_no: catMapping[rc] ? Number(catMapping[rc]) : null,
+    }));
+    try {
+      const res = await fetch("/api/cafe24/category-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mappings }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || data.error) { alert(data.error ?? "저장 실패"); return; }
+      setCatSaved(true);
+      setTimeout(() => setCatSaved(false), 3000);
+    } catch (e) { alert(String(e)); }
+    setCatSaving(false);
   }
 
   // 물류회사(삼촌) 배정 저장 — 베타·DEV 전용. browser-direct.
@@ -669,6 +730,75 @@ export default function SettingsPage() {
                   카페24 판매자 계정으로 로그인 후 권한을 허용하면 자동으로 연동됩니다.
                 </p>
               </div>
+
+              {/* 카테고리 매핑 — 연동된 경우만 노출 */}
+              {cafe24Status?.connected && retailCategories.length > 0 && (
+                <div className="pt-3 mt-3 border-t border-gray-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-black">카테고리 매핑</p>
+                    <button
+                      type="button"
+                      onClick={syncCafe24Categories}
+                      disabled={catSyncing}
+                      className={`${styles.btnSmallGhost} text-[11px] disabled:opacity-50`}
+                    >
+                      {catSyncing ? "동기화 중…" : (cafe24Cats ? "재동기화" : "카테고리 불러오기")}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mb-3">
+                    플로포스 카테고리 → 카페24 카테고리 매핑 (전송 시 자동 적용)
+                  </p>
+                  {cafe24Cats === null ? (
+                    <p className="text-[11px] text-gray-400">위 버튼으로 카페24 카테고리를 먼저 불러오세요.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {(() => {
+                        // 카페24 카테고리 트리 구성 (parent_no 기준)
+                        const roots = cafe24Cats.filter(c => c.parent_category_no === 1 || c.parent_category_no === null);
+                        type CatOption = { value: number; label: string };
+                        const buildOptions = (): CatOption[] => {
+                          const opts: CatOption[] = [];
+                          const addWithChildren = (parent: typeof cafe24Cats[0], prefix: string) => {
+                            opts.push({ value: parent.category_no, label: prefix + parent.category_name });
+                            cafe24Cats
+                              .filter(c => c.parent_category_no === parent.category_no)
+                              .forEach(child => addWithChildren(child, prefix + parent.category_name + " > "));
+                          };
+                          roots.forEach(r => addWithChildren(r, ""));
+                          return opts;
+                        };
+                        const catOptions = buildOptions();
+                        return retailCategories.map(rc => (
+                          <div key={rc} className="flex items-center gap-2">
+                            <span className="text-xs text-black w-28 shrink-0">{rc}</span>
+                            <select
+                              value={catMapping[rc] ?? ""}
+                              onChange={e => setCatMapping(prev => ({ ...prev, [rc]: e.target.value ? Number(e.target.value) : "" }))}
+                              className={`${styles.modalInput} flex-1 text-xs`}
+                            >
+                              <option value="">(매핑 없음)</option>
+                              {catOptions.map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ));
+                      })()}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={saveCategoryMapping}
+                          disabled={catSaving}
+                          className={`${styles.btnPrimary} disabled:opacity-50`}
+                        >
+                          {catSaving ? "저장 중…" : "매핑 저장"}
+                        </button>
+                        {catSaved && <span className="text-[11px] text-green-700">저장되었습니다.</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
