@@ -450,7 +450,7 @@ export default function ProductsPage() {
                   </div>
                 </th>
                 <th className={thTopInput + " min-w-[140px]"}>메모(진행)</th>
-                <th rowSpan={2} className={thTop + " w-8"} title="플랫폼 전송 현황"></th>
+                <th rowSpan={2} className={thTop} style={{ width: 22, padding: "0 1px" }} title="플랫폼 전송 현황">연동</th>
                 <th className={thTopInput + " min-w-[160px]"}>상품명</th>
                 <th className={thTopInput + " min-w-[130px]"}>옵션1</th>
                 <th className={thTopInput + " min-w-[130px]"}>옵션2 (사이즈)</th>
@@ -513,7 +513,7 @@ export default function ProductsPage() {
                         </div>
                       </td>
                       {/* 플랫폼 아이콘 셀 (rowSpan=2) — 전송된 플랫폼 뱃지 표시. 플랫폼 추가 시 아이콘만 추가 */}
-                      <td rowSpan={2} className={td + " text-center border-b-2 border-b-gray-300 w-8"}>
+                      <td rowSpan={2} className={td + " text-center border-b-2 border-b-gray-300"} style={{ width: 22, padding: "0 1px" }}>
                         <div className="flex flex-col items-center gap-1">
                           {row.cafe24_product_no ? (
                             <div
