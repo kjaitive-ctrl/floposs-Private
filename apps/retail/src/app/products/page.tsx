@@ -564,7 +564,7 @@ export default function ProductsPage() {
                       </td>
                       {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란 */}
                       <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center justify-end gap-1">
                           <input id={`cell-${row._key}-regular_sale_price`}
                             type="text" inputMode="numeric"
                             value={formatComma(row.regular_sale_price)}
@@ -573,7 +573,7 @@ export default function ProductsPage() {
                             className={inp + " text-right flex-1 min-w-0"} />
                           <button type="button" title="마진 계산"
                             onClick={() => setMarginRow(row)}
-                            className="text-gray-300 hover:text-blue-500 text-[10px] font-bold leading-none px-0.5 shrink-0">%</button>
+                            className="text-gray-300 hover:text-gray-600 shrink-0">%</button>
                         </div>
                       </td>
                       <td className={tdTop}>
