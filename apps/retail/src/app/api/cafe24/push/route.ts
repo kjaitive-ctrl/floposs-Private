@@ -12,6 +12,7 @@ interface DbVariant {
   is_active: boolean | null;
 }
 interface DbImage { url: string; sort_order: number | null; is_main: boolean | null }
+interface DbMeasurement { size: string; measurements: Record<string, string | number> }
 interface DbProduct {
   id: string;
   consumer_name: string | null;
@@ -26,6 +27,7 @@ interface DbProduct {
   cafe24_product_no: number | null;
   product_variants: DbVariant[];
   product_images: DbImage[];
+  product_measurements: DbMeasurement[];
 }
 
 function uniq(arr: (string | null | undefined)[]): string[] {
@@ -43,13 +45,53 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function buildDetailHtml(p: DbProduct): string {
+const TD = `style="border:1px solid #e0e0e0;padding:6px 10px;text-align:center;font-size:12px;"`;
+const TH = `style="border:1px solid #e0e0e0;padding:6px 10px;text-align:center;font-size:12px;background:#f8f8f8;font-weight:600;"`;
+
+function buildSizeTable(measurements: DbMeasurement[], fieldKeys: string[]): string {
+  if (measurements.length === 0 || fieldKeys.length === 0) return "";
+  // 값이 하나라도 있는 row만 포함
+  const rows = measurements
+    .filter(m => fieldKeys.some(k => m.measurements[k] != null && m.measurements[k] !== ""))
+    .sort((a, b) => a.size.localeCompare(b.size));
+  if (rows.length === 0) return "";
+
+  const headers = ["사이즈", ...fieldKeys].map(k => `<th ${TH}>${escapeHtml(k)}</th>`).join("");
+  const trs = rows.map(m => {
+    const cells = [
+      `<td ${TD}><strong>${escapeHtml(m.size)}</strong></td>`,
+      ...fieldKeys.map(k => `<td ${TD}>${escapeHtml(String(m.measurements[k] ?? "—"))}</td>`),
+    ].join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+
+  return `<table style="width:100%;border-collapse:collapse;margin:16px 0;">\n<thead><tr>${headers}</tr></thead>\n<tbody>${trs}</tbody>\n</table>`;
+}
+
+function buildDetailHtml(
+  p: DbProduct,
+  sortedImages: DbImage[],
+  fieldKeys: string[],
+): string {
+  const lines: string[] = [];
+
+  // 상세 이미지 (전체)
+  for (const img of sortedImages) {
+    lines.push(`<p><img src="${escapeHtml(img.url)}" style="max-width:100%;display:block;" alt="" /></p>`);
+  }
+
+  // 사이즈표
+  const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys);
+  if (sizeTable) lines.push(sizeTable);
+
+  // 소재/제조국
   const origin = escapeHtml(p.country_of_origin ?? "");
   const material = escapeHtml(materialText(p.material_composition));
-  const lines: string[] = [];
-  if (origin) lines.push(`<p>제조국: ${origin}</p>`);
+  if (origin)   lines.push(`<p>제조국: ${origin}</p>`);
   if (material) lines.push(`<p>혼용률: ${material}</p>`);
+
   lines.push(`<p style="font-size:11px;color:#888;margin-top:24px;">* 모니터 환경에 따라 색상이 다소 다를 수 있습니다.<br>* 수작업 측정으로 1~3cm 오차가 있을 수 있습니다.</p>`);
+
   return lines.join("\n");
 }
 
@@ -96,7 +138,7 @@ export async function POST(req: NextRequest) {
   const globalCategoryNos: number[] = (tenantRow as { cafe24_global_category_nos?: number[] | null } | null)
     ?.cafe24_global_category_nos ?? [];
 
-  // 상품 로드
+  // 상품 로드 (measurements 포함)
   const { data: products } = await db
     .from("products")
     .select(`
@@ -106,10 +148,24 @@ export async function POST(req: NextRequest) {
       country_of_origin, material_composition,
       cafe24_product_no,
       product_variants(consumer_label_color, consumer_label_size, consumer_label_option3, is_active),
-      product_images(url, sort_order, is_main)
+      product_images(url, sort_order, is_main),
+      product_measurements(size, measurements)
     `)
     .in("id", productIds)
     .eq("tenant_id", tenantId);
+
+  // 카테고리별 사이즈 field_keys 로드 (상품들의 카테고리 목록 기준)
+  const categories = [...new Set((products ?? [])
+    .map(p => (p as unknown as DbProduct).category)
+    .filter((c): c is string => !!c))];
+  const { data: templateRows } = categories.length > 0
+    ? await db.from("measurement_templates")
+        .select("category, field_keys")
+        .in("category", categories)
+    : { data: [] };
+  const templateMap = new Map<string, string[]>(
+    (templateRows ?? []).map((t: { category: string; field_keys: string[] }) => [t.category, t.field_keys])
+  );
 
   type PushResult = { id: string; ok: boolean; cafe24_product_no?: number; error?: string };
   const results: PushResult[] = [];
@@ -127,7 +183,9 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
-      const mainImageUrl = images[0].url; // product_images.url = full public URL (R2)
+      const mainImageUrl = images[0].url;
+      // 갤러리 추가 이미지 (2번째~)
+      const additionalImages = images.slice(1).map(img => ({ image: img.url }));
 
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
@@ -149,7 +207,9 @@ export async function POST(req: NextRequest) {
       const productName = (p.consumer_name || p.wholesale_name || "").trim() || "상품명 미입력";
       const price = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
       const retailPrice = p.consumer_price ? Number(p.consumer_price) : undefined;
-      const detailHtml = buildDetailHtml(p);
+
+      const fieldKeys = templateMap.get(p.category ?? "") ?? [];
+      const detailHtml = buildDetailHtml(p, images, fieldKeys);
 
       const request: Record<string, unknown> = {
         product_name: productName,
@@ -161,6 +221,7 @@ export async function POST(req: NextRequest) {
         detail_image: mainImageUrl,
         list_image: mainImageUrl,
         small_image: mainImageUrl,
+        ...(additionalImages.length > 0 ? { additional_images: additionalImages } : {}),
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(detailHtml ? { detail_content: detailHtml } : {}),
         ...(optionList.length > 0 ? {
@@ -189,7 +250,7 @@ export async function POST(req: NextRequest) {
         product_id: p.id,
         cafe24_product_no: cafe24ProductNo,
         status: "success",
-      }).then(() => {}); // fire-and-forget
+      }).then(() => {});
 
       results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined });
     } catch (e) {
