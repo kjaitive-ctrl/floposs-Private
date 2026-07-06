@@ -28,7 +28,7 @@ export async function GET() {
 
   try {
     const result = await cafe24Api<{ categories: Cafe24Cat[] }>(
-      token.mall_id, token.access_token, "GET", "categories?limit=200"
+      token.mall_id, token.access_token, "GET", "categories?limit=100"
     );
     const categories = result.categories ?? [];
 
