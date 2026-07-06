@@ -8,10 +8,10 @@ interface Props {
   onClose: () => void;
 }
 
-// 수수료 = 상시판매가 × 11% − 2,200원
+// 수수료 = 상시판매가 × 11% + 2,200원
 // 마진   = 상시판매가 − 수수료 − 도매가
 function calcFee(sell: number): number {
-  return Math.round(sell * 0.11 - 2200);
+  return Math.round(sell * 0.11 + 2200);
 }
 
 export default function MarginCalcModal({ productName, sellPrice, wholesalePrice, onClose }: Props) {
@@ -41,7 +41,7 @@ export default function MarginCalcModal({ productName, sellPrice, wholesalePrice
             <span className="font-medium">{sell > 0 ? formatComma(sell) + "원" : "—"}</span>
           </div>
           <div className="flex justify-between items-baseline">
-            <span className="text-gray-500">수수료 (11% − 2,200원)</span>
+            <span className="text-gray-500">수수료 (11% + 2,200원)</span>
             <span className={`font-medium ${fee >= 0 ? "text-rose-600" : "text-blue-600"}`}>
               {sell > 0 ? (fee >= 0 ? "−" : "+") + formatComma(Math.abs(fee)) + "원" : "—"}
             </span>
