@@ -140,7 +140,7 @@ export default function SettingsPage() {
         setLoading(false);
         return;
       }
-      const [{ data, error: fetchError }, { data: planRows }, cafe24Res, catMapRes, retailCatRes] = await Promise.all([
+      const [{ data, error: fetchError }, { data: planRows }, cafe24Res, catMapRes, retailCatRes, cafe24CatsRes] = await Promise.all([
         supabase
           .from("tenants")
           .select(`
@@ -163,6 +163,7 @@ export default function SettingsPage() {
           .order("price", { ascending: true }),
         fetch("/api/cafe24/status").then(r => r.json() as Promise<Cafe24Status>).catch(() => null),
         fetch("/api/cafe24/category-map").then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch("/api/cafe24/categories").then(r => r.ok ? r.json() : null).catch(() => null),
         supabase
           .from("measurement_templates")
           .select("category")
@@ -184,6 +185,11 @@ export default function SettingsPage() {
         const set = new Set<string>();
         (retailCatRes.data as { category: string }[]).forEach(r => set.add(r.category));
         setRetailCategories(Array.from(set));
+      }
+      // DB 캐시된 카페24 카테고리 자동 로드 (연동 후 한번이라도 동기화한 경우)
+      const catsPayload = cafe24CatsRes as { categories?: Cafe24Cat[] } | null;
+      if (catsPayload?.categories && catsPayload.categories.length > 0) {
+        setCafe24Cats(catsPayload.categories);
       }
       if (fetchError || !data) {
         setError(fetchError?.message ?? "정보를 불러오지 못했습니다.");
@@ -282,7 +288,7 @@ export default function SettingsPage() {
   async function syncCafe24Categories() {
     setCatSyncing(true);
     try {
-      const res = await fetch("/api/cafe24/categories");
+      const res = await fetch("/api/cafe24/categories?sync=1");
       const data = await res.json() as { categories?: { category_no: number; parent_category_no: number | null; category_name: string }[]; error?: string };
       if (!res.ok || data.error) { alert(data.error ?? "카테고리 동기화 실패"); return; }
       setCafe24Cats(data.categories ?? []);
