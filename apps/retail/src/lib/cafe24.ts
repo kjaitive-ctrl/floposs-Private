@@ -17,7 +17,7 @@ const REDIRECT_URI = process.env.CAFE24_REDIRECT_URI ?? "";
 // 필요한 최소 권한 (상품 + 상품분류 읽기/쓰기)
 const SCOPES = "mall.read_product,mall.write_product,mall.read_category,mall.write_category";
 // X-Cafe24-Api-Version (YYYY-MM-DD). 테스트 시 개발자센터 최신 버전으로 확정.
-const API_VERSION = process.env.CAFE24_API_VERSION || "2025-06-01";
+const API_VERSION = process.env.CAFE24_API_VERSION || "2026-03-01";
 
 const baseUrl = (mallId: string) => `https://${mallId}.cafe24api.com`;
 const basicAuth = () => "Basic " + Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString("base64");
