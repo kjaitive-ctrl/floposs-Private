@@ -564,7 +564,7 @@ export default function ProductsPage() {
                       </td>
                       {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란 */}
                       <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-2">
                           <input id={`cell-${row._key}-regular_sale_price`}
                             type="text" inputMode="numeric"
                             value={formatComma(row.regular_sale_price)}
