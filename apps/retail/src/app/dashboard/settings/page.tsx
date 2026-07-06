@@ -163,13 +163,13 @@ export default function SettingsPage() {
           .order("price", { ascending: true }),
         fetch("/api/cafe24/status").then(r => r.json() as Promise<Cafe24Status>).catch(() => null),
         fetch("/api/cafe24/category-map").then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch("/api/cafe24/categories").then(r => r.ok ? r.json() : null).catch(() => null),
         supabase
           .from("measurement_templates")
           .select("category")
           .or(`tenant_id.is.null,tenant_id.eq.${tenantId}`)
           .eq("is_active", true)
           .order("sort_order", { ascending: true }),
+        fetch("/api/cafe24/categories").then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       if (cancelled) return;
       if (planRows) setPlans(planRows as RetailPlan[]);
@@ -334,6 +334,7 @@ export default function SettingsPage() {
     setLogiSaving(false);
     if (err) { alert(err.message); return; }
     setLogiSaved(true);
+    setTimeout(() => setLogiSaved(false), 3000);
   }
 
   // ── 구독: 플랜 선택/변경 ──

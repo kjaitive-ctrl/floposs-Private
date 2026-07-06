@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getValidTokenForTenant, cafe24Api } from "@/lib/cafe24";
-
-const admin = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
 
 interface Cafe24Cat {
   category_no: number;
@@ -24,7 +18,7 @@ export async function GET(req: Request) {
   const tenantId = (user?.app_metadata as { tenant_id?: string } | undefined)?.tenant_id;
   if (!tenantId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const db = admin();
+  const db = supabaseAdmin;
   const doSync = new URL(req.url).searchParams.get("sync") === "1";
 
   if (!doSync) {

@@ -3,7 +3,7 @@ import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 // 해당 wholesale tenant 의 active products + active variants 목록.
-// 단가/원가 응답 제외 (retail user 단가 노출 X 정책).
+// unit_price(결제 단가) 포함 — SaleForm 가격 표시 용도. base_price/sale_price raw 컬럼은 응답 제외.
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const supabase = await getSupabaseRouteClient();
   const {

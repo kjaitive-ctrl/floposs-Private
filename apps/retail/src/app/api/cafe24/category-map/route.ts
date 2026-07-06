@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
-
-const admin = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 async function getTenantId(): Promise<string | null> {
   const supabase = await getSupabaseRouteClient();
@@ -19,7 +13,7 @@ export async function GET() {
   const tenantId = await getTenantId();
   if (!tenantId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const db = admin();
+  const db = supabaseAdmin;
   const { data } = await db
     .from("tenant_category_mapping")
     .select("retail_category, cafe24_category_no")
@@ -37,7 +31,7 @@ export async function POST(req: NextRequest) {
     mappings: { retail_category: string; cafe24_category_no: number | null }[];
   };
 
-  const db = admin();
+  const db = supabaseAdmin;
 
   // 0 또는 null 은 "미지정" → 해당 카테고리 행 삭제
   const toDelete = mappings.filter(m => !m.cafe24_category_no).map(m => m.retail_category);

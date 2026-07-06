@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getValidTokenForTenant, cafe24Api } from "@/lib/cafe24";
-
-const admin = () => createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { autoRefreshToken: false, persistSession: false } }
-);
 
 interface PushBody { productIds: string[] }
 
@@ -45,9 +39,13 @@ function materialText(raw: unknown): string {
   return String(raw);
 }
 
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function buildDetailHtml(p: DbProduct): string {
-  const origin = p.country_of_origin ?? "";
-  const material = materialText(p.material_composition);
+  const origin = escapeHtml(p.country_of_origin ?? "");
+  const material = escapeHtml(materialText(p.material_composition));
   const lines: string[] = [];
   if (origin) lines.push(`<p>제조국: ${origin}</p>`);
   if (material) lines.push(`<p>혼용률: ${material}</p>`);
@@ -66,7 +64,10 @@ export async function POST(req: NextRequest) {
   const tenantId = (user?.app_metadata as { tenant_id?: string } | undefined)?.tenant_id;
   if (!tenantId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
-  const { productIds } = await req.json() as PushBody;
+  let body: PushBody;
+  try { body = await req.json() as PushBody; }
+  catch { return NextResponse.json({ error: "잘못된 요청 body" }, { status: 400 }); }
+  const { productIds } = body;
   if (!Array.isArray(productIds) || productIds.length === 0)
     return NextResponse.json({ error: "productIds 필요" }, { status: 400 });
   if (productIds.length > 30)
@@ -75,7 +76,7 @@ export async function POST(req: NextRequest) {
   const token = await getValidTokenForTenant(tenantId);
   if (!token) return NextResponse.json({ error: "카페24 미연동 또는 토큰 만료" }, { status: 400 });
 
-  const db = admin();
+  const db = supabaseAdmin;
 
   // 카테고리 매핑 + 공통 카테고리 로드
   const [{ data: mappingRows }, { data: tenantRow }] = await Promise.all([
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest) {
       const productName = (p.consumer_name || p.wholesale_name || "").trim() || "상품명 미입력";
       const price = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
       const retailPrice = p.consumer_price ? Number(p.consumer_price) : undefined;
+      const detailHtml = buildDetailHtml(p);
 
       const request: Record<string, unknown> = {
         product_name: productName,
@@ -160,7 +162,7 @@ export async function POST(req: NextRequest) {
         list_image: mainImageUrl,
         small_image: mainImageUrl,
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
-        ...(buildDetailHtml(p) ? { detail_content: buildDetailHtml(p) } : {}),
+        ...(detailHtml ? { detail_content: detailHtml } : {}),
         ...(optionList.length > 0 ? {
           options: { has_option: "T", option_type: "T", option_list: optionList },
         } : {}),

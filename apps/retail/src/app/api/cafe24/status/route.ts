@@ -8,7 +8,7 @@ export async function GET() {
   const supabase = await getSupabaseRouteClient();
   const { data: { user } } = await supabase.auth.getUser();
   const tenantId = (user?.app_metadata as { tenant_id?: string } | undefined)?.tenant_id;
-  if (!tenantId) return NextResponse.json({ connected: false, mall_id: null });
+  if (!tenantId) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
 
   const { data } = await supabaseAdmin
     .from("tenant_cafe24_tokens")
