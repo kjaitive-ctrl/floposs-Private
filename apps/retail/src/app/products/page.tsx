@@ -19,6 +19,7 @@ import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
 import PriceModal from "@/components/PriceModal";
 import PriceHistoryModal from "@/components/PriceHistoryModal";
+import MarginCalcModal from "@/components/MarginCalcModal";
 import Cafe24PushModal from "@/components/Cafe24PushModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
@@ -82,6 +83,7 @@ export default function ProductsPage() {
   const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
   const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
   const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
+  const [marginRow, setMarginRow] = useState<ProductRow | null>(null);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [cafe24PushOpen, setCafe24PushOpen] = useState(false);
@@ -562,12 +564,17 @@ export default function ProductsPage() {
                       </td>
                       {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란 */}
                       <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
-                        <input id={`cell-${row._key}-regular_sale_price`}
-                          type="text" inputMode="numeric"
-                          value={formatComma(row.regular_sale_price)}
-                          onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
-                          onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
-                          className={inp + " text-right"} />
+                        <div className="flex items-center gap-0.5">
+                          <input id={`cell-${row._key}-regular_sale_price`}
+                            type="text" inputMode="numeric"
+                            value={formatComma(row.regular_sale_price)}
+                            onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
+                            onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
+                            className={inp + " text-right flex-1 min-w-0"} />
+                          <button type="button" title="마진 계산"
+                            onClick={() => setMarginRow(row)}
+                            className="text-gray-300 hover:text-blue-500 text-[10px] font-bold leading-none px-0.5 shrink-0">%</button>
+                        </div>
                       </td>
                       <td className={tdTop}>
                         <input id={`cell-${row._key}-sale_price`}
@@ -763,6 +770,18 @@ export default function ProductsPage() {
           productId={historyRow.id}
           productName={historyRow.consumer_name || historyRow.wholesale_name || ""}
           onClose={() => setHistoryRow(null)}
+        />
+      )}
+
+      {marginRow && (
+        <MarginCalcModal
+          productName={marginRow.consumer_name || marginRow.wholesale_name || ""}
+          sellPrice={marginRow.regular_sale_price ? Number(marginRow.regular_sale_price) : null}
+          wholesalePrice={
+            marginRow.wholesale_price_current ? Number(marginRow.wholesale_price_current)
+            : marginRow.wholesale_price ?? null
+          }
+          onClose={() => setMarginRow(null)}
         />
       )}
 
