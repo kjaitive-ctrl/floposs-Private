@@ -200,10 +200,10 @@ export async function POST(req: NextRequest) {
       const sizeValues  = uniq(activeVariants.map(v => v.consumer_label_size));
       const opt3Values  = uniq(activeVariants.map(v => v.consumer_label_option3));
 
-      const optionList: { option_name: string; option_value: { option_value_name: string }[] }[] = [];
-      if (colorValues.length > 0) optionList.push({ option_name: "색상", option_value: colorValues.map(v => ({ option_value_name: v })) });
-      if (sizeValues.length > 0)  optionList.push({ option_name: "사이즈", option_value: sizeValues.map(v => ({ option_value_name: v })) });
-      if (opt3Values.length > 0)  optionList.push({ option_name: "기타", option_value: opt3Values.map(v => ({ option_value_name: v })) });
+      const optionList: { name: string; option_value: { option_value_name: string }[] }[] = [];
+      if (colorValues.length > 0) optionList.push({ name: "색상", option_value: colorValues.map(v => ({ option_value_name: v })) });
+      if (sizeValues.length > 0)  optionList.push({ name: "사이즈", option_value: sizeValues.map(v => ({ option_value_name: v })) });
+      if (opt3Values.length > 0)  optionList.push({ name: "기타", option_value: opt3Values.map(v => ({ option_value_name: v })) });
 
       // 카테고리 조합: 상품별 매핑 + 공통 슬롯 (중복 제거)
       const mappedNo = categoryMap.get(p.category ?? "");
