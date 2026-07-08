@@ -717,7 +717,7 @@ export default function SamplesPage() {
                 const isReg = row.status === "registered";
                 const lockTxt = isReg ? " text-gray-400 bg-gray-50 cursor-not-allowed" : "";
                 return (
-                  <tr key={row._key} className="border-b border-gray-100 hover:bg-gray-50/40">
+                  <tr key={row._key} className="border-b border-gray-100 hover:bg-sky-100/70">
                     <td className={td + " text-center"}><SaveStatusDot status={saveState[row._key]} /></td>
                     {/* 메모(description): 클릭 시 MemoModal 열림. 줄바꿈 박제 가능. registered 후에도 편집 가능 */}
                     <td className={td}>
