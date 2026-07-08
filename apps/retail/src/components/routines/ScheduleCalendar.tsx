@@ -124,10 +124,12 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
             onKeyDown={(e) => { if (e.key === "Enter") add(); }} className={styles.inputMd} />
           <div className="flex gap-1.5 items-center">
             <input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="담당"
-              className={`${styles.inputMd} w-20 shrink-0`} />
-            <span className="text-[11px] text-gray-400 shrink-0">~종료일</span>
-            <input type="date" value={endDate} min={selected} onChange={(e) => setEndDate(e.target.value)}
-              title="여러 날짜를 기간으로 등록하려면 종료일을 선택하세요" className={`${styles.inputMd} flex-1`} />
+              className={`${styles.inputMd} w-20 shrink-0 px-2`} />
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <span className="text-[11px] text-gray-400 shrink-0">기간</span>
+              <input type="date" value={endDate} min={selected} onChange={(e) => setEndDate(e.target.value)}
+                title="여러 날짜를 기간으로 등록하려면 종료일을 선택하세요" className={`${styles.inputMd} min-w-0 px-2`} />
+            </div>
           </div>
           <button onClick={add} className={`${styles.btnPrimary} w-full`}>추가</button>
         </div>
