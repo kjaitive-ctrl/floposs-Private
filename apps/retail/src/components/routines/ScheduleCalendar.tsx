@@ -22,7 +22,7 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   const [selected, setSelected] = useState<string>(isoDate(today));
   const [title, setTitle] = useState("");
   const [assignee, setAssignee] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [endDate, setEndDate] = useState<string>(isoDate(today));
 
   const monthStart = isoDate(new Date(y, m, 1));
   const monthEnd = isoDate(new Date(y, m + 1, 0));
@@ -60,12 +60,13 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   function prevMonth() { if (m === 0) { setY(y - 1); setM(11); } else setM(m - 1); }
   function nextMonth() { if (m === 11) { setY(y + 1); setM(0); } else setM(m + 1); }
 
-  function selectDay(iso: string) { setSelected(iso); setEndDate(""); }
+  function selectDay(iso: string) { setSelected(iso); setEndDate(iso); }
+  function setStart(iso: string) { setSelected(iso); setEndDate(iso); }
 
   async function add() {
     if (!title.trim()) return;
-    await addEvent(tenantId, selected, title, assignee || null, null, endDate || undefined);
-    setTitle(""); setAssignee(""); setEndDate("");
+    await addEvent(tenantId, selected, title, assignee || null, null, endDate);
+    setTitle(""); setAssignee(""); setEndDate(selected);
     reload();
   }
   async function remove(id: string) { await deleteEvent(id); reload(); }
@@ -122,14 +123,14 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
         <div className="mb-3 space-y-1.5">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="일정 추가"
             onKeyDown={(e) => { if (e.key === "Enter") add(); }} className={styles.inputMd} />
-          <div className="flex gap-1.5 items-center">
-            <input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="담당"
-              className={`${styles.inputMd} w-20 shrink-0 px-2`} />
-            <div className="flex items-center gap-1 flex-1 min-w-0">
-              <span className="text-[11px] text-gray-400 shrink-0">기간</span>
-              <input type="date" value={endDate} min={selected} onChange={(e) => setEndDate(e.target.value)}
-                title="여러 날짜를 기간으로 등록하려면 종료일을 선택하세요" className={`${styles.inputMd} min-w-0 px-2`} />
-            </div>
+          <input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="담당"
+            className={`${styles.inputMd} w-20 px-2`} />
+          <div className="flex items-center gap-1">
+            <input type="date" value={selected} onChange={(e) => setStart(e.target.value)}
+              title="시작 날짜" className={`${styles.inputMd} min-w-0 px-2 flex-1`} />
+            <span className="text-[11px] text-gray-400 shrink-0">~</span>
+            <input type="date" value={endDate} min={selected} onChange={(e) => setEndDate(e.target.value)}
+              title="종료 날짜 (여러 날짜를 한 번에 등록하려면 시작일보다 뒤로 선택)" className={`${styles.inputMd} min-w-0 px-2 flex-1`} />
           </div>
           <button onClick={add} className={`${styles.btnPrimary} w-full`}>추가</button>
         </div>
