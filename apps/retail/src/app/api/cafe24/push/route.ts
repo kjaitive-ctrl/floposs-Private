@@ -205,8 +205,13 @@ export async function POST(req: NextRequest) {
       ])];
 
       const productName = (p.consumer_name || p.wholesale_name || "").trim() || "상품명 미입력";
-      const price = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
-      const retailPrice = p.consumer_price ? Number(p.consumer_price) : undefined;
+      const price = String(p.regular_sale_price ? Math.round(Number(p.regular_sale_price)) : 0);
+      const retailPrice = p.consumer_price ? String(Math.round(Number(p.consumer_price))) : undefined;
+      const supplyPrice = p.wholesale_price_current
+        ? String(Math.round(Number(p.wholesale_price_current)))
+        : p.wholesale_price
+        ? String(Math.round(Number(p.wholesale_price)))
+        : "0";
 
       const fieldKeys = templateMap.get(p.category ?? "") ?? [];
       const detailHtml = buildDetailHtml(p, images, fieldKeys);
@@ -215,6 +220,7 @@ export async function POST(req: NextRequest) {
         product_name: productName,
         supply_product_name: (p.wholesale_name || productName).trim(),
         price,
+        supply_price: supplyPrice,
         ...(retailPrice ? { retail_price: retailPrice } : {}),
         display: "F",
         selling: "T",
