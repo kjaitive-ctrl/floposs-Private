@@ -119,7 +119,6 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
 
       {/* 선택일 이벤트 */}
       <div className="bg-white border border-gray-200 rounded-xl p-3">
-        <div className="text-sm font-bold text-black mb-2">{selected} 일정</div>
         <div className="mb-3 space-y-1.5">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="일정 추가"
             onKeyDown={(e) => { if (e.key === "Enter") add(); }} className={styles.inputMd} />
@@ -135,7 +134,7 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
           <button onClick={add} className={`${styles.btnPrimary} w-full`}>추가</button>
         </div>
         {selEvents.length === 0 ? (
-          <div className="text-xs text-gray-400 py-4 text-center">일정 없음</div>
+          <div className="text-xs text-gray-400 py-4 text-center">{fmtMD(selected)} 일정 없음</div>
         ) : (
           <ul className="space-y-1">
             {selEvents.map((e) => (

@@ -7,11 +7,11 @@ import { useTenant } from "@/lib/TenantContext";
 import RoutineSetup from "@/components/routines/RoutineSetup";
 import ScheduleCalendar from "@/components/routines/ScheduleCalendar";
 
-// 업무루틴 + 일정 세팅(메인). ?tab=schedule 로 일정 탭 직행(대시보드 "달력" 링크). 마이그 208.
+// 업무루틴 + 일정 세팅(메인). 기본 탭=일정. ?tab=routine 으로 업무루틴 탭 직행. 마이그 208.
 function RoutinesInner() {
   const { tenant } = useTenant();
   const sp = useSearchParams();
-  const [tab, setTab] = useState<"routine" | "schedule">(sp.get("tab") === "schedule" ? "schedule" : "routine");
+  const [tab, setTab] = useState<"routine" | "schedule">(sp.get("tab") === "routine" ? "routine" : "schedule");
 
   if (!tenant?.id) return <div className="text-xs text-gray-400">불러오는 중…</div>;
 
