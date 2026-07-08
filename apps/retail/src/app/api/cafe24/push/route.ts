@@ -202,10 +202,10 @@ export async function POST(req: NextRequest) {
 
       // 옵션 포맷: CSV 엑셀업로드와 동일하게 value = 파이프 구분 문자열
       // 예: { name: "색상", value: "아이보리|크림|연카키" }
-      const optionList: { name: string; value: string }[] = [];
-      if (colorValues.length > 0) optionList.push({ name: "색상", value: colorValues.join("|") });
-      if (sizeValues.length > 0)  optionList.push({ name: "사이즈", value: sizeValues.join("|") });
-      if (opt3Values.length > 0)  optionList.push({ name: "기타", value: opt3Values.join("|") });
+      const optionList: { name: string; value: string[] }[] = [];
+      if (colorValues.length > 0) optionList.push({ name: "색상", value: colorValues });
+      if (sizeValues.length > 0)  optionList.push({ name: "사이즈", value: sizeValues });
+      if (opt3Values.length > 0)  optionList.push({ name: "기타", value: opt3Values });
 
       // 카테고리 조합: 상품별 매핑 + 공통 슬롯 (중복 제거)
       const mappedNo = categoryMap.get(p.category ?? "");
