@@ -1,17 +1,76 @@
 "use client";
 
-// 일정(다이어리) — 간단 월 캘린더(자체 그리드) + 날짜별 이벤트 추가/삭제.
+// 일정(다이어리) — 월 캘린더(자체 그리드) + 날짜별 이벤트 추가/삭제.
 // 마이그 208(단발) + 213(기간). 기간 일정은 한 row(event_date~end_date)로 등록되고
-// 달력에서 이어진 띠(band)로 표시됨.
+// 달력에서 이어진 띠(band)로 표시됨. 하루에 여러 일정이 겹치면 주(week) 단위로
+// 레인(lane)을 배정해 여러 줄로 쌓아서 보여줌(구글캘린더 월간뷰 방식).
 import { useCallback, useEffect, useState } from "react";
 import { styles } from "@/common/styles";
 import { isoDate, loadEvents, addEvent, deleteEvent, type ScheduleEvent } from "@/lib/routines";
 
 const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
+const CHIP_COLORS = [
+  "bg-sky-100 text-sky-800",
+  "bg-amber-100 text-amber-800",
+  "bg-emerald-100 text-emerald-800",
+  "bg-violet-100 text-violet-800",
+  "bg-rose-100 text-rose-800",
+  "bg-lime-100 text-lime-800",
+  "bg-cyan-100 text-cyan-800",
+  "bg-fuchsia-100 text-fuchsia-800",
+];
+function chipColor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return CHIP_COLORS[h % CHIP_COLORS.length];
+}
 
 function fmtMD(iso: string): string {
   const [, mo, da] = iso.split("-");
   return `${Number(mo)}/${Number(da)}`;
+}
+
+type DaySlot = { d: number; iso: string } | null;
+type Seg = { e: ScheduleEvent; isStart: boolean; isEnd: boolean };
+type WeekCol = { d: number; iso: string; lanes: (Seg | null)[] } | null;
+
+// 한 주(7일)를 받아 겹치는 일정에 레인(0,1,2..)을 배정. 같은 일정은 그 주 안에서 항상 같은
+// 레인에 놓여 이어진 줄로 보임(주 경계에서는 새로 배정 — 자연스러운 줄바꿈).
+function layoutWeek(week: DaySlot[], events: ScheduleEvent[]): { maxLanes: number; cols: WeekCol[] } {
+  const realDays = week.filter((c): c is { d: number; iso: string } => c !== null);
+  if (realDays.length === 0) return { maxLanes: 0, cols: week.map(() => null) };
+  const firstIso = realDays[0].iso;
+  const lastIso = realDays[realDays.length - 1].iso;
+  const weekEvents = events.filter((e) => e.event_date <= lastIso && e.end_date >= firstIso);
+  const clipped = weekEvents
+    .map((e) => ({
+      e,
+      cs: e.event_date > firstIso ? e.event_date : firstIso,
+      ce: e.end_date < lastIso ? e.end_date : lastIso,
+    }))
+    .sort((a, b) => a.cs.localeCompare(b.cs) || b.ce.localeCompare(a.ce) || a.e.id.localeCompare(b.e.id));
+
+  const laneEnds: string[] = [];
+  const placed: { e: ScheduleEvent; cs: string; ce: string; lane: number }[] = [];
+  for (const item of clipped) {
+    let lane = laneEnds.findIndex((end) => end < item.cs);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(item.ce); }
+    else laneEnds[lane] = item.ce;
+    placed.push({ ...item, lane });
+  }
+  const maxLanes = laneEnds.length;
+
+  const cols = week.map((slot) => {
+    if (!slot) return null;
+    const lanes: (Seg | null)[] = Array(maxLanes).fill(null);
+    for (const p of placed) {
+      if (slot.iso >= p.cs && slot.iso <= p.ce) {
+        lanes[p.lane] = { e: p.e, isStart: slot.iso === p.cs, isEnd: slot.iso === p.ce };
+      }
+    }
+    return { d: slot.d, iso: slot.iso, lanes };
+  });
+  return { maxLanes, cols };
 }
 
 export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
@@ -32,27 +91,22 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   }, [tenantId, monthStart, monthEnd]);
   useEffect(() => { reload(); }, [reload]);
 
-  // 그 날짜와 "겹치는" 모든 일정(기간 일정은 진행 중인 모든 날에 잡힘)
+  // 그 날짜와 "겹치는" 모든 일정(기간 일정은 진행 중인 모든 날에 잡힘) — 선택일 패널용
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
   const byDate = new Map<string, ScheduleEvent[]>();
-  const daysInMonth0 = new Date(y, m + 1, 0).getDate();
-  for (let d = 1; d <= daysInMonth0; d++) {
+  for (let d = 1; d <= daysInMonth; d++) {
     const iso = isoDate(new Date(y, m, d));
     const list = events.filter((e) => e.event_date <= iso && e.end_date >= iso);
     if (list.length) byDate.set(iso, list);
   }
-  // 기간(2일+) 일정만 — 같은 날 여러 개면 시작일이 빠른 순으로 대표 1개만 띠로 표시
-  function rangeEventForDay(iso: string): ScheduleEvent | null {
-    const candidates = events
-      .filter((e) => e.event_date !== e.end_date && e.event_date <= iso && e.end_date >= iso)
-      .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.id.localeCompare(b.id));
-    return candidates[0] ?? null;
-  }
 
   const startDow = new Date(y, m, 1).getDay();
-  const daysInMonth = daysInMonth0;
-  const cells: (number | null)[] = [];
-  for (let i = 0; i < startDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const slots: DaySlot[] = [];
+  for (let i = 0; i < startDow; i++) slots.push(null);
+  for (let d = 1; d <= daysInMonth; d++) slots.push({ d, iso: isoDate(new Date(y, m, d)) });
+  while (slots.length % 7 !== 0) slots.push(null);
+  const weeks: DaySlot[][] = [];
+  for (let i = 0; i < slots.length; i += 7) weeks.push(slots.slice(i, i + 7));
 
   const todayIso = isoDate(today);
   const selEvents = byDate.get(selected) ?? [];
@@ -72,49 +126,53 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   async function remove(id: string) { await deleteEvent(id); reload(); }
 
   return (
-    <div className="grid md:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* 캘린더 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-3">
-        <div className="flex items-center justify-between mb-2">
-          <button onClick={prevMonth} className="text-gray-400 hover:text-black px-2">‹</button>
-          <span className="text-sm font-bold text-black">{y}년 {m + 1}월</span>
-          <button onClick={nextMonth} className="text-gray-400 hover:text-black px-2">›</button>
+      <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={prevMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">‹</button>
+          <span className="text-lg font-bold text-black">{y}년 {m + 1}월</span>
+          <button onClick={nextMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">›</button>
         </div>
-        <div className="grid grid-cols-7 text-center text-[11px] text-gray-400 mb-1">
+        <div className="grid grid-cols-7 text-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1">
           {CAL_DOW.map((d, i) => <div key={d} className={i === 0 ? "text-rose-400" : i === 6 ? "text-blue-400" : ""}>{d}</div>)}
         </div>
-        <div className="grid grid-cols-7 gap-y-0.5">
-          {cells.map((d, i) => {
-            if (d == null) return <div key={i} />;
-            const iso = isoDate(new Date(y, m, d));
-            const dow = i % 7;
-            const cnt = byDate.get(iso)?.length ?? 0;
-            const isSel = iso === selected;
-            const isToday = iso === todayIso;
-            const rangeEv = rangeEventForDay(iso);
-            const isStart = !!rangeEv && (rangeEv.event_date === iso || dow === 0);
-            const isEnd = !!rangeEv && (rangeEv.end_date === iso || dow === 6);
-            const bandRound = !rangeEv ? "" : isStart && isEnd ? "rounded" : isStart ? "rounded-l" : isEnd ? "rounded-r" : "";
-            const marginCls = `${rangeEv && !isStart ? "ml-0" : "ml-[1px]"} ${rangeEv && !isEnd ? "mr-0" : "mr-[1px]"}`;
+        <div className="divide-y divide-gray-100">
+          {weeks.map((week, wi) => {
+            const { cols } = layoutWeek(week, events);
             return (
-              <div key={i} className={`relative ${marginCls}`}>
-                {rangeEv && <div className={`absolute inset-0 bg-amber-100 ${bandRound}`} />}
-                <button onClick={() => selectDay(iso)}
-                  className={"relative z-10 aspect-square w-full rounded text-xs flex flex-col items-center justify-center border " +
-                    (isSel ? "border-black bg-gray-50" : "border-transparent hover:bg-gray-50/70") +
-                    (isToday ? " font-bold text-black" : " text-gray-600")}>
-                  <span>{d}</span>
-                  {cnt > 0 && <span className="w-1 h-1 rounded-full bg-emerald-500 mt-0.5" />}
-                </button>
+              <div key={wi} className="grid grid-cols-7 divide-x divide-gray-100">
+                {cols.map((col, ci) => {
+                  if (!col) return <div key={ci} className="min-h-[110px]" />;
+                  const { d, iso, lanes } = col;
+                  const isSel = iso === selected;
+                  const isToday = iso === todayIso;
+                  return (
+                    <div key={ci} className={`min-h-[110px] flex flex-col ${isSel ? "bg-gray-50" : ""}`}>
+                      <button onClick={() => selectDay(iso)}
+                        className={"m-1 self-start w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-xs " +
+                          (isToday ? "bg-black text-white font-bold" : isSel ? "border border-black text-black font-bold" : "text-gray-600 hover:bg-gray-100")}>
+                        {d}
+                      </button>
+                      <div className="flex flex-col gap-[2px] pb-1">
+                        {lanes.map((seg, li) => {
+                          if (!seg) return <div key={li} className="h-[16px]" />;
+                          const round = (seg.isStart ? "rounded-l " : "") + (seg.isEnd ? "rounded-r" : "");
+                          return (
+                            <div key={li} title={seg.e.title}
+                              className={`h-[16px] leading-[16px] text-[10px] px-1 truncate ${chipColor(seg.e.id)} ${round}`}>
+                              {seg.isStart ? seg.e.title : " "}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
         </div>
-        {events.some((e) => e.event_date !== e.end_date) && (
-          <div className="flex items-center gap-1 mt-2 text-[11px] text-gray-400">
-            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-100" /> 기간 일정
-          </div>
-        )}
       </div>
 
       {/* 선택일 이벤트 */}
@@ -139,6 +197,7 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
           <ul className="space-y-1">
             {selEvents.map((e) => (
               <li key={e.id} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded text-sm">
+                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${chipColor(e.id).split(" ")[0]}`} />
                 <span className="text-black flex-1">
                   {e.title}
                   {e.assignee && <span className="text-gray-400 text-xs"> · {e.assignee}</span>}
