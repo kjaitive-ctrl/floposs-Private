@@ -105,9 +105,16 @@ export async function cafe24Api<T = unknown>(
   return res.json();
 }
 
-// 이미지 Buffer → base64 data URI → cafe24 상품에 직접 등록
-// PUT /api/v2/admin/products/{product_no} 의 detail_image 필드에 base64 data URI 사용
-export function toBase64DataUri(imageBuffer: Buffer, imageName = "image.jpg"): string {
-  const mime = imageName.match(/\.png$/i) ? "image/png" : "image/jpeg";
-  return `data:${mime};base64,${imageBuffer.toString("base64")}`;
+// 이미지 Buffer → 순수 base64(접두어 없음) → POST /products/{product_no}/images 로 업로드
+// cafe24가 CDN 업로드 + 상품 매핑을 한 번에 처리하는 공식 API
+export async function cafe24UploadImageToProduct(
+  mallId: string, accessToken: string, productNo: number,
+  imageBuffer: Buffer, imageName = "image.jpg",
+): Promise<void> {
+  const base64 = imageBuffer.toString("base64"); // data: 접두어 없는 순수 base64
+  await cafe24Api(
+    mallId, accessToken, "POST", `products/${productNo}/images`, {
+      request: { image: base64, image_name: imageName },
+    },
+  );
 }
