@@ -148,12 +148,13 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
                   const isSel = iso === selected;
                   const isToday = iso === todayIso;
                   return (
-                    <div key={ci} className={`min-h-[110px] flex flex-col ${isSel ? "bg-gray-50" : ""}`}>
-                      <button onClick={() => selectDay(iso)}
+                    <button key={ci} onClick={() => selectDay(iso)} type="button"
+                      className={`min-h-[110px] w-full flex flex-col items-stretch text-left cursor-pointer ${isSel ? "bg-gray-50" : "hover:bg-gray-50/60"}`}>
+                      <span
                         className={"m-1 self-start w-6 h-6 shrink-0 flex items-center justify-center rounded-full text-xs " +
-                          (isToday ? "bg-black text-white font-bold" : isSel ? "border border-black text-black font-bold" : "text-gray-600 hover:bg-gray-100")}>
+                          (isToday ? "bg-black text-white font-bold" : isSel ? "border border-black text-black font-bold" : "text-gray-600")}>
                         {d}
-                      </button>
+                      </span>
                       <div className="flex flex-col gap-[2px] pb-1">
                         {lanes.map((seg, li) => {
                           if (!seg) return <div key={li} className="h-[16px]" />;
@@ -166,7 +167,7 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
                           );
                         })}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
