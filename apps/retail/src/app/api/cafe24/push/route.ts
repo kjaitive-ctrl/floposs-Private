@@ -100,7 +100,16 @@ function buildDetailHtml(
 // - cafe24_product_no 없음 → POST create
 // - cafe24_product_no 있음 → PUT update
 // - 이미지 0장 → skip + error 반환
+// r2.dev 개발 URL → Vercel 프록시 URL로 변환 (카페24 서버가 r2.dev 접근 불가)
+function toProxyUrl(r2Url: string, origin: string): string {
+  const base = process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL ?? "";
+  if (!base || !r2Url.startsWith(base + "/")) return r2Url;
+  const key = r2Url.slice(base.length + 1);
+  return `${origin}/api/r2/pub/${key}`;
+}
+
 export async function POST(req: NextRequest) {
+  const origin = req.nextUrl.origin; // e.g. https://retail.floposs.com
   const supabase = await getSupabaseRouteClient();
   const { data: { user } } = await supabase.auth.getUser();
   const tenantId = (user?.app_metadata as { tenant_id?: string } | undefined)?.tenant_id;
@@ -183,9 +192,9 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
-      const mainImageUrl = images[0].url;
+      const mainImageUrl = toProxyUrl(images[0].url, origin);
       // 갤러리 추가 이미지 (2번째~)
-      const additionalImages = images.slice(1).map(img => ({ image: img.url }));
+      const additionalImages = images.slice(1).map(img => ({ image: toProxyUrl(img.url, origin) }));
 
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
