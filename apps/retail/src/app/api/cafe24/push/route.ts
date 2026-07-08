@@ -263,7 +263,18 @@ export async function POST(req: NextRequest) {
       let imageWarning: string | undefined;
       if (proxyUrls.length > 0 && cafe24ProductNo) {
         try {
-          await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
+          const imgPaths = await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
+          // 업로드 후 반환된 카페24 내부 경로로 상품 이미지 연결
+          if (imgPaths.detail_image) {
+            await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+              shop_no: 1,
+              request: {
+                detail_image: imgPaths.detail_image,
+                list_image: imgPaths.list_image ?? imgPaths.detail_image,
+                small_image: imgPaths.small_image ?? imgPaths.detail_image,
+              },
+            });
+          }
         } catch (imgErr) {
           imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 300)}`;
         }
