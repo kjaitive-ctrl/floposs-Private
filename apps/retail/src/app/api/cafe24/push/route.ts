@@ -234,7 +234,11 @@ export async function POST(req: NextRequest) {
         selling: "T",
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(detailHtml ? { detail_content: detailHtml } : {}),
-        has_option: "F",
+        has_option: optionList.length > 0 ? "T" : "F",
+        ...(optionList.length > 0 ? {
+          option_type: "C",
+          options: optionList,
+        } : {}),
       };
 
       let cafe24ProductNo = p.cafe24_product_no;
@@ -253,19 +257,25 @@ export async function POST(req: NextRequest) {
           .eq("id", p.id);
       }
 
-      // 상품 생성 후 이미지 등록
+      // 상품 생성 후 이미지 등록 (실패해도 상품 등록은 성공으로 처리, 경고 표시)
+      let imageWarning: string | undefined;
       if (proxyUrls.length > 0 && cafe24ProductNo) {
-        await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
+        try {
+          await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
+        } catch (imgErr) {
+          imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 300)}`;
+        }
       }
 
       await db.from("cafe24_export_log").insert({
         retail_tenant_id: tenantId,
         product_id: p.id,
         cafe24_product_no: cafe24ProductNo,
-        status: "success",
+        status: imageWarning ? "image_error" : "success",
+        ...(imageWarning ? { error: imageWarning } : {}),
       }).then(() => {});
 
-      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined });
+      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning });
     } catch (e) {
       db.from("cafe24_export_log").insert({
         retail_tenant_id: tenantId,
