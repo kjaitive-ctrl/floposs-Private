@@ -105,23 +105,39 @@ export async function cafe24Api<T = unknown>(
   return res.json();
 }
 
-// 상품 이미지 등록: POST /api/v2/admin/products/{product_no}/images
-// 응답에서 카페24 내부 경로를 받아 반환 → 호출자가 PUT으로 상품에 연결
-export async function cafe24UploadImage(
-  mallId: string, accessToken: string, productNo: number, urls: string[],
-): Promise<{ detail_image?: string; list_image?: string; small_image?: string }> {
-  if (urls.length === 0) return {};
-  const [detail, ...extra] = urls;
-  const data = await cafe24Api<{ images?: Record<string, string> }>(
+// 1단계: 이미지 Buffer → base64(data URI) → cafe24 스토리지 업로드 → CDN URL 반환
+// POST /api/v2/admin/products/images { request: { image: "data:image/jpeg;base64,...", image_name: "..." } }
+export async function cafe24UploadImageBase64(
+  mallId: string, accessToken: string, imageBuffer: Buffer, imageName = "image.jpg",
+): Promise<string> {
+  const mime = imageName.match(/\.png$/i) ? "image/png" : "image/jpeg";
+  const dataUri = `data:${mime};base64,${imageBuffer.toString("base64")}`;
+  const data = await cafe24Api<{ image?: Record<string, string> }>(
+    mallId, accessToken, "POST", "products/images",
+    { request: { image: dataUri, image_name: imageName } },
+  );
+  // 응답 필드 후보: big_image, detail_image, url, image_url
+  const img = data.image ?? {};
+  const url = img.big_image ?? img.detail_image ?? img.image_url ?? img.url
+    ?? Object.values(img).find(v => typeof v === "string" && v.startsWith("http"));
+  if (!url) throw new Error(`cafe24 이미지 업로드 실패: ${JSON.stringify(data)}`);
+  return url;
+}
+
+// 2단계: cafe24 CDN URL들을 상품에 등록
+// POST /api/v2/admin/products/{product_no}/images { request: { detail_image, big_image, list_image, small_image } }
+export async function cafe24LinkImagesToProduct(
+  mallId: string, accessToken: string, productNo: number, cdnUrl: string,
+): Promise<void> {
+  await cafe24Api(
     mallId, accessToken, "POST", `products/${productNo}/images`, {
       shop_no: 1,
       request: {
-        image_upload_type: "A",
-        detail_image: detail,
-        list_image: detail,
-        small_image: detail,
-        ...(extra.length > 0 ? { additional_images: extra.map(u => ({ image: u })) } : {}),
+        detail_image: cdnUrl,
+        big_image: cdnUrl,
+        list_image: cdnUrl,
+        small_image: cdnUrl,
       },
-    });
-  return data.images ?? {};
+    },
+  );
 }
