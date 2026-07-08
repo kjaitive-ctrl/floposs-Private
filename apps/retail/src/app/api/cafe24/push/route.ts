@@ -263,24 +263,19 @@ export async function POST(req: NextRequest) {
       let imageWarning: string | undefined;
       if (proxyUrls.length > 0 && cafe24ProductNo) {
         try {
-          const imgPaths = await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
-          imageWarning = `[DEBUG] 이미지 응답: ${JSON.stringify(imgPaths)}`;
-          // 업로드 후 반환된 카페24 내부 경로로 상품 이미지 연결
-          if (imgPaths.detail_image) {
-            await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+          const putRes = await cafe24Api<{ product?: Record<string, unknown> }>(
+            token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
               shop_no: 1,
               request: {
-                detail_image: imgPaths.detail_image,
-                list_image: imgPaths.list_image ?? imgPaths.detail_image,
-                small_image: imgPaths.small_image ?? imgPaths.detail_image,
+                image_upload_type: "A",
+                detail_image: proxyUrls[0],
+                list_image: proxyUrls[0],
+                small_image: proxyUrls[0],
               },
             });
-            imageWarning += " → PUT 완료";
-          } else {
-            imageWarning += " → detail_image 없음, PUT 스킵";
-          }
+          imageWarning = `[DEBUG] PUT 이미지 응답: ${JSON.stringify(putRes?.product?.detail_image ?? putRes)}`;
         } catch (imgErr) {
-          imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 300)}`;
+          imageWarning = `이미지 PUT 실패: ${String(imgErr).slice(0, 500)}`;
         }
       }
 
