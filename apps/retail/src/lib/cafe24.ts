@@ -105,16 +105,20 @@ export async function cafe24Api<T = unknown>(
   return res.json();
 }
 
-// 이미지 URL을 카페24에 등록 → 카페24 내부 경로 반환
-// POST /api/v2/admin/products/images (JSON, image URL 전달 → 카페24가 다운로드)
+// 상품 이미지 등록: POST /api/v2/admin/products/{product_no}/images
+// urls[0]=대표, urls[1~]=추가. 카페24가 URL에서 다운로드해서 저장.
 export async function cafe24UploadImage(
-  mallId: string, accessToken: string, imageUrl: string,
-): Promise<string> {
-  const data = await cafe24Api<{ images?: { image?: string } }>(
-    mallId, accessToken, "POST", "products/images",
-    { shop_no: 1, request: { image: imageUrl } },
-  );
-  const path = data.images?.image;
-  if (!path) throw new Error(`cafe24 image upload: 경로 없음 ${JSON.stringify(data)}`);
-  return path;
+  mallId: string, accessToken: string, productNo: number, urls: string[],
+): Promise<void> {
+  if (urls.length === 0) return;
+  const [detail, ...extra] = urls;
+  await cafe24Api(mallId, accessToken, "POST", `products/${productNo}/images`, {
+    shop_no: 1,
+    request: {
+      detail_image: detail,
+      list_image: detail,
+      small_image: detail,
+      ...(extra.length > 0 ? { additional_images: extra.map(u => ({ image: u })) } : {}),
+    },
+  });
 }

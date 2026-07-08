@@ -192,15 +192,8 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
-      // 이미지를 카페24에 먼저 업로드 → 카페24 내부 경로 획득
-      const uploadedImages: string[] = [];
-      for (const img of images) {
-        const proxyUrl = toProxyUrl(img.url, origin);
-        const path = await cafe24UploadImage(token.mall_id, token.access_token, proxyUrl);
-        uploadedImages.push(path);
-      }
-      const mainImageUrl = uploadedImages[0];
-      const additionalImages = uploadedImages.slice(1).map(path => ({ image: path }));
+      // 이미지 프록시 URL 준비 (상품 생성 후 products/{no}/images 에 등록)
+      const proxyUrls = images.map(img => toProxyUrl(img.url, origin));
 
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
@@ -239,10 +232,6 @@ export async function POST(req: NextRequest) {
         ...(retailPrice ? { retail_price: retailPrice } : {}),
         display: "F",
         selling: "T",
-        detail_image: mainImageUrl,
-        list_image: mainImageUrl,
-        small_image: mainImageUrl,
-        ...(additionalImages.length > 0 ? { additional_images: additionalImages } : {}),
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(detailHtml ? { detail_content: detailHtml } : {}),
         has_option: "F",
@@ -262,6 +251,11 @@ export async function POST(req: NextRequest) {
         await db.from("products")
           .update({ cafe24_product_no: cafe24ProductNo })
           .eq("id", p.id);
+      }
+
+      // 상품 생성 후 이미지 등록
+      if (proxyUrls.length > 0 && cafe24ProductNo) {
+        await cafe24UploadImage(token.mall_id, token.access_token, cafe24ProductNo, proxyUrls);
       }
 
       await db.from("cafe24_export_log").insert({
