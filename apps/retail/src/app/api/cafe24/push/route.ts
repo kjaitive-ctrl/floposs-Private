@@ -264,7 +264,7 @@ export async function POST(req: NextRequest) {
         status: "error",
         error: String(e).slice(0, 500),
       }).then(() => {});
-      results.push({ id: p.id, ok: false, error: String(e).slice(0, 200) });
+      results.push({ id: p.id, ok: false, error: String(e).slice(0, 1000) });
     }
   }
 
