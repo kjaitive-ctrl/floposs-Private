@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(detailHtml ? { detail_content: detailHtml } : {}),
         ...(optionList.length > 0 ? {
-          options: { has_option: "T", option_type: "T", option_list: optionList },
+          options: { has_option: "T", option_type: "T", options: optionList },
         } : {}),
       };
 
