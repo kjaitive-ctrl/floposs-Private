@@ -200,10 +200,12 @@ export async function POST(req: NextRequest) {
       const sizeValues  = uniq(activeVariants.map(v => v.consumer_label_size));
       const opt3Values  = uniq(activeVariants.map(v => v.consumer_label_option3));
 
-      const optionList: { name: string; value: { value_name: string }[] }[] = [];
-      if (colorValues.length > 0) optionList.push({ name: "색상", value: colorValues.map(v => ({ value_name: v })) });
-      if (sizeValues.length > 0)  optionList.push({ name: "사이즈", value: sizeValues.map(v => ({ value_name: v })) });
-      if (opt3Values.length > 0)  optionList.push({ name: "기타", value: opt3Values.map(v => ({ value_name: v })) });
+      // 옵션 포맷: CSV 엑셀업로드와 동일하게 value = 파이프 구분 문자열
+      // 예: { name: "색상", value: "아이보리|크림|연카키" }
+      const optionList: { name: string; value: string }[] = [];
+      if (colorValues.length > 0) optionList.push({ name: "색상", value: colorValues.join("|") });
+      if (sizeValues.length > 0)  optionList.push({ name: "사이즈", value: sizeValues.join("|") });
+      if (opt3Values.length > 0)  optionList.push({ name: "기타", value: opt3Values.join("|") });
 
       // 카테고리 조합: 상품별 매핑 + 공통 슬롯 (중복 제거)
       const mappedNo = categoryMap.get(p.category ?? "");
