@@ -118,10 +118,7 @@ export async function cafe24UploadImageToProduct(
         image_upload_type: "A",
         image: base64,
         image_name: imageName,
-        detail_image: "T",
-        big_image: "T",
-        list_image: "T",
-        small_image: "T",
+        detail_image: base64,
       },
     },
   );
