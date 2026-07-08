@@ -339,6 +339,7 @@ export async function POST(req: NextRequest) {
 
           // CDN URL로 상세 HTML 조립 → description 필드 업데이트
           const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys);
+          imageWarning = `[HTML앞100자] ${detailHtml.slice(0, 100)}`;
           if (detailHtml) {
             await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
               shop_no: 1,
