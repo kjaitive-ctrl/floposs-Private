@@ -15,6 +15,7 @@ type PushResult = { id: string; ok: boolean; cafe24_product_no?: number; error?:
 export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: Props) {
   const [pushing, setPushing] = useState(false);
   const [results, setResults] = useState<PushResult[] | null>(null);
+  const [updatedMap, setUpdatedMap] = useState<Map<string, number>>(new Map());
 
   const selected = rows.filter(r => selectedIds.includes(r.id));
   const noImage  = selected.filter(r => r.image_count === 0);
@@ -39,12 +40,12 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
       }
       setResults(data.results ?? []);
 
-      // 성공한 항목의 cafe24_product_no 맵 전달
-      const updatedMap = new Map<string, number>();
+      // 성공한 항목의 cafe24_product_no 맵 저장 — 닫기 버튼에서 onDone 호출
+      const map = new Map<string, number>();
       (data.results ?? []).forEach(r => {
-        if (r.ok && r.cafe24_product_no) updatedMap.set(r.id, r.cafe24_product_no);
+        if (r.ok && r.cafe24_product_no) map.set(r.id, r.cafe24_product_no);
       });
-      onDone(updatedMap);
+      setUpdatedMap(map);
     } catch (e) {
       alert(String(e));
     }
@@ -137,7 +138,7 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
                 );
               })}
             </div>
-            <button onClick={onClose} className={`${styles.btnPrimary} w-full`}>닫기</button>
+            <button onClick={() => onDone(updatedMap)} className={`${styles.btnPrimary} w-full`}>닫기</button>
           </>
         )}
       </div>
