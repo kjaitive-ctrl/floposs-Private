@@ -32,6 +32,7 @@ export interface ScheduleEvent {
   id: string;
   assignee: string | null;
   event_date: string;
+  end_date: string; // 단발 일정 = event_date 와 동일값. 기간 일정 = event_date~end_date
   title: string;
   memo: string | null;
 }
@@ -89,20 +90,21 @@ export async function unsetCheck(routineId: string, dateIso: string): Promise<vo
 }
 
 // ── 일정 ──────────────────────────────
+// fromIso~toIso 범위와 "겹치는" 일정(기간 일정이 범위 밖에서 시작/끝나도 포함)
 export async function loadEvents(tenantId: string, fromIso: string, toIso: string): Promise<ScheduleEvent[]> {
   const { data } = await supabase
     .from("schedule_events")
-    .select("id, assignee, event_date, title, memo")
+    .select("id, assignee, event_date, end_date, title, memo")
     .eq("tenant_id", tenantId)
-    .gte("event_date", fromIso)
     .lte("event_date", toIso)
+    .gte("end_date", fromIso)
     .order("event_date");
   return (data ?? []) as ScheduleEvent[];
 }
-export async function addEvent(tenantId: string, dateIso: string, title: string, assignee: string | null, memo: string | null): Promise<string | null> {
+export async function addEvent(tenantId: string, dateIso: string, title: string, assignee: string | null, memo: string | null, endDateIso?: string): Promise<string | null> {
   const { data, error } = await supabase
     .from("schedule_events")
-    .insert({ tenant_id: tenantId, event_date: dateIso, title: title.trim(), assignee: assignee || null, memo: memo || null })
+    .insert({ tenant_id: tenantId, event_date: dateIso, end_date: endDateIso && endDateIso >= dateIso ? endDateIso : dateIso, title: title.trim(), assignee: assignee || null, memo: memo || null })
     .select("id")
     .single();
   if (error) { console.error("addEvent:", error); return null; }

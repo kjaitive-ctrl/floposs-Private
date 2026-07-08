@@ -154,9 +154,13 @@ export function UpcomingScheduleWidget({ tenantId }: { tenantId: string }) {
           <ul className="divide-y divide-gray-50">
             {events.map((e) => {
               const dt = new Date(e.event_date + "T00:00:00");
+              const isRange = e.event_date !== e.end_date;
+              const endDt = isRange ? new Date(e.end_date + "T00:00:00") : null;
               return (
                 <li key={e.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                  <span className="w-16 text-gray-500 text-xs whitespace-nowrap">{`${dt.getMonth() + 1}/${dt.getDate()}`}({DOW[dt.getDay()]})</span>
+                  <span className="w-20 text-gray-500 text-xs whitespace-nowrap">
+                    {`${dt.getMonth() + 1}/${dt.getDate()}`}({DOW[dt.getDay()]}){endDt && `~${endDt.getMonth() + 1}/${endDt.getDate()}`}
+                  </span>
                   <span className="text-black flex-1">{e.title}{e.assignee && <span className="text-[11px] text-gray-400"> · {e.assignee}</span>}</span>
                 </li>
               );
