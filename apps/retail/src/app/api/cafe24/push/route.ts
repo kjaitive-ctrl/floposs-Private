@@ -339,7 +339,6 @@ export async function POST(req: NextRequest) {
 
           // CDN URL로 상세 HTML 조립 → description 필드 업데이트
           const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys);
-          imageWarning = `[HTML앞100자] ${detailHtml.slice(0, 100)}`;
           if (detailHtml) {
             await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
               shop_no: 1,
@@ -359,8 +358,7 @@ export async function POST(req: NextRequest) {
         ...(imageWarning ? { error: imageWarning } : {}),
       }).then(() => {});
 
-      const debugInfo = `[DEBUG] comment_data=${JSON.stringify(p.comment_data?.slice(0,30))} shoots=${JSON.stringify(p.product_shoots?.length)} shoot0=${JSON.stringify(p.product_shoots?.[0])}`;
-      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning ?? debugInfo });
+      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning });
     } catch (e) {
       const errStr = String(e);
       // 401 토큰 만료 → force refresh 후 재시도 없이 안내 (다음 상품부터 새 토큰 사용)
