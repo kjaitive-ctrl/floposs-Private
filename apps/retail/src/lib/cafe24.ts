@@ -114,7 +114,7 @@ export async function cafe24UploadImageToProduct(
   const base64 = imageBuffer.toString("base64"); // data: 접두어 없는 순수 base64
   await cafe24Api(
     mallId, accessToken, "POST", `products/${productNo}/images`, {
-      request: { image: base64, image_name: imageName },
+      request: { image_upload_type: "A", image: base64, image_name: imageName },
     },
   );
 }
