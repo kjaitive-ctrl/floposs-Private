@@ -27,6 +27,7 @@ async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
 interface PushBody { productIds: string[] }
 
 interface DbVariant {
+  id: string;
   consumer_label_color: string | null;
   consumer_label_size: string | null;
   consumer_label_option3: string | null;
@@ -34,6 +35,12 @@ interface DbVariant {
 }
 interface DbImage { url: string; sort_order: number | null; is_main: boolean | null }
 interface DbMeasurement { size: string; measurements: Record<string, string | number> }
+interface DbModel { name: string | null; height: number | null; weight: number | null }
+interface DbShoot {
+  model_id: string | null;
+  worn_variant_id: string | null;
+  models: DbModel | null;
+}
 interface DbProduct {
   id: string;
   consumer_name: string | null;
@@ -45,10 +52,12 @@ interface DbProduct {
   wholesale_price_current: string | null;
   country_of_origin: string | null;
   material_composition: unknown;
+  comment_data: string | null;
   cafe24_product_no: number | null;
   product_variants: DbVariant[];
   product_images: DbImage[];
   product_measurements: DbMeasurement[];
+  product_shoots: DbShoot[];
 }
 
 function uniq(arr: (string | null | undefined)[]): string[] {
@@ -89,29 +98,69 @@ function buildSizeTable(measurements: DbMeasurement[], fieldKeys: string[]): str
   return `<table style="width:100%;border-collapse:collapse;margin:16px 0;">\n<thead><tr>${headers}</tr></thead>\n<tbody>${trs}</tbody>\n</table>`;
 }
 
+const INFO_LABEL = `style="display:inline-block;background:#222;color:#fff;font-size:11px;font-weight:700;padding:3px 12px;border-radius:2px;letter-spacing:0.05em;margin-bottom:6px;"`;
+const INFO_VAL   = `style="font-size:13px;color:#333;margin:0 0 14px;text-align:center;"`;
+
+function infoRow(label: string, value: string): string {
+  return `<div style="text-align:center;margin-bottom:18px;"><span ${INFO_LABEL}>${escapeHtml(label)}</span><p ${INFO_VAL}>${escapeHtml(value)}</p></div>`;
+}
+
 function buildDetailHtml(
   p: DbProduct,
-  imageUrls: string[],   // cafe24 CDN URL 또는 proxy URL
+  imageUrls: string[],  // cafe24 CDN URL
   fieldKeys: string[],
 ): string {
   const lines: string[] = [];
+  const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
 
-  // 상세 이미지 (전체)
-  for (const url of imageUrls) {
-    lines.push(`<p><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:block;" alt="" /></p>`);
+  // 1. 멘트
+  if (p.comment_data?.trim()) {
+    lines.push(`<p style="font-size:14px;color:#333;text-align:center;margin-bottom:24px;white-space:pre-line;">${escapeHtml(p.comment_data.trim())}</p>`);
   }
 
-  // 사이즈표
+  // 2. 상품정보 (Color / Size / 소재)
+  const colors   = uniq(activeVariants.map(v => v.consumer_label_color));
+  const sizes    = uniq(activeVariants.map(v => v.consumer_label_size));
+  const material = materialText(p.material_composition);
+  if (colors.length > 0 || sizes.length > 0 || material) {
+    lines.push(`<div style="border:1px solid #e8e8e8;padding:18px 16px;margin-bottom:24px;">`);
+    if (colors.length > 0)   lines.push(infoRow("Color",  colors.join(", ")));
+    if (sizes.length > 0)    lines.push(infoRow("Size",   sizes.join(" | ")));
+    if (material)            lines.push(infoRow("Fabric", material));
+    lines.push(`</div>`);
+  }
+
+  // 3. 착용정보 (촬영 데이터 중 첫 번째)
+  const shoot = (p.product_shoots ?? [])[0];
+  if (shoot) {
+    const m = shoot.models;
+    const wornVariant = (p.product_variants ?? []).find(v => v.id === shoot.worn_variant_id);
+    const modelParts: string[] = [];
+    if (m?.name)   modelParts.push(m.name);
+    if (m?.height) modelParts.push(`${m.height}cm`);
+    if (m?.weight) modelParts.push(`${m.weight}kg`);
+    const wornParts = [wornVariant?.consumer_label_color, wornVariant?.consumer_label_size, wornVariant?.consumer_label_option3].filter(Boolean);
+
+    if (modelParts.length > 0 || wornParts.length > 0) {
+      lines.push(`<div style="border:1px solid #e8e8e8;padding:14px 16px;margin-bottom:24px;font-size:12px;color:#555;text-align:center;">`);
+      lines.push(`<span ${INFO_LABEL}>착용정보</span>`);
+      if (modelParts.length > 0) lines.push(`<p style="margin:6px 0 2px;">모델: ${escapeHtml(modelParts.join(" / "))}</p>`);
+      if (wornParts.length > 0)  lines.push(`<p style="margin:2px 0;">착용: ${escapeHtml(wornParts.join(" / "))}</p>`);
+      lines.push(`</div>`);
+    }
+  }
+
+  // 4. 상세 이미지 (등록 순서)
+  for (const url of imageUrls) {
+    lines.push(`<p style="margin:0;"><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:block;" alt="" /></p>`);
+  }
+
+  // 5. 사이즈표 + 고정 안내문구
   const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys);
-  if (sizeTable) lines.push(sizeTable);
-
-  // 소재/제조국
-  const origin = escapeHtml(p.country_of_origin ?? "");
-  const material = escapeHtml(materialText(p.material_composition));
-  if (origin)   lines.push(`<p>제조국: ${origin}</p>`);
-  if (material) lines.push(`<p>혼용률: ${material}</p>`);
-
-  lines.push(`<p style="font-size:11px;color:#888;margin-top:24px;">* 모니터 환경에 따라 색상이 다소 다를 수 있습니다.<br>* 수작업 측정으로 1~3cm 오차가 있을 수 있습니다.</p>`);
+  if (sizeTable) {
+    lines.push(sizeTable);
+    lines.push(`<p style="font-size:11px;color:#888;margin-top:4px;">- 측정 방법에 따라 1~3cm 오차가 발생할 수 있습니다.</p>`);
+  }
 
   return lines.join("\n");
 }
@@ -159,7 +208,7 @@ export async function POST(req: NextRequest) {
   const globalCategoryNos: number[] = (tenantRow as { cafe24_global_category_nos?: number[] | null } | null)
     ?.cafe24_global_category_nos ?? [];
 
-  // 상품 로드 (measurements 포함)
+  // 상품 로드
   const { data: products } = await db
     .from("products")
     .select(`
@@ -167,10 +216,11 @@ export async function POST(req: NextRequest) {
       regular_sale_price, consumer_price,
       wholesale_price, wholesale_price_current,
       country_of_origin, material_composition,
-      cafe24_product_no,
-      product_variants(consumer_label_color, consumer_label_size, consumer_label_option3, is_active),
+      comment_data, cafe24_product_no,
+      product_variants(id, consumer_label_color, consumer_label_size, consumer_label_option3, is_active),
       product_images(url, sort_order, is_main),
-      product_measurements(size, measurements)
+      product_measurements(size, measurements),
+      product_shoots(model_id, worn_variant_id, models(name, height, weight))
     `)
     .in("id", productIds)
     .eq("tenant_id", tenantId);
