@@ -104,3 +104,30 @@ export async function cafe24Api<T = unknown>(
   if (!res.ok) throw new Error(`cafe24 api ${method} ${path} ${res.status}: ${await res.text()}`);
   return res.json();
 }
+
+// 이미지 파일을 카페24에 업로드 → 카페24 내부 경로 반환
+// POST /api/v2/admin/products/images (multipart/form-data)
+export async function cafe24UploadImage(
+  mallId: string, accessToken: string,
+  imageBuffer: Buffer, filename: string, contentType: string,
+): Promise<string> {
+  const form = new FormData();
+  const ab = imageBuffer.buffer instanceof ArrayBuffer
+    ? imageBuffer.buffer.slice(imageBuffer.byteOffset, imageBuffer.byteOffset + imageBuffer.byteLength) as ArrayBuffer
+    : new Uint8Array(imageBuffer).buffer as ArrayBuffer;
+  form.append("image", new Blob([ab], { type: contentType }), filename);
+  const res = await fetch(`${baseUrl(mallId)}/api/v2/admin/products/images`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "X-Cafe24-Api-Version": API_VERSION,
+      // Content-Type은 multipart boundary 자동설정되므로 명시 X
+    },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`cafe24 image upload ${res.status}: ${await res.text()}`);
+  const data = await res.json() as { images?: { image?: string }; image?: string };
+  const path = data.images?.image ?? data.image;
+  if (!path) throw new Error(`cafe24 image upload: 경로 없음 ${JSON.stringify(data)}`);
+  return path;
+}

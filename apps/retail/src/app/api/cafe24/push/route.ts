@@ -1,7 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getValidTokenForTenant, cafe24Api } from "@/lib/cafe24";
+import { getValidTokenForTenant, cafe24Api, cafe24UploadImage } from "@/lib/cafe24";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+
+const s3 = new S3Client({
+  region: "auto",
+  endpoint: process.env.R2_S3_ENDPOINT!,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+  },
+});
+
+// R2에서 이미지 buffer 가져오기
+async function fetchFromR2(url: string): Promise<{ buffer: Buffer; contentType: string; filename: string } | null> {
+  const base = process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL ?? "";
+  if (!base || !url.startsWith(base + "/")) return null;
+  const key = url.slice(base.length + 1);
+  const filename = key.split("/").pop() ?? "image.jpg";
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key }));
+    const bytes = await res.Body?.transformToByteArray();
+    if (!bytes) return null;
+    return { buffer: Buffer.from(bytes), contentType: res.ContentType ?? "image/jpeg", filename };
+  } catch { return null; }
+}
 
 interface PushBody { productIds: string[] }
 
@@ -100,16 +124,7 @@ function buildDetailHtml(
 // - cafe24_product_no 없음 → POST create
 // - cafe24_product_no 있음 → PUT update
 // - 이미지 0장 → skip + error 반환
-// r2.dev 개발 URL → Vercel 프록시 URL로 변환 (카페24 서버가 r2.dev 접근 불가)
-function toProxyUrl(r2Url: string, origin: string): string {
-  const base = process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL ?? "";
-  if (!base || !r2Url.startsWith(base + "/")) return r2Url;
-  const key = r2Url.slice(base.length + 1);
-  return `${origin}/api/r2/pub/${key}`;
-}
-
 export async function POST(req: NextRequest) {
-  const origin = req.nextUrl.origin; // e.g. https://retail.floposs.com
   const supabase = await getSupabaseRouteClient();
   const { data: { user } } = await supabase.auth.getUser();
   const tenantId = (user?.app_metadata as { tenant_id?: string } | undefined)?.tenant_id;
@@ -192,9 +207,20 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
-      const mainImageUrl = toProxyUrl(images[0].url, origin);
-      // 갤러리 추가 이미지 (2번째~)
-      const additionalImages = images.slice(1).map(img => ({ image: toProxyUrl(img.url, origin) }));
+      // 이미지를 카페24에 먼저 업로드 → 카페24 내부 경로 획득
+      const uploadedImages: string[] = [];
+      for (const img of images) {
+        const r2 = await fetchFromR2(img.url);
+        if (!r2) throw new Error(`R2 이미지 fetch 실패: ${img.url}`);
+        const path = await cafe24UploadImage(token.mall_id, token.access_token, r2.buffer, r2.filename, r2.contentType);
+        uploadedImages.push(path);
+      }
+      if (uploadedImages.length === 0) {
+        results.push({ id: p.id, ok: false, error: "이미지 업로드 실패" });
+        continue;
+      }
+      const mainImageUrl = uploadedImages[0];
+      const additionalImages = uploadedImages.slice(1).map(path => ({ image: path }));
 
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));

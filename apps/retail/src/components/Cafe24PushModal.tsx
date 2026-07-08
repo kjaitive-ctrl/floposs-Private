@@ -131,7 +131,7 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
                         <div className="text-[10px] opacity-70">상품번호: {r.cafe24_product_no}</div>
                       )}
                       {!r.ok && r.error && (
-                        <div className="text-[10px] break-all">{r.error}</div>
+                        <div className="text-[10px] break-all whitespace-pre-wrap select-all">{r.error}</div>
                       )}
                     </div>
                   </div>
