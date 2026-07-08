@@ -61,10 +61,20 @@ export function refreshAccessToken(mallId: string, refreshToken: string): Promis
   return tokenRequest(mallId, { grant_type: "refresh_token", refresh_token: refreshToken });
 }
 
-// 유효한 access token 반환 (만료 5분 전이면 자동 refresh). null = 미연동 or refresh 실패.
+// 유효한 access token 반환. null = 미연동 or refresh 실패.
 export interface ValidToken { mall_id: string; access_token: string; }
 
-export async function getValidTokenForTenant(tenantId: string): Promise<ValidToken | null> {
+// expires_at 필드가 ISO string / Unix초 / Unix ms 어느 형식이든 ms 반환
+function parseExpiresAtMs(raw: unknown): number {
+  if (!raw) return 0;
+  if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
+  const ts = Date.parse(String(raw));
+  if (!isNaN(ts)) return ts;
+  const n = Number(raw);
+  return isNaN(n) ? 0 : (n > 1e12 ? n : n * 1000);
+}
+
+export async function getValidTokenForTenant(tenantId: string, forceRefresh = false): Promise<ValidToken | null> {
   const db = _admin();
   const { data } = await db
     .from("tenant_cafe24_tokens")
@@ -73,12 +83,17 @@ export async function getValidTokenForTenant(tenantId: string): Promise<ValidTok
     .single();
   if (!data) return null;
 
-  if (new Date(data.expires_at).getTime() < Date.now() + 5 * 60_000) {
+  const expiresMs = parseExpiresAtMs(data.expires_at);
+  const needsRefresh = forceRefresh || expiresMs < Date.now() + 10 * 60_000;
+
+  if (needsRefresh) {
     try {
       const t = await refreshAccessToken(data.mall_id, data.refresh_token);
+      // expires_at을 항상 안전한 ISO string으로 저장 (cafe24 응답 형식 무관)
+      const newExpiresAt = new Date(parseExpiresAtMs(t.expires_at) || Date.now() + 2 * 60 * 60_000).toISOString();
       await db.from("tenant_cafe24_tokens").update({
         access_token: t.access_token,
-        expires_at: t.expires_at,
+        expires_at: newExpiresAt,
         ...(t.refresh_token ? { refresh_token: t.refresh_token } : {}),
         updated_at: new Date().toISOString(),
       }).eq("retail_tenant_id", tenantId);

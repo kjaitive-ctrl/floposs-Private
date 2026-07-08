@@ -185,8 +185,10 @@ export async function POST(req: NextRequest) {
   if (productIds.length > 30)
     return NextResponse.json({ error: "한 번에 최대 30개" }, { status: 400 });
 
-  const token = await getValidTokenForTenant(tenantId);
-  if (!token) return NextResponse.json({ error: "카페24 미연동 또는 토큰 만료" }, { status: 400 });
+  // 토큰 취득 — 만료 감지 시 자동 refresh. 그래도 null이면 재연동 필요.
+  const initialToken = await getValidTokenForTenant(tenantId);
+  if (!initialToken) return NextResponse.json({ error: "카페24 미연동 또는 토큰 만료. 설정에서 카페24 재연동 해주세요." }, { status: 400 });
+  let token = initialToken;
 
   const db = supabaseAdmin;
 
@@ -358,13 +360,19 @@ export async function POST(req: NextRequest) {
 
       results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning });
     } catch (e) {
+      const errStr = String(e);
+      // 401 토큰 만료 → force refresh 후 재시도 없이 안내 (다음 상품부터 새 토큰 사용)
+      if (errStr.includes("401")) {
+        const refreshed = await getValidTokenForTenant(tenantId, true);
+        if (refreshed) token = refreshed;
+      }
       db.from("cafe24_export_log").insert({
         retail_tenant_id: tenantId,
         product_id: p.id,
         status: "error",
-        error: String(e).slice(0, 500),
+        error: errStr.slice(0, 500),
       }).then(() => {});
-      results.push({ id: p.id, ok: false, error: String(e).slice(0, 1000) });
+      results.push({ id: p.id, ok: false, error: errStr.slice(0, 1000) });
     }
   }
 
