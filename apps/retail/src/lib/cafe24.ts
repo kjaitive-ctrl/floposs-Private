@@ -115,6 +115,7 @@ export async function cafe24UploadImage(
   await cafe24Api(mallId, accessToken, "POST", `products/${productNo}/images`, {
     shop_no: 1,
     request: {
+      image_upload_type: "A",
       detail_image: detail,
       list_image: detail,
       small_image: detail,
