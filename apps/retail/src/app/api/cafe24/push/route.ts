@@ -230,9 +230,7 @@ export async function POST(req: NextRequest) {
         ...(additionalImages.length > 0 ? { additional_images: additionalImages } : {}),
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
         ...(detailHtml ? { detail_content: detailHtml } : {}),
-        ...(optionList.length > 0 ? {
-          options: { has_option: "T", option_type: "T", options: optionList },
-        } : {}),
+        has_option: "F",
       };
 
       let cafe24ProductNo = p.cafe24_product_no;
