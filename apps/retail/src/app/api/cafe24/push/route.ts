@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getValidTokenForTenant, cafe24Api, cafe24UploadImageBase64, cafe24LinkImagesToProduct } from "@/lib/cafe24";
+import { getValidTokenForTenant, cafe24Api, toBase64DataUri } from "@/lib/cafe24";
 
 const s3 = new S3Client({
   region: "auto",
@@ -271,16 +271,21 @@ export async function POST(req: NextRequest) {
           .eq("id", p.id);
       }
 
-      // 이미지 업로드 (실패해도 상품 등록은 성공으로 처리, 경고 표시)
-      // 1단계: R2에서 이미지 Buffer → base64 → cafe24 스토리지 업로드 → CDN URL
-      // 2단계: CDN URL을 상품에 연결
+      // 이미지 업로드: R2 → base64 data URI → PUT /products/{no}의 detail_image에 직접 삽입
       let imageWarning: string | undefined;
       if (cafe24ProductNo) {
         try {
           const imageName = mainImageUrl.split("/").pop() ?? "image.jpg";
           const buf = await fetchImageBuffer(mainImageUrl);
-          const cdnUrl = await cafe24UploadImageBase64(token.mall_id, token.access_token, buf, imageName);
-          await cafe24LinkImagesToProduct(token.mall_id, token.access_token, cafe24ProductNo, cdnUrl);
+          const dataUri = toBase64DataUri(buf, imageName);
+          await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+            shop_no: 1,
+            request: {
+              detail_image: dataUri,
+              list_image: dataUri,
+              small_image: dataUri,
+            },
+          });
         } catch (imgErr) {
           imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 500)}`;
         }

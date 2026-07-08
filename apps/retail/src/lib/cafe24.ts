@@ -105,39 +105,9 @@ export async function cafe24Api<T = unknown>(
   return res.json();
 }
 
-// 1단계: 이미지 Buffer → base64(data URI) → cafe24 스토리지 업로드 → CDN URL 반환
-// POST /api/v2/admin/products/images { request: { image: "data:image/jpeg;base64,...", image_name: "..." } }
-export async function cafe24UploadImageBase64(
-  mallId: string, accessToken: string, imageBuffer: Buffer, imageName = "image.jpg",
-): Promise<string> {
+// 이미지 Buffer → base64 data URI → cafe24 상품에 직접 등록
+// PUT /api/v2/admin/products/{product_no} 의 detail_image 필드에 base64 data URI 사용
+export function toBase64DataUri(imageBuffer: Buffer, imageName = "image.jpg"): string {
   const mime = imageName.match(/\.png$/i) ? "image/png" : "image/jpeg";
-  const dataUri = `data:${mime};base64,${imageBuffer.toString("base64")}`;
-  const data = await cafe24Api<{ image?: Record<string, string> }>(
-    mallId, accessToken, "POST", "products/images",
-    { request: { image: dataUri, image_name: imageName } },
-  );
-  // 응답 필드 후보: big_image, detail_image, url, image_url
-  const img = data.image ?? {};
-  const url = img.big_image ?? img.detail_image ?? img.image_url ?? img.url
-    ?? Object.values(img).find(v => typeof v === "string" && v.startsWith("http"));
-  if (!url) throw new Error(`cafe24 이미지 업로드 실패: ${JSON.stringify(data)}`);
-  return url;
-}
-
-// 2단계: cafe24 CDN URL들을 상품에 등록
-// POST /api/v2/admin/products/{product_no}/images { request: { detail_image, big_image, list_image, small_image } }
-export async function cafe24LinkImagesToProduct(
-  mallId: string, accessToken: string, productNo: number, cdnUrl: string,
-): Promise<void> {
-  await cafe24Api(
-    mallId, accessToken, "POST", `products/${productNo}/images`, {
-      shop_no: 1,
-      request: {
-        detail_image: cdnUrl,
-        big_image: cdnUrl,
-        list_image: cdnUrl,
-        small_image: cdnUrl,
-      },
-    },
-  );
+  return `data:${mime};base64,${imageBuffer.toString("base64")}`;
 }
