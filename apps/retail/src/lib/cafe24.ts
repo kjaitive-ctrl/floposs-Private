@@ -107,11 +107,13 @@ export async function cafe24Api<T = unknown>(
 
 // 이미지 Buffer → 순수 base64(접두어 없음) → POST /products/{product_no}/images 로 업로드
 // cafe24가 CDN 업로드 + 상품 매핑을 한 번에 처리하는 공식 API
+// 이미지를 cafe24 CDN에 업로드하고 CDN URL을 반환
+// POST /products/{product_no}/images — CDN 업로드 + 대표이미지 자동 리사이징
 export async function cafe24UploadImageToProduct(
   mallId: string, accessToken: string, productNo: number,
   imageBuffer: Buffer, imageName = "image.jpg",
-): Promise<string> {
-  const base64 = imageBuffer.toString("base64"); // data: 접두어 없는 순수 base64
+): Promise<{ cdnUrl: string; raw: Record<string, string> }> {
+  const base64 = imageBuffer.toString("base64");
   const data = await cafe24Api<{ image?: Record<string, string> }>(
     mallId, accessToken, "POST", `products/${productNo}/images`, {
       request: {
@@ -122,6 +124,9 @@ export async function cafe24UploadImageToProduct(
       },
     },
   );
-  // 응답 전체를 반환해 디버깅에 활용
-  return JSON.stringify(data.image ?? data);
+  const img = data.image ?? {};
+  const cdnUrl = img.detail_image ?? img.big_image ?? img.image_url ?? img.url
+    ?? Object.values(img).find((v): v is string => typeof v === "string" && v.startsWith("http"))
+    ?? "";
+  return { cdnUrl, raw: img };
 }

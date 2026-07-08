@@ -91,14 +91,14 @@ function buildSizeTable(measurements: DbMeasurement[], fieldKeys: string[]): str
 
 function buildDetailHtml(
   p: DbProduct,
-  sortedImages: DbImage[],
+  imageUrls: string[],   // cafe24 CDN URL 또는 proxy URL
   fieldKeys: string[],
 ): string {
   const lines: string[] = [];
 
   // 상세 이미지 (전체)
-  for (const img of sortedImages) {
-    lines.push(`<p><img src="${escapeHtml(img.url)}" style="max-width:100%;display:block;" alt="" /></p>`);
+  for (const url of imageUrls) {
+    lines.push(`<p><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:block;" alt="" /></p>`);
   }
 
   // 사이즈표
@@ -236,7 +236,6 @@ export async function POST(req: NextRequest) {
         : "0";
 
       const fieldKeys = templateMap.get(p.category ?? "") ?? [];
-      const detailHtml = buildDetailHtml(p, images, fieldKeys);
 
       const request: Record<string, unknown> = {
         product_name: productName,
@@ -247,7 +246,6 @@ export async function POST(req: NextRequest) {
         display: "F",
         selling: "T",
         ...(categoryNos.length > 0 ? { category: categoryNos.map(no => ({ category_no: no })) } : {}),
-        ...(detailHtml ? { detail_content: detailHtml } : {}),
         has_option: optionList.length > 0 ? "T" : "F",
         ...(optionList.length > 0 ? {
           option_type: "C",
@@ -271,14 +269,28 @@ export async function POST(req: NextRequest) {
           .eq("id", p.id);
       }
 
-      // 이미지 업로드: R2 → 순수 base64 → POST /products/{no}/images (cafe24 CDN + 상품 매핑 동시 처리)
+      // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립
       let imageWarning: string | undefined;
       if (cafe24ProductNo) {
         try {
-          const imageName = mainImageUrl.split("/").pop() ?? "image.jpg";
-          const buf = await fetchImageBuffer(mainImageUrl);
-          const debugRes = await cafe24UploadImageToProduct(token.mall_id, token.access_token, cafe24ProductNo, buf, imageName);
-          imageWarning = `[이미지 응답] ${debugRes}`;
+          const cdnUrls: string[] = [];
+          for (const img of images) {
+            const imgName = img.url.split("/").pop() ?? "image.jpg";
+            const buf = await fetchImageBuffer(img.url);
+            const { cdnUrl } = await cafe24UploadImageToProduct(
+              token.mall_id, token.access_token, cafe24ProductNo, buf, imgName,
+            );
+            if (cdnUrl) cdnUrls.push(cdnUrl);
+          }
+
+          // CDN URL로 상세 HTML 조립 → description 필드 업데이트
+          const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys);
+          if (detailHtml) {
+            await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+              shop_no: 1,
+              request: { description: detailHtml },
+            });
+          }
         } catch (imgErr) {
           imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 500)}`;
         }
