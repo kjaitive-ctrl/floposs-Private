@@ -273,15 +273,17 @@ export async function POST(req: NextRequest) {
       let imageWarning: string | undefined;
       if (cafe24ProductNo) {
         try {
-          const cdnUrls: string[] = [];
-          for (const img of images) {
-            const imgName = img.url.split("/").pop() ?? "image.jpg";
-            const buf = await fetchImageBuffer(img.url);
-            const { cdnUrl } = await cafe24UploadImageToProduct(
-              token.mall_id, token.access_token, cafe24ProductNo, buf, imgName,
-            );
-            if (cdnUrl) cdnUrls.push(cdnUrl);
-          }
+          const cdnResults = await Promise.all(
+            images.map(async (img) => {
+              const imgName = img.url.split("/").pop() ?? "image.jpg";
+              const buf = await fetchImageBuffer(img.url);
+              const { cdnUrl } = await cafe24UploadImageToProduct(
+                token.mall_id, token.access_token, cafe24ProductNo!, buf, imgName,
+              );
+              return cdnUrl;
+            })
+          );
+          const cdnUrls = cdnResults.filter(Boolean) as string[];
 
           // CDN URL로 상세 HTML 조립 → description 필드 업데이트
           const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys);
