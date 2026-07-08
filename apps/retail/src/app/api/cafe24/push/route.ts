@@ -358,7 +358,8 @@ export async function POST(req: NextRequest) {
         ...(imageWarning ? { error: imageWarning } : {}),
       }).then(() => {});
 
-      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning });
+      const debugInfo = `[DEBUG] comment_data=${JSON.stringify(p.comment_data?.slice(0,30))} shoots=${JSON.stringify(p.product_shoots?.length)} shoot0=${JSON.stringify(p.product_shoots?.[0])}`;
+      results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning ?? debugInfo });
     } catch (e) {
       const errStr = String(e);
       // 401 토큰 만료 → force refresh 후 재시도 없이 안내 (다음 상품부터 새 토큰 사용)
