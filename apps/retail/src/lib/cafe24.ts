@@ -110,11 +110,21 @@ export async function cafe24Api<T = unknown>(
 export async function cafe24UploadImageToProduct(
   mallId: string, accessToken: string, productNo: number,
   imageBuffer: Buffer, imageName = "image.jpg",
-): Promise<void> {
+): Promise<string> {
   const base64 = imageBuffer.toString("base64"); // data: 접두어 없는 순수 base64
-  await cafe24Api(
+  const data = await cafe24Api<{ image?: Record<string, string> }>(
     mallId, accessToken, "POST", `products/${productNo}/images`, {
-      request: { image_upload_type: "A", image: base64, image_name: imageName },
+      request: {
+        image_upload_type: "A",
+        image: base64,
+        image_name: imageName,
+        detail_image: "T",
+        big_image: "T",
+        list_image: "T",
+        small_image: "T",
+      },
     },
   );
+  // 응답 전체를 반환해 디버깅에 활용
+  return JSON.stringify(data.image ?? data);
 }

@@ -277,7 +277,8 @@ export async function POST(req: NextRequest) {
         try {
           const imageName = mainImageUrl.split("/").pop() ?? "image.jpg";
           const buf = await fetchImageBuffer(mainImageUrl);
-          await cafe24UploadImageToProduct(token.mall_id, token.access_token, cafe24ProductNo, buf, imageName);
+          const debugRes = await cafe24UploadImageToProduct(token.mall_id, token.access_token, cafe24ProductNo, buf, imageName);
+          imageWarning = `[이미지 응답] ${debugRes}`;
         } catch (imgErr) {
           imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 500)}`;
         }
