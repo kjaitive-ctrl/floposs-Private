@@ -59,6 +59,17 @@ export async function addRoutine(tenantId: string, title: string, assignee: stri
   return data.id;
 }
 
+// 루틴 등록 시 향후 2주(등록일 포함 14일) 중 cycle_days 에 해당하는 날짜를 일정에도 자동 등록
+export async function seedRoutineEvents(tenantId: string, title: string, assignee: string | null, cycleDays: number[]): Promise<void> {
+  const today = new Date();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() + i);
+    if (cycleDays.includes(cycleDayOf(d))) {
+      await addEvent(tenantId, isoDate(d), title, assignee, null);
+    }
+  }
+}
+
 export async function updateRoutine(id: string, patch: Partial<Pick<Routine, "title" | "assignee" | "cycle_days">>): Promise<void> {
   await supabase.from("work_routines").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
 }

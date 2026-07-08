@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { styles } from "@/common/styles";
 import {
-  DOW, loadRoutines, addRoutine, updateRoutine, deleteRoutine, type Routine,
+  DOW, loadRoutines, addRoutine, updateRoutine, deleteRoutine, seedRoutineEvents, type Routine,
 } from "@/lib/routines";
 
 function Chips({ days, onToggle }: { days: number[]; onToggle: (cd: number) => void }) {
@@ -50,7 +50,8 @@ export default function RoutineSetup({ tenantId }: { tenantId: string }) {
   async function add() {
     if (!title.trim()) { alert("할일 제목을 입력하세요."); return; }
     if (days.length === 0) { alert("반복할 요일을 1개 이상 선택하세요."); return; }
-    await addRoutine(tenantId, title, assignee || null, days);
+    const id = await addRoutine(tenantId, title, assignee || null, days);
+    if (id) await seedRoutineEvents(tenantId, title, assignee || null, days);
     setTitle(""); setAssignee(""); setDays([]);
     reload();
   }
