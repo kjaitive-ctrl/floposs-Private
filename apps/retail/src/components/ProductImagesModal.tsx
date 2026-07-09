@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { styles } from "@/common/styles";
+import { keyFromR2Url } from "@/lib/r2Client";
 // jszip 은 다중 다운로드 시점에만 dynamic import — 초기 번들 크기 영향 X
 
 // MD기능 [IMG] — 상품별 이미지 업로드/관리. (사장 결정 v3)
@@ -40,13 +41,6 @@ const IMAGE_TYPES: { code: ImageType; label: string }[] = [
   { code: "detail",    label: "상세페이지" },
   { code: "etc",       label: "기타" },
 ];
-
-const R2_PUBLIC_BASE = process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL ?? "";
-
-function keyFromUrl(url: string): string | null {
-  if (!R2_PUBLIC_BASE || !url.startsWith(R2_PUBLIC_BASE + "/")) return null;
-  return url.slice(R2_PUBLIC_BASE.length + 1);
-}
 
 function formatBytes(bytes: number | null): string {
   if (!bytes) return "-";
@@ -208,7 +202,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       alert(`DB 삭제 실패: ${dbError.message}`);
       return;
     }
-    const key = keyFromUrl(row.url);
+    const key = keyFromR2Url(row.url);
     if (key) {
       await fetch("/api/r2/delete", {
         method: "POST",
@@ -241,7 +235,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
   // r2.dev public URL 은 fetch CORS quirk 가 있음 → S3 endpoint + attachment 헤더로 우회.
   async function fetchPresignedUrls(targets: ImageRow[]): Promise<string[]> {
     const items = targets.map(r => {
-      const key = keyFromUrl(r.url);
+      const key = keyFromR2Url(r.url);
       return key ? { key, filename: filenameFromUrl(r.url) } : null;
     }).filter((x): x is { key: string; filename: string } => x !== null);
     if (items.length === 0) throw new Error("유효한 R2 key 가 없습니다");
@@ -330,7 +324,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       }
       // R2 삭제는 best-effort (orphan 허용). 한 건씩 호출.
       await Promise.allSettled(targets.map(row => {
-        const key = keyFromUrl(row.url);
+        const key = keyFromR2Url(row.url);
         if (!key) return Promise.resolve();
         return fetch("/api/r2/delete", {
           method: "POST",
