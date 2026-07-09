@@ -123,7 +123,11 @@ export default function ProductImagesModal({ productId, productName, onClose, on
   // 업로드 — 외부 파일 (input change 또는 drop) → 지정 분류로 박제. 순차 처리.
   async function uploadFiles(files: FileList | File[], targetType: ImageType) {
     if (!files || files.length === 0) return;
-    const fileList = Array.from(files).filter(f => f.type.startsWith("image/"));
+    // 드래그앤드롭/브라우저 파일선택 순서는 OS/브라우저마다 제각각이라 파일명 자연정렬로 고정
+    // (1, 2, 10 처럼 숫자를 문자열이 아닌 숫자로 비교 — "10" 이 "2" 보다 앞으로 밀리는 것 방지).
+    const fileList = Array.from(files)
+      .filter(f => f.type.startsWith("image/"))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
     if (fileList.length === 0) return;
 
     setError(null);
