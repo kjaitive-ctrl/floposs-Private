@@ -509,11 +509,12 @@ export default function SamplesPage() {
     if (!confirm("이 상품을 정식 상품으로 등록하시겠습니까? (상품 탭으로 이동, 바코드 자동 발급)")) return;
 
     setSaveStatus(rowKey, "saving");
-    // created_at 도 갱신 — /products, /samples 둘 다 created_at DESC 정렬이라
-    // 진행 순서대로 쌓이려면 여기서 now() 로 박아야 함 (안 하면 옛 샘플등록순 유지).
+    // registered_at = "진행" 시점 (/products 정렬 기준, 마이그 214).
+    // created_at 은 순수 샘플 등록시점이라 안 건드림 — "샘플로" 되돌리면 /samples 에서
+    // 원래 등록 자리로 자동 복귀해야 하기 때문 (created_at 을 건드리면 복귀 안 됨).
     const nowIso = new Date().toISOString();
     const { error } = await supabase.from("products")
-      .update({ status: "registered", updated_at: nowIso, created_at: nowIso })
+      .update({ status: "registered", updated_at: nowIso, registered_at: nowIso })
       .eq("id", row.id);
 
     if (error) {

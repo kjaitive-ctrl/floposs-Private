@@ -217,7 +217,10 @@ export default function ProductsPage() {
     if (category)      query = query.eq("category", category);
     if (soldOutFilter === "active")   query = query.eq("sold_out", false);
     if (soldOutFilter === "sold_out") query = query.eq("sold_out", true);
+    // registered_at = "진행" 시점 (마이그 214). created_at 은 fallback
+    // (레거시 데이터 registered_at NULL 인 경우만 해당).
     const { data, count } = await query
+      .order("registered_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
     const items = (data ?? []) as DbProduct[];
