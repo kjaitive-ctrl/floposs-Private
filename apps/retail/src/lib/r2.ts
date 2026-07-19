@@ -76,6 +76,14 @@ export async function deleteObject(key: string): Promise<void> {
   await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
 }
 
+// 객체 바이트 그대로 가져오기 (서버 내부 가공용 — GIF 합성 등).
+export async function getObjectBuffer(key: string): Promise<Buffer> {
+  const res = await s3.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+  const bytes = await res.Body?.transformToByteArray();
+  if (!bytes) throw new Error(`R2 객체 없음: ${key}`);
+  return Buffer.from(bytes);
+}
+
 // public read URL 조립. CDN domain (r2.dev) + key.
 export function publicUrlForKey(key: string): string {
   return `${R2_PUBLIC_BASE_URL}/${key}`;

@@ -1,27 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getValidTokenForTenant, cafe24Api, cafe24UploadImageToProduct } from "@/lib/cafe24";
+import { getObjectBuffer, keyFromPublicUrl } from "@/lib/r2";
+import { buildThumbnailAsset } from "@/lib/thumbnailGif";
 
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_S3_ENDPOINT!,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-});
-
-// r2.dev URL에서 R2 키 추출 → S3 SDK로 이미지 Buffer 반환
+// R2 공개 URL → key 역추출 후 Buffer 반환
 async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
-  const base = process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL ?? "";
-  if (!base || !r2Url.startsWith(base + "/")) throw new Error(`R2 URL 형식 오류: ${r2Url}`);
-  const key = r2Url.slice(base.length + 1);
-  const res = await s3.send(new GetObjectCommand({ Bucket: process.env.R2_BUCKET!, Key: key }));
-  const bytes = await res.Body?.transformToByteArray();
-  if (!bytes) throw new Error(`R2 이미지 없음: ${key}`);
-  return Buffer.from(bytes);
+  const key = keyFromPublicUrl(r2Url);
+  if (!key) throw new Error(`R2 URL 형식 오류: ${r2Url}`);
+  return getObjectBuffer(key);
 }
 
 interface PushBody { productIds: string[] }
@@ -33,7 +21,7 @@ interface DbVariant {
   consumer_label_option3: string | null;
   is_active: boolean | null;
 }
-interface DbImage { url: string; sort_order: number | null; is_main: boolean | null }
+interface DbImage { url: string; sort_order: number | null; is_main: boolean | null; image_type: string | null }
 interface DbMeasurement { size: string; measurements: Record<string, string | number> }
 interface DbModel { name: string | null; height: number | null; weight: number | null }
 interface DbShoot {
@@ -224,7 +212,7 @@ export async function POST(req: NextRequest) {
       country_of_origin, material_composition,
       comment_data, cafe24_product_no,
       product_variants(id, consumer_label_color, consumer_label_size, consumer_label_option3, is_active),
-      product_images(url, sort_order, is_main),
+      product_images(url, sort_order, is_main, image_type),
       product_measurements(size, measurements),
       product_shoots(model_id, worn_variant_id, models(name, height, weight))
     `)
@@ -260,9 +248,6 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
-      // 대표 이미지 URL (첫 번째)
-      const mainImageUrl = images[0].url;
-
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
       const sizeValues  = uniq(activeVariants.map(v => v.consumer_label_size));
@@ -351,6 +336,24 @@ export async function POST(req: NextRequest) {
           }
         } catch (imgErr) {
           imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 500)}`;
+        }
+
+        // 대표이미지(썸네일) 확정 — image_type='thumbnail' 이미지로 GIF(2장+)/단일이미지(1장) 합성 후
+        // 마지막에 순차 업로드하여 대표이미지 슬롯을 확정. 위 상세이미지 루프도 동일 "대표이미지" 엔드포인트를
+        // 호출하므로(카페24 사양), 순서상 가장 마지막에 실행되는 이 호출이 실제 노출되는 대표이미지가 된다.
+        try {
+          const thumbUrls = images
+            .filter(img => img.image_type === "thumbnail")
+            .map(img => img.url);
+          const asset = await buildThumbnailAsset(thumbUrls);
+          if (asset) {
+            await cafe24UploadImageToProduct(
+              token.mall_id, token.access_token, cafe24ProductNo, asset.buffer, `thumbnail.${asset.ext}`,
+            );
+          }
+        } catch (thumbErr) {
+          const msg = `썸네일 생성 실패: ${String(thumbErr).slice(0, 400)}`;
+          imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
         }
       }
 
