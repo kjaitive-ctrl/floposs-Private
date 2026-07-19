@@ -116,10 +116,12 @@ export default function ProductsToolbar({
           })}
         </div>
       )}
-      {/* 판매채널 가격 토글 — 세그먼트 컨트롤 (품절 필터와 동일 패턴). "기준"은 부모가 항상 넣어줌. */}
-      {platformOptions && platformOptions.length > 0 && onPlatformChange && (
+      {/* 판매채널 가격 토글 — 세그먼트 컨트롤 (품절 필터와 동일 패턴).
+          "카페24"(id="") = 항상 표시되는 기본값. 지금 입력하는 판매가/소비자가/상시판매가 자체가
+          카페24·원화 기준이라, 이 옵션은 변환 없이 그대로 편집 가능 (다른 채널만 역산/환산). */}
+      {onPlatformChange && (
         <div className="inline-flex rounded border border-gray-300 overflow-hidden text-xs">
-          {[{ id: "", name: "기준" }, ...platformOptions].map(opt => {
+          {[{ id: "", name: "카페24" }, ...(platformOptions ?? [])].map(opt => {
             const active = (selectedPlatformId ?? "") === opt.id;
             return (
               <button key={opt.id || "base"}

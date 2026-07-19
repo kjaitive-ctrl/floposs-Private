@@ -27,15 +27,18 @@ import ProductsToolbar, { type SearchCol, type SoldOutFilter } from "@/component
 import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
-import { convertToPlatformPrice, formatPlatformPrice, type Platform, type FxRates } from "@/lib/platformPricing";
+import {
+  convertToPlatformPrice, formatPlatformPrice, feeContextFor, toCurrencyOnly, CAFE24_FEE_RATE,
+  type Platform, type FxRates,
+} from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
 
 // 마진율 구간별 색상: <10% 빨강 / 10~20% 주황 / 20~30% 노랑 / 30%+ 초록 / 미입력 회색
-function marginRateColor(sellStr: string, costStr: string): string {
+function marginRateColor(sellStr: string, costStr: string, feeRatePercent: number): string {
   const sell = Number(sellStr);
   const cost = Number(costStr);
   if (!sell || !cost) return "text-gray-300 hover:text-gray-500";
-  const fee = Math.round(sell * 0.11 + 2200);
+  const fee = Math.round(sell * (feeRatePercent / 100) + 2200);
   const rate = (sell - fee - cost) / sell * 100;
   if (rate < 10)  return "text-red-500    hover:text-red-700";
   if (rate < 20)  return "text-orange-400 hover:text-orange-600";
@@ -101,6 +104,9 @@ export default function ProductsPage() {
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [cafe24PushOpen, setCafe24PushOpen] = useState(false);
+  // 썸네일 추출(GIF) 진행 상태
+  const [thumbExporting, setThumbExporting] = useState(false);
+  const [thumbExportStatus, setThumbExportStatus] = useState("");
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
   // 카테고리 dropdown 옵션 (measurement_templates 시스템 공통 + tenant 커스텀)
@@ -122,6 +128,7 @@ export default function ProductsPage() {
   const [fxRates, setFxRates] = useState<FxRates>({ usd: null, jpy: null });
   const [selectedPlatformId, setSelectedPlatformId] = useState("");
   const selectedPlatform = platforms.find(p => p.id === selectedPlatformId) ?? null;
+  const feeCtx = feeContextFor(selectedPlatform, fxRates);
 
   useEffect(() => {
     if (!tenant?.id) return;
@@ -338,6 +345,71 @@ export default function ProductsPage() {
     }
   }
 
+  // 선택 상품들의 썸네일(image_type='thumbnail') 이미지를 GIF(2장+)/JPEG(1장)로 합성해 다운로드.
+  // 1개 선택 = 파일 그대로 다운로드, 2개+ = ZIP 묶음 (ProductImagesModal 의 다운로드 패턴과 동일).
+  function safeFilename(row: ProductRow): string {
+    return (row.consumer_name || row.wholesale_name || row.id).replace(/[\\/:*?"<>|]/g, "_");
+  }
+
+  async function fetchThumbnailFile(productId: string): Promise<{ blob: Blob; ext: string } | null> {
+    const res = await fetch("/api/products/thumbnail-export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ productId }),
+    });
+    if (!res.ok) return null;
+    const ext = res.headers.get("X-Thumbnail-Ext") || "gif";
+    return { blob: await res.blob(), ext };
+  }
+
+  function triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleThumbnailExport() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
+    if (targets.length === 0) return;
+    setThumbExporting(true);
+    const failed: string[] = [];
+    try {
+      if (targets.length === 1) {
+        setThumbExportStatus("생성 중...");
+        const file = await fetchThumbnailFile(targets[0].id);
+        if (!file) failed.push(safeFilename(targets[0]));
+        else triggerDownload(file.blob, `${safeFilename(targets[0])}.${file.ext}`);
+      } else {
+        const JSZipMod = (await import("jszip")).default;
+        const zip = new JSZipMod();
+        for (let i = 0; i < targets.length; i++) {
+          setThumbExportStatus(`썸네일 생성 중... ${i + 1}/${targets.length}`);
+          const file = await fetchThumbnailFile(targets[i].id);
+          if (!file) { failed.push(safeFilename(targets[i])); continue; }
+          zip.file(`${safeFilename(targets[i])}.${file.ext}`, file.blob);
+        }
+        if (Object.keys(zip.files).length > 0) {
+          setThumbExportStatus("ZIP 생성 중...");
+          const zipBlob = await zip.generateAsync({ type: "blob" });
+          triggerDownload(zipBlob, "썸네일.zip");
+        }
+      }
+      if (failed.length > 0) {
+        alert(`썸네일 이미지가 없어 제외됨 (${failed.length}개):\n${failed.join(", ")}`);
+      }
+    } catch (e) {
+      alert(`썸네일 추출 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setThumbExporting(false);
+      setThumbExportStatus("");
+    }
+  }
+
   async function handleRevert(row: ProductRow) {
     // 이미지 등록 시 회귀 차단 (사장 결정 2026-05-29) — 샘플 단계엔 이미지 X
     if (row.image_count > 0) {
@@ -424,6 +496,14 @@ export default function ProductsPage() {
                 onClick={() => setCafe24PushOpen(true)}
                 className={styles.btnSmall + " py-1 !border-blue-400 !text-blue-700 hover:!bg-blue-50"}>
                 카페24 전송 {selectedIds.size}개
+              </button>
+            )}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleThumbnailExport}
+                disabled={thumbExporting}
+                className={styles.btnSmall + " py-1 !border-emerald-400 !text-emerald-700 hover:!bg-emerald-50 disabled:opacity-50"}>
+                {thumbExporting ? (thumbExportStatus || "생성 중...") : `썸네일 추출 ${selectedIds.size}개`}
               </button>
             )}
             <button onClick={async () => {
@@ -618,7 +698,12 @@ export default function ProductsPage() {
                       {selectedPlatform ? (
                         <>
                           <td className={tdTop}>
-                            <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.regular_sale_price)}</div>
+                            <div className="flex items-center justify-end gap-2 pr-2">
+                              <div className="text-right text-xs text-gray-700 flex-1 min-w-0">{platformDisplay(row.regular_sale_price)}</div>
+                              <button type="button" title="마진 계산"
+                                onClick={() => setMarginRow(row)}
+                                className="text-gray-400 hover:text-gray-600 font-semibold shrink-0">%</button>
+                            </div>
                           </td>
                           <td className={tdTop}>
                             <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.sale_price)}</div>
@@ -639,7 +724,7 @@ export default function ProductsPage() {
                                 className={inp + " text-right flex-1 min-w-0"} />
                               <button type="button" title="마진 계산"
                                 onClick={() => setMarginRow(row)}
-                                className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? "")) + " font-semibold shrink-0"}>%</button>
+                                className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? ""), CAFE24_FEE_RATE) + " font-semibold shrink-0"}>%</button>
                             </div>
                           </td>
                           <td className={tdTop}>
@@ -844,11 +929,17 @@ export default function ProductsPage() {
       {marginRow && (
         <MarginCalcModal
           productName={marginRow.consumer_name || marginRow.wholesale_name || ""}
-          sellPrice={marginRow.regular_sale_price ? Number(marginRow.regular_sale_price) : null}
+          sellPrice={
+            marginRow.regular_sale_price
+              ? toCurrencyOnly(Number(marginRow.regular_sale_price), feeCtx.currency, feeCtx.fxRate)
+              : null
+          }
           wholesalePrice={
             marginRow.wholesale_price_current ? Number(marginRow.wholesale_price_current)
             : marginRow.wholesale_price ?? null
           }
+          feeRatePercent={feeCtx.feeRate}
+          currency={feeCtx.currency}
           onClose={() => setMarginRow(null)}
         />
       )}

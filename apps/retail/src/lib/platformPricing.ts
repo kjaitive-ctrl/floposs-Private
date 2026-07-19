@@ -30,3 +30,24 @@ export function formatPlatformPrice(value: number, currency: PlatformCurrency): 
   const decimals = currency === "USD" ? 2 : 0;
   return symbol + value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
+
+// 카페24(기본/원화, id="") 자체의 마진계산용 수수료 가정치. 사장 결정 2026-07-09.
+// 가격표시(판매가/소비자가/상시판매가 입력값)엔 적용 안 함 — 마진계산 모달 전용.
+export const CAFE24_FEE_RATE = 3.5;
+
+// 마진계산 모달용 fee 컨텍스트. platform=null(카페24) 이면 고정 3.5%/원화.
+export function feeContextFor(platform: Platform | null, fx: FxRates): {
+  feeRate: number; currency: PlatformCurrency; fxRate: number | null;
+} {
+  if (!platform) return { feeRate: CAFE24_FEE_RATE, currency: "KRW", fxRate: null };
+  const fxRate = platform.currency === "KRW" ? null : (platform.currency === "USD" ? fx.usd : fx.jpy);
+  return { feeRate: platform.fee_rate, currency: platform.currency, fxRate };
+}
+
+// 순수 환율 변환만 (수수료 역산 없이) — 마진계산 모달의 "해당통화 상시판매가" 표시용.
+// convertToPlatformPrice 는 가격표시용이라 역산 마크업이 섞여있어 마진계산엔 부적합 (이중계산 방지).
+export function toCurrencyOnly(baseKrw: number, currency: PlatformCurrency, fxRate: number | null): number | null {
+  if (currency === "KRW") return baseKrw;
+  if (!fxRate) return null;
+  return baseKrw / fxRate;
+}
