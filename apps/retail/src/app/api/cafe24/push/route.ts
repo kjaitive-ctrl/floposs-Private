@@ -68,7 +68,11 @@ function materialText(raw: unknown): string {
   if (!raw) return "";
   if (typeof raw === "string") return raw;
   if (Array.isArray(raw)) return raw.map((r: { fiber?: string; pct?: number }) => `${r.fiber ?? ""} ${r.pct ?? ""}%`).join(", ");
-  return String(raw);
+  // 실제 저장 형식 (materialToText 와 동일 규약): { "폴리에스테르": 100, ... }
+  if (typeof raw === "object") {
+    return Object.entries(raw as Record<string, unknown>).map(([k, v]) => `${k} ${v}%`).join(", ");
+  }
+  return "";
 }
 
 function escapeHtml(s: string): string {
@@ -115,15 +119,15 @@ function buildDetailHtml(
 
   // 1. 멘트
   if (p.comment_data?.trim()) {
-    lines.push(`<p style="font-size:14px;color:#333;text-align:center;margin-bottom:24px;white-space:pre-line;">${escapeHtml(p.comment_data.trim())}</p>`);
+    lines.push(`<p style="font-size:14px;color:#333;text-align:center;margin-bottom:72px;white-space:pre-line;">${escapeHtml(p.comment_data.trim())}</p>`);
   }
 
-  // 2. 상품정보 (Color / Size / 소재)
+  // 2. 상품정보 (Color / Size / 소재) — 사장 결정: 박스 테두리 없이 라벨+텍스트만
   const colors   = uniq(activeVariants.map(v => v.consumer_label_color));
   const sizes    = uniq(activeVariants.map(v => v.consumer_label_size));
   const material = materialText(p.material_composition);
   if (colors.length > 0 || sizes.length > 0 || material) {
-    lines.push(`<div style="border:1px solid #e8e8e8;padding:18px 16px;margin-bottom:24px;">`);
+    lines.push(`<div style="margin-bottom:24px;">`);
     if (colors.length > 0)   lines.push(infoRow("Color",  colors.join(", ")));
     if (sizes.length > 0)    lines.push(infoRow("Size",   sizes.join(" | ")));
     if (material)            lines.push(infoRow("Fabric", material));
@@ -142,7 +146,7 @@ function buildDetailHtml(
     const wornParts = [wornVariant?.consumer_label_color, wornVariant?.consumer_label_size, wornVariant?.consumer_label_option3].filter(Boolean);
 
     if (modelParts.length > 0 || wornParts.length > 0) {
-      lines.push(`<div style="border:1px solid #e8e8e8;padding:14px 16px;margin-bottom:24px;font-size:12px;color:#555;text-align:center;">`);
+      lines.push(`<div style="margin-bottom:24px;font-size:12px;color:#555;text-align:center;">`);
       lines.push(`<span ${INFO_LABEL}>착용정보</span>`);
       if (modelParts.length > 0) lines.push(`<p style="margin:6px 0 2px;">모델: ${escapeHtml(modelParts.join(" / "))}</p>`);
       if (wornParts.length > 0)  lines.push(`<p style="margin:2px 0;">착용: ${escapeHtml(wornParts.join(" / "))}</p>`);
