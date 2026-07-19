@@ -7,6 +7,7 @@ import { styles } from "@/common/styles";
 import { supabase } from "@/lib/supabase";
 import { bizNumberDigits, formatBizNumber, type PaymentMethod } from "@/lib/orderPortal";
 import ModelsSection from "@/components/ModelsSection";
+import PlatformsSection from "@/components/PlatformsSection";
 import type { TenantFull } from "@/lib/types";
 
 // retail-site 메인 settings 페이지 (마이그 189).
@@ -103,6 +104,13 @@ export default function SettingsPage() {
   const [logiSaving, setLogiSaving] = useState(false);
   const [logiSaved, setLogiSaved] = useState(false);
 
+  // 환율 설정 (마이그 215) — 수동 고정값. /products 판매채널 가격 토글에서 사용.
+  const [fxUsd, setFxUsd] = useState("");
+  const [fxJpy, setFxJpy] = useState("");
+  const [fxSaving, setFxSaving] = useState(false);
+  const [fxSaved, setFxSaved] = useState(false);
+  const [fxRef, setFxRef] = useState<{ usd: number; jpy: number } | null>(null);
+
   // 편집 state
   const [companyName, setCompanyName] = useState("");
   const [ownerName, setOwnerName] = useState("");
@@ -150,6 +158,7 @@ export default function SettingsPage() {
             store_name, store_url, cafe24_mall_id, cafe24_global_category_nos,
             plan_id, subscription_expires_at, cancel_at_period_end,
             default_logi_tenant_id,
+            fx_rate_usd, fx_rate_jpy,
             r2_usage_bytes, r2_image_count,
             subscription_plans(id, name, description, price, billing_cycle, features, r2_storage_quota_mb)
           `)
@@ -212,6 +221,9 @@ export default function SettingsPage() {
         const savedGlobal = (t.cafe24_global_category_nos ?? []) as number[];
         setGlobalCatSlots([savedGlobal[0] ?? "", savedGlobal[1] ?? "", savedGlobal[2] ?? ""]);
         setLogiId((data as { default_logi_tenant_id?: string | null }).default_logi_tenant_id ?? "");
+        const fxData = data as { fx_rate_usd?: number | null; fx_rate_jpy?: number | null };
+        setFxUsd(fxData.fx_rate_usd != null ? String(fxData.fx_rate_usd) : "");
+        setFxJpy(fxData.fx_rate_jpy != null ? String(fxData.fx_rate_jpy) : "");
       }
       setLoading(false);
     })();
@@ -225,6 +237,18 @@ export default function SettingsPage() {
       .eq("tenant_type", "logistics").eq("is_active", true)
       .order("company_name")
       .then(({ data }) => setLogiOptions((data as { id: string; company_name: string }[]) ?? []));
+  }, []);
+
+  // 환율 참고 시세 — 무료/무키 Frankfurter API, 브라우저 직통. 참고용 표시만, 자동 반영 X.
+  useEffect(() => {
+    fetch("https://api.frankfurter.dev/v1/latest?base=KRW&symbols=USD,JPY")
+      .then(r => r.ok ? r.json() : null)
+      .then((j: { rates?: { USD?: number; JPY?: number } } | null) => {
+        if (!j?.rates?.USD || !j?.rates?.JPY) return;
+        // API는 "1 KRW = ? USD/JPY" 로 주니까 우리가 쓰는 "1 USD/JPY = ? KRW" 로 뒤집음.
+        setFxRef({ usd: 1 / j.rates.USD, jpy: 1 / j.rates.JPY });
+      })
+      .catch(() => {/* 참고용이라 실패해도 조용히 무시 */});
   }, []);
 
   async function handleSave(e: React.FormEvent) {
@@ -335,6 +359,25 @@ export default function SettingsPage() {
     if (err) { alert(err.message); return; }
     setLogiSaved(true);
     setTimeout(() => setLogiSaved(false), 3000);
+  }
+
+  // 환율 저장 — 수동 고정값. browser-direct.
+  async function handleSaveFx() {
+    if (!tenant) return;
+    const usd = fxUsd.trim() === "" ? null : Number(fxUsd);
+    const jpy = fxJpy.trim() === "" ? null : Number(fxJpy);
+    if ((usd !== null && (isNaN(usd) || usd <= 0)) || (jpy !== null && (isNaN(jpy) || jpy <= 0))) {
+      alert("환율은 0보다 큰 숫자여야 합니다.");
+      return;
+    }
+    setFxSaving(true);
+    const { error: err } = await supabase.from("tenants")
+      .update({ fx_rate_usd: usd, fx_rate_jpy: jpy })
+      .eq("id", tenant.id);
+    setFxSaving(false);
+    if (err) { alert(err.message); return; }
+    setFxSaved(true);
+    setTimeout(() => setFxSaved(false), 3000);
   }
 
   // ── 구독: 플랜 선택/변경 ──
@@ -665,6 +708,52 @@ export default function SettingsPage() {
 
               {/* 모델 관리 — 구독 아래 */}
               <ModelsSection tenantId={tenant.id} />
+            </div>
+          </div>
+
+          {/* 판매채널 관리 (마이그 215) — 지그재그/식스티퍼센트 등, /products 가격 토글용 */}
+          <PlatformsSection tenantId={tenant.id} />
+
+          {/* 환율 설정 — 판매채널 통화(JPY/USD) 환산에 사용. 수동 고정값, 실시간 자동 반영 X. */}
+          <div className={`${styles.card} mt-4`}>
+            <h2 className="text-sm font-bold text-black mb-1">환율 설정</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              판매채널 통화가 원화가 아닐 때 이 환율로 계산합니다. 자동 갱신 안 되니 필요할 때 직접 맞춰주세요.
+            </p>
+            <div className="grid grid-cols-2 gap-3 max-w-md">
+              <div>
+                <label className={styles.modalLabel}>1 USD = ? 원</label>
+                <input type="number" inputMode="decimal" step="0.01" value={fxUsd}
+                  onChange={e => { setFxUsd(e.target.value); setFxSaved(false); }}
+                  placeholder="예: 1380" className={styles.modalInput} />
+                {fxRef && (
+                  <button type="button"
+                    onClick={() => { setFxUsd(fxRef.usd.toFixed(2)); setFxSaved(false); }}
+                    className="text-[11px] text-gray-500 hover:text-black mt-1">
+                    지금 시세 참고: {fxRef.usd.toFixed(2)}원 <span className="underline">적용</span>
+                  </button>
+                )}
+              </div>
+              <div>
+                <label className={styles.modalLabel}>1 JPY = ? 원</label>
+                <input type="number" inputMode="decimal" step="0.01" value={fxJpy}
+                  onChange={e => { setFxJpy(e.target.value); setFxSaved(false); }}
+                  placeholder="예: 9.1" className={styles.modalInput} />
+                {fxRef && (
+                  <button type="button"
+                    onClick={() => { setFxJpy(fxRef.jpy.toFixed(4)); setFxSaved(false); }}
+                    className="text-[11px] text-gray-500 hover:text-black mt-1">
+                    지금 시세 참고: {fxRef.jpy.toFixed(4)}원 <span className="underline">적용</span>
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="mt-3">
+              <button type="button" onClick={handleSaveFx} disabled={fxSaving}
+                className={`${styles.btnPrimary} disabled:opacity-50`}>
+                {fxSaving ? "저장 중…" : "저장"}
+              </button>
+              {fxSaved && <span className="ml-2 text-[11px] text-green-700">저장되었습니다.</span>}
             </div>
           </div>
 

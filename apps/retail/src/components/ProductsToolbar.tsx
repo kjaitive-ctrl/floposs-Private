@@ -29,6 +29,12 @@ interface Props {
   soldOutFilter?: SoldOutFilter;
   onSoldOutFilterChange?: (f: SoldOutFilter) => void;
 
+  // 판매채널 가격 토글 (optional — /products 만. 마이그 215)
+  // "" = 기준가(원화, 편집 가능). id 선택 시 그 채널 기준으로 환산해서 읽기전용 표시.
+  platformOptions?: { id: string; name: string }[];
+  selectedPlatformId?: string;
+  onPlatformChange?: (id: string) => void;
+
   rightActions?: ReactNode;
 }
 
@@ -41,6 +47,7 @@ export default function ProductsToolbar({
   category, onCategoryChange, categoryOptions,
   pageSize, onPageSizeChange,
   soldOutFilter, onSoldOutFilterChange,
+  platformOptions, selectedPlatformId, onPlatformChange,
   rightActions,
 }: Props) {
   // 입력 중인 값은 내부 draft, Enter 시점에 부모로 commit.
@@ -104,6 +111,23 @@ export default function ProductsToolbar({
                   active ? "bg-black text-white" : "bg-white text-gray-700 hover:bg-gray-50"
                 )}>
                 {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {/* 판매채널 가격 토글 — 세그먼트 컨트롤 (품절 필터와 동일 패턴). "기준"은 부모가 항상 넣어줌. */}
+      {platformOptions && platformOptions.length > 0 && onPlatformChange && (
+        <div className="inline-flex rounded border border-gray-300 overflow-hidden text-xs">
+          {[{ id: "", name: "기준" }, ...platformOptions].map(opt => {
+            const active = (selectedPlatformId ?? "") === opt.id;
+            return (
+              <button key={opt.id || "base"}
+                onClick={() => onPlatformChange(opt.id)}
+                className={"px-2.5 py-1.5 border-r border-gray-300 last:border-r-0 transition-colors whitespace-nowrap " + (
+                  active ? "bg-black text-white" : "bg-white text-gray-700 hover:bg-gray-50"
+                )}>
+                {opt.name}
               </button>
             );
           })}

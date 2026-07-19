@@ -27,6 +27,7 @@ import ProductsToolbar, { type SearchCol, type SoldOutFilter } from "@/component
 import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
+import { convertToPlatformPrice, formatPlatformPrice, type Platform, type FxRates } from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
 
 // 마진율 구간별 색상: <10% 빨강 / 10~20% 주황 / 20~30% 노랑 / 30%+ 초록 / 미입력 회색
@@ -115,6 +116,37 @@ export default function ProductsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [total, setTotal] = useState(0);
   const categoryOptions = useCategoryOptions(tenant?.id);
+
+  // 판매채널 가격 토글 (마이그 215) — "" = 기준가(원화, 편집 가능)
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [fxRates, setFxRates] = useState<FxRates>({ usd: null, jpy: null });
+  const [selectedPlatformId, setSelectedPlatformId] = useState("");
+  const selectedPlatform = platforms.find(p => p.id === selectedPlatformId) ?? null;
+
+  useEffect(() => {
+    if (!tenant?.id) return;
+    supabase.from("sales_platforms")
+      .select("id, name, fee_rate, currency")
+      .eq("tenant_id", tenant.id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .then(({ data }) => setPlatforms((data ?? []) as Platform[]));
+    supabase.from("tenants").select("fx_rate_usd, fx_rate_jpy").eq("id", tenant.id).single()
+      .then(({ data }) => {
+        const t = data as { fx_rate_usd: number | null; fx_rate_jpy: number | null } | null;
+        setFxRates({ usd: t?.fx_rate_usd ?? null, jpy: t?.fx_rate_jpy ?? null });
+      });
+  }, [tenant?.id]);
+
+  // 기준가(원화 문자열) → 선택된 채널 기준 표시 문자열. 채널 미선택/환율 미설정이면 null.
+  function platformDisplay(baseStr: string): string | null {
+    if (!selectedPlatform) return null;
+    const base = Number(baseStr);
+    if (!base) return "-";
+    const converted = convertToPlatformPrice(base, selectedPlatform, fxRates);
+    if (converted === null) return "환율 설정 필요";
+    return formatPlatformPrice(converted, selectedPlatform.currency);
+  }
 
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
@@ -383,6 +415,9 @@ export default function ProductsPage() {
           onPageSizeChange={n => { setPageSize(n); setPage(1); }}
           soldOutFilter={soldOutFilter}
           onSoldOutFilterChange={f => { setSoldOutFilter(f); setPage(1); }}
+          platformOptions={platforms.map(p => ({ id: p.id, name: p.name }))}
+          selectedPlatformId={selectedPlatformId}
+          onPlatformChange={setSelectedPlatformId}
           rightActions={<>
             {selectedIds.size > 0 && (
               <button
@@ -578,36 +613,53 @@ export default function ProductsPage() {
                         <OptionChipCell productId={row.id} variants={row.variants} axis="option3"
                           onChanged={() => refetchOneProduct(row.id)} />
                       </td>
-                      {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란 */}
-                      <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
-                        <div className="flex items-center justify-end gap-2 pr-2">
-                          <input id={`cell-${row._key}-regular_sale_price`}
-                            type="text" inputMode="numeric"
-                            value={formatComma(row.regular_sale_price)}
-                            onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
-                            onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
-                            className={inp + " text-right flex-1 min-w-0"} />
-                          <button type="button" title="마진 계산"
-                            onClick={() => setMarginRow(row)}
-                            className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? "")) + " font-semibold shrink-0"}>%</button>
-                        </div>
-                      </td>
-                      <td className={tdTop}>
-                        <input id={`cell-${row._key}-sale_price`}
-                          type="text" inputMode="numeric"
-                          value={formatComma(row.sale_price)}
-                          onChange={e => updateCell(row._key, "sale_price", parseDigits(e.target.value))}
-                          onKeyDown={e => handleNav(e, row._key, "sale_price")}
-                          className={inp + " text-right"} />
-                      </td>
-                      <td className={tdTop}>
-                        <input id={`cell-${row._key}-consumer_price`}
-                          type="text" inputMode="numeric"
-                          value={formatComma(row.consumer_price)}
-                          onChange={e => updateCell(row._key, "consumer_price", parseDigits(e.target.value))}
-                          onKeyDown={e => handleNav(e, row._key, "consumer_price")}
-                          className={inp + " text-right"} />
-                      </td>
+                      {/* 상시판매가 / 판매가 / 소비자가: 위=가격 input (콤마 포맷). 제조국/혼용율/공급사/액션 위=공란.
+                          판매채널 토글 선택 시(마이그 215) = 채널 기준 환산가 읽기전용 표시로 전환. */}
+                      {selectedPlatform ? (
+                        <>
+                          <td className={tdTop}>
+                            <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.regular_sale_price)}</div>
+                          </td>
+                          <td className={tdTop}>
+                            <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.sale_price)}</div>
+                          </td>
+                          <td className={tdTop}>
+                            <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.consumer_price)}</div>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
+                            <div className="flex items-center justify-end gap-2 pr-2">
+                              <input id={`cell-${row._key}-regular_sale_price`}
+                                type="text" inputMode="numeric"
+                                value={formatComma(row.regular_sale_price)}
+                                onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
+                                onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
+                                className={inp + " text-right flex-1 min-w-0"} />
+                              <button type="button" title="마진 계산"
+                                onClick={() => setMarginRow(row)}
+                                className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? "")) + " font-semibold shrink-0"}>%</button>
+                            </div>
+                          </td>
+                          <td className={tdTop}>
+                            <input id={`cell-${row._key}-sale_price`}
+                              type="text" inputMode="numeric"
+                              value={formatComma(row.sale_price)}
+                              onChange={e => updateCell(row._key, "sale_price", parseDigits(e.target.value))}
+                              onKeyDown={e => handleNav(e, row._key, "sale_price")}
+                              className={inp + " text-right"} />
+                          </td>
+                          <td className={tdTop}>
+                            <input id={`cell-${row._key}-consumer_price`}
+                              type="text" inputMode="numeric"
+                              value={formatComma(row.consumer_price)}
+                              onChange={e => updateCell(row._key, "consumer_price", parseDigits(e.target.value))}
+                              onKeyDown={e => handleNav(e, row._key, "consumer_price")}
+                              className={inp + " text-right"} />
+                          </td>
+                        </>
+                      )}
                       {/* 카테고리: dropdown (measurement_templates 정의 — 시스템 + tenant 커스텀)
                           SizeModal 의 카테고리 선택을 여기로 이동 (2026-05-29). 사이즈 모달은 추종. */}
                       <td className={tdTop + " p-0" + (row.category ? "" : " bg-orange-50")}>
