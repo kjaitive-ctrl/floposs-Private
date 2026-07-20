@@ -940,6 +940,7 @@ export default function ProductsPage() {
           }
           feeRatePercent={feeCtx.feeRate}
           currency={feeCtx.currency}
+          fxRate={feeCtx.fxRate}
           onClose={() => setMarginRow(null)}
         />
       )}
