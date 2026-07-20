@@ -11,6 +11,7 @@ import {
   TEMPLATE_URL, TEMPLATE_HEADERS, TEMPLATE_SHEET_NAME, PROMPT_SHEET_NAME, PROMPT_LINES,
   buildPlatform60Rows, type Platform60SourceProduct,
 } from "@/lib/platform60";
+import { convertToPlatformPrice, type Platform, type FxRates } from "@/lib/platformPricing";
 
 // ────────────────────────────────────────────
 // 일괄 등록 양식
@@ -242,7 +243,13 @@ export interface Platform60ExportInput {
   variants: Variant[];
 }
 
-export async function exportPlatform60Excel(products: Platform60ExportInput[]): Promise<void> {
+// platform=null 이면 원화 그대로(변환 없음). 통화환산 필요한데 환율 미설정이면 에러로 중단
+// (호출부가 catch 해서 "환율 설정 필요" 등으로 안내).
+export async function exportPlatform60Excel(
+  products: Platform60ExportInput[],
+  platform: Platform | null,
+  fxRates: FxRates,
+): Promise<void> {
   const ids = products.map(p => p.id);
   const { data: imgRows } = await supabase
     .from("product_images")
@@ -257,13 +264,22 @@ export async function exportPlatform60Excel(products: Platform60ExportInput[]): 
     imagesByProduct.set(r.product_id, arr);
   }
 
-  const sourceProducts: Platform60SourceProduct[] = products.map(p => ({
-    id: p.id,
-    consumer_name: p.consumer_name,
-    consumer_price: p.consumer_price,
-    variants: p.variants,
-    images: imagesByProduct.get(p.id) ?? [],
-  }));
+  const sourceProducts: Platform60SourceProduct[] = products.map(p => {
+    const baseKrw = p.consumer_price ? Number(p.consumer_price) : 0;
+    let price = baseKrw;
+    if (platform) {
+      const converted = convertToPlatformPrice(baseKrw, platform, fxRates);
+      if (converted === null) throw new Error(`환율 설정 필요 (${platform.currency})`);
+      price = converted;
+    }
+    return {
+      id: p.id,
+      consumer_name: p.consumer_name,
+      price,
+      variants: p.variants,
+      images: imagesByProduct.get(p.id) ?? [],
+    };
+  });
 
   const rows = buildPlatform60Rows(sourceProducts);
 

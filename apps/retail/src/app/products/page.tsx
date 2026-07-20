@@ -423,7 +423,7 @@ export default function ProductsPage() {
         consumer_name: r.consumer_name,
         consumer_price: r.consumer_price,
         variants: r.variants,
-      })));
+      })), selectedPlatform, fxRates);
     } catch (e) {
       alert(`60% 업로드 엑셀 생성 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {

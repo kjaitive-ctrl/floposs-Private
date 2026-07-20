@@ -15,14 +15,27 @@ export type FxRates = {
   jpy: number | null;
 };
 
-// 기준가(원화) → 플랫폼 표시가. 표시가 = 기준가 / (1 - 수수료%).
-// 통화가 KRW 아니면 환율로 나눔. 환율 미설정이면 null (호출부가 "환율 설정 필요" 처리).
+// 카페24(기본/원화, id="") 자체의 마진계산용 수수료 가정치. 사장 결정 2026-07-09.
+// 가격표시(판매가/소비자가/상시판매가 입력값)엔 적용 안 함 — 마진계산 모달 전용.
+export const CAFE24_FEE_RATE = 3.5;
+
+// 기준가(원화) → 플랫폼 표시가.
+// 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
+// 외화 플랫폼 (사장 결정 2026-07-20): 카페24 기본(3.5%)보다 높아진 초과분만 마크업 —
+//   표시가 = 기준가 / (1 - max(0, 플랫폼수수료% - 3.5%)) / 환율.
+//   환율 미설정이면 null (호출부가 "환율 설정 필요" 처리).
+//   엔화는 지저분한 끝자리 방지를 위해 10엔 단위 반올림.
 export function convertToPlatformPrice(baseKrw: number, platform: Platform, fx: FxRates): number | null {
-  const markedUp = baseKrw / (1 - platform.fee_rate / 100);
-  if (platform.currency === "KRW") return markedUp;
+  if (platform.currency === "KRW") {
+    return baseKrw / (1 - platform.fee_rate / 100);
+  }
+  const extraFee = Math.max(0, platform.fee_rate - CAFE24_FEE_RATE);
+  const markedUp = baseKrw / (1 - extraFee / 100);
   const rate = platform.currency === "USD" ? fx.usd : fx.jpy;
   if (!rate) return null;
-  return markedUp / rate;
+  const converted = markedUp / rate;
+  if (platform.currency === "JPY") return Math.round(converted / 10) * 10;
+  return converted;
 }
 
 export function formatPlatformPrice(value: number, currency: PlatformCurrency): string {
@@ -30,10 +43,6 @@ export function formatPlatformPrice(value: number, currency: PlatformCurrency): 
   const decimals = currency === "USD" ? 2 : 0;
   return symbol + value.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
-
-// 카페24(기본/원화, id="") 자체의 마진계산용 수수료 가정치. 사장 결정 2026-07-09.
-// 가격표시(판매가/소비자가/상시판매가 입력값)엔 적용 안 함 — 마진계산 모달 전용.
-export const CAFE24_FEE_RATE = 3.5;
 
 // 마진계산 모달용 fee 컨텍스트. platform=null(카페24) 이면 고정 3.5%/원화.
 export function feeContextFor(platform: Platform | null, fx: FxRates): {

@@ -43,7 +43,7 @@ export const PROMPT_LINES: string[] = [
 export interface Platform60SourceProduct {
   id: string;
   consumer_name: string;
-  consumer_price: string;
+  price: number;  // 판매채널 변환(수수료 역산+환율) 완료된 값. 호출부(excelUtils) 책임.
   variants: Variant[];
   images: string[];  // sort_order 순 R2 public URL, 최대 10장 사용
 }
@@ -53,7 +53,7 @@ export function buildPlatform60Rows(products: Platform60SourceProduct[]): (strin
 
   for (const p of products) {
     const forSale = p.variants.filter(v => v.is_for_sale !== false);
-    const price = p.consumer_price ? Number(p.consumer_price) : 0;
+    const price = p.price;
     const images = p.images.slice(0, 10);
     const imageCells = Array.from({ length: 10 }, (_, i) => images[i] ?? "");
 
