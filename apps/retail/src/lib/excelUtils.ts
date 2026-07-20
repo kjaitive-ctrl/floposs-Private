@@ -7,6 +7,10 @@ import * as XLSX from "xlsx";
 import { supabase } from "@/lib/supabase";
 import { cartesian, split, textToMaterial } from "@/lib/samplesUtils";
 import type { Variant } from "@/lib/samplesUtils";
+import {
+  TEMPLATE_URL, TEMPLATE_HEADERS, TEMPLATE_SHEET_NAME, PROMPT_SHEET_NAME, PROMPT_LINES,
+  buildPlatform60Rows, type Platform60SourceProduct,
+} from "@/lib/platform60";
 
 // ────────────────────────────────────────────
 // 일괄 등록 양식
@@ -222,6 +226,61 @@ export function exportProductsToExcel(rows: ExportRow[]) {
   XLSX.utils.book_append_sheet(wb, ws, "상품목록");
   const dateStr = new Date().toLocaleDateString("en-CA").replace(/-/g, "");
   XLSX.writeFile(wb, `상품목록_${dateStr}.xlsx`);
+}
+
+// ────────────────────────────────────────────
+// "60%" 플랫폼 업로드 양식 export (2026-07-20)
+// — SKU(variant) 단위 한 줄. 원본 템플릿(public/templates)을 그대로 불러와
+//   Template 시트만 교체 → Master 시트(드롭다운 값)는 원본 그대로 보존.
+// — 상품명/옵션명 번역 없음. 카테고리/성별/편직/소재/Variant Image URL = 공란,
+//   Vendor="un:tyl"/Variant Quantity=9999 고정 (사장 결정 2026-07-20).
+// ────────────────────────────────────────────
+export interface Platform60ExportInput {
+  id: string;
+  consumer_name: string;
+  consumer_price: string;
+  variants: Variant[];
+}
+
+export async function exportPlatform60Excel(products: Platform60ExportInput[]): Promise<void> {
+  const ids = products.map(p => p.id);
+  const { data: imgRows } = await supabase
+    .from("product_images")
+    .select("product_id, url, sort_order")
+    .in("product_id", ids)
+    .order("sort_order", { ascending: true });
+
+  const imagesByProduct = new Map<string, string[]>();
+  for (const r of (imgRows ?? []) as { product_id: string; url: string }[]) {
+    const arr = imagesByProduct.get(r.product_id) ?? [];
+    arr.push(r.url);
+    imagesByProduct.set(r.product_id, arr);
+  }
+
+  const sourceProducts: Platform60SourceProduct[] = products.map(p => ({
+    id: p.id,
+    consumer_name: p.consumer_name,
+    consumer_price: p.consumer_price,
+    variants: p.variants,
+    images: imagesByProduct.get(p.id) ?? [],
+  }));
+
+  const rows = buildPlatform60Rows(sourceProducts);
+
+  const buf = await fetch(TEMPLATE_URL).then(r => r.arrayBuffer());
+  const wb = XLSX.read(buf, { type: "array" });
+
+  wb.Sheets[TEMPLATE_SHEET_NAME] = XLSX.utils.aoa_to_sheet([Array.from(TEMPLATE_HEADERS), ...rows]);
+
+  // Prompt 시트 — Template 바로 다음(두 번째) 자리에 삽입, 나머지 Master 시트는 그대로 보존.
+  const promptWs = XLSX.utils.aoa_to_sheet(PROMPT_LINES.map(line => [line]));
+  promptWs["!cols"] = [{ wch: 120 }];
+  wb.Sheets[PROMPT_SHEET_NAME] = promptWs;
+  wb.SheetNames = wb.SheetNames.filter(n => n !== PROMPT_SHEET_NAME);
+  wb.SheetNames.splice(1, 0, PROMPT_SHEET_NAME);
+
+  const dateStr = new Date().toLocaleDateString("en-CA").replace(/-/g, "");
+  XLSX.writeFile(wb, `60업로드_${dateStr}.xlsx`);
 }
 
 // ────────────────────────────────────────────

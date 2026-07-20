@@ -107,6 +107,8 @@ export default function ProductsPage() {
   // 썸네일 추출(GIF) 진행 상태
   const [thumbExporting, setThumbExporting] = useState(false);
   const [thumbExportStatus, setThumbExportStatus] = useState("");
+  // "60%" 플랫폼 업로드 엑셀 생성 진행 상태
+  const [platform60Exporting, setPlatform60Exporting] = useState(false);
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
   // 카테고리 dropdown 옵션 (measurement_templates 시스템 공통 + tenant 커스텀)
@@ -410,6 +412,25 @@ export default function ProductsPage() {
     }
   }
 
+  async function handlePlatform60Export() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
+    if (targets.length === 0) return;
+    setPlatform60Exporting(true);
+    try {
+      const { exportPlatform60Excel } = await import("@/lib/excelUtils");
+      await exportPlatform60Excel(targets.map(r => ({
+        id: r.id,
+        consumer_name: r.consumer_name,
+        consumer_price: r.consumer_price,
+        variants: r.variants,
+      })));
+    } catch (e) {
+      alert(`60% 업로드 엑셀 생성 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPlatform60Exporting(false);
+    }
+  }
+
   async function handleRevert(row: ProductRow) {
     // 이미지 등록 시 회귀 차단 (사장 결정 2026-05-29) — 샘플 단계엔 이미지 X
     if (row.image_count > 0) {
@@ -496,6 +517,14 @@ export default function ProductsPage() {
                 onClick={() => setCafe24PushOpen(true)}
                 className={styles.btnSmall + " py-1 !border-blue-400 !text-blue-700 hover:!bg-blue-50"}>
                 카페24 전송 {selectedIds.size}개
+              </button>
+            )}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handlePlatform60Export}
+                disabled={platform60Exporting}
+                className={styles.btnSmall + " py-1 !border-purple-400 !text-purple-700 hover:!bg-purple-50 disabled:opacity-50"}>
+                {platform60Exporting ? "생성 중..." : `60% 업로드 ${selectedIds.size}개`}
               </button>
             )}
             {selectedIds.size > 0 && (
