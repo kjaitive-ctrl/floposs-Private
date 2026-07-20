@@ -8,7 +8,7 @@ interface Props {
   productName: string;
   sellPrice: number | null;       // 해당 채널 통화 기준 상시판매가 (실제 리스팅가 — 마크업 반영됨)
   wholesalePrice: number | null;  // 도매가 — 항상 원화 원본 (환산은 아래서 fxRate 로)
-  feeRatePercent: number;         // 채널별 수수료 % (카페24/외화채널=3.5 고정, 원화채널=설정값 전체)
+  feeRatePercent: number;         // 채널별 수수료 % (카페24=3.5 고정, 등록 채널=실제 전체 수수료율)
   currency: PlatformCurrency;
   fxRate: number | null;          // KRW→currency 환율. currency=KRW 면 무시. 채널 통화인데 미설정이면 null.
   onClose: () => void;
