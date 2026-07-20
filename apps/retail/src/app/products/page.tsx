@@ -28,7 +28,7 @@ import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
 import {
-  convertToPlatformPrice, formatPlatformPrice, feeContextFor, toCurrencyOnly, CAFE24_FEE_RATE,
+  convertToPlatformPrice, formatPlatformPrice, feeContextFor, CAFE24_FEE_RATE,
   type Platform, type FxRates,
 } from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
@@ -960,7 +960,9 @@ export default function ProductsPage() {
           productName={marginRow.consumer_name || marginRow.wholesale_name || ""}
           sellPrice={
             marginRow.regular_sale_price
-              ? toCurrencyOnly(Number(marginRow.regular_sale_price), feeCtx.currency, feeCtx.fxRate)
+              ? (selectedPlatform
+                  ? convertToPlatformPrice(Number(marginRow.regular_sale_price), selectedPlatform, fxRates)
+                  : Number(marginRow.regular_sale_price))
               : null
           }
           wholesalePrice={

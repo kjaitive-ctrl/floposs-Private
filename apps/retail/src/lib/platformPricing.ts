@@ -47,18 +47,16 @@ export function formatPlatformPrice(value: number, currency: PlatformCurrency): 
 }
 
 // 마진계산 모달용 fee 컨텍스트. platform=null(카페24) 이면 고정 3.5%/원화.
+// 마진계산의 "상시판매가"는 이제 convertToPlatformPrice 로 마크업된(실제 리스팅) 값을 그대로 씀
+// (사장 결정 2026-07-20) — 원화 플랫폼은 마크업이 전체 수수료율 역산이라 그대로 전체 수수료율을
+// 다시 차감해도 이중계산 안 됨(margin = base - cost 로 정확히 상쇄). 외화 플랫폼은 마크업이
+// 초과분(수수료-3.5%)만 가산이라, 여기서 전체 수수료율을 또 차감하면 이중차감 — 카페24
+// 기본률(3.5%)만 차감 (초과분은 마크업이 이미 커버했다는 전제).
 export function feeContextFor(platform: Platform | null, fx: FxRates): {
   feeRate: number; currency: PlatformCurrency; fxRate: number | null;
 } {
   if (!platform) return { feeRate: CAFE24_FEE_RATE, currency: "KRW", fxRate: null };
   const fxRate = platform.currency === "KRW" ? null : (platform.currency === "USD" ? fx.usd : fx.jpy);
-  return { feeRate: platform.fee_rate, currency: platform.currency, fxRate };
-}
-
-// 순수 환율 변환만 (수수료 역산 없이) — 마진계산 모달의 "해당통화 상시판매가" 표시용.
-// convertToPlatformPrice 는 가격표시용이라 역산 마크업이 섞여있어 마진계산엔 부적합 (이중계산 방지).
-export function toCurrencyOnly(baseKrw: number, currency: PlatformCurrency, fxRate: number | null): number | null {
-  if (currency === "KRW") return baseKrw;
-  if (!fxRate) return null;
-  return baseKrw / fxRate;
+  const feeRate = platform.currency === "KRW" ? platform.fee_rate : CAFE24_FEE_RATE;
+  return { feeRate, currency: platform.currency, fxRate };
 }
