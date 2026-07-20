@@ -21,19 +21,21 @@ export const CAFE24_FEE_RATE = 3.5;
 
 // 기준가(원화) → 플랫폼 표시가.
 // 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
-// 외화 플랫폼 (사장 결정 2026-07-20): 카페24 기본(3.5%)보다 높아진 초과분만 마크업 —
-//   표시가 = 기준가 / (1 - max(0, 플랫폼수수료% - 3.5%)) / 환율.
+// 외화 플랫폼 (사장 결정 2026-07-20, 수정 2026-07-20): 먼저 순수 환율변환 후,
+//   카페24 기본(3.5%)보다 높아진 초과분만큼 그 위에 얹어서 가산 —
+//   표시가 = (기준가 / 환율) x (1 + max(0, 플랫폼수수료% - 3.5%) / 100).
+//   예: 10000원, 60%수수료 31.9%, 환율 X → (10000/X) x (1 + (31.9-3.5)/100) = (10000/X) x 1.284
 //   환율 미설정이면 null (호출부가 "환율 설정 필요" 처리).
 //   엔화는 지저분한 끝자리 방지를 위해 10엔 단위 반올림.
 export function convertToPlatformPrice(baseKrw: number, platform: Platform, fx: FxRates): number | null {
   if (platform.currency === "KRW") {
     return baseKrw / (1 - platform.fee_rate / 100);
   }
-  const extraFee = Math.max(0, platform.fee_rate - CAFE24_FEE_RATE);
-  const markedUp = baseKrw / (1 - extraFee / 100);
   const rate = platform.currency === "USD" ? fx.usd : fx.jpy;
   if (!rate) return null;
-  const converted = markedUp / rate;
+  const baseInCurrency = baseKrw / rate;
+  const extraFee = Math.max(0, platform.fee_rate - CAFE24_FEE_RATE);
+  const converted = baseInCurrency * (1 + extraFee / 100);
   if (platform.currency === "JPY") return Math.round(converted / 10) * 10;
   return converted;
 }
