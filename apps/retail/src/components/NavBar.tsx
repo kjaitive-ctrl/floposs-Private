@@ -8,6 +8,7 @@ import { useTenant } from "@/lib/TenantContext";
 const LINKS: { href: string; label: string }[] = [
   { href: "/samples", label: "샘플" },
   { href: "/products", label: "내 상품" },
+  { href: "/product-status", label: "상품현황" },
   { href: "/routines", label: "업무루틴" },
   // TEST 전용 — dev 서버에서만 노출. production 빌드 시 NODE_ENV='production' 으로 자동 숨김.
   // 라벨에 "COMMIT 안 함" 명시 — 사장 규칙([[test-menu-no-commit]]).

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, KeyboardEvent, ChangeEvent, Fragment } from "react";
+import { Suspense, useEffect, useRef, useState, KeyboardEvent, ChangeEvent, Fragment } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_STATUSES } from "@/common/constants";
 import { styles } from "@/common/styles";
@@ -90,7 +91,8 @@ interface ProductRow {
   cafe24_product_no: number | null;
 }
 
-export default function ProductsPage() {
+function ProductsPageInner() {
+  const sp = useSearchParams();
   const { tenant, loading: tenantLoading, error: tenantError } = useTenant();
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,8 +119,11 @@ export default function ProductsPage() {
   // ── 검색/필터/페이지네이션 ──
   // 한 상품 = 2 tr 이라 기본 25개 (= 50 tr). samples 와 동일 인터페이스.
   const [searchCol, setSearchCol] = useState<SearchCol>("consumer_name");
-  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState(() => sp.get("q") ?? "");
   const [category, setCategory] = useState("");
+  // 상품현황 탭에서 거래처 클릭 → ?supplier=<retail_supplier_id>&supplierName=<라벨>(&q=<상품명>) 로 진입.
+  const [supplierId, setSupplierId] = useState(() => sp.get("supplier") ?? "");
+  const [supplierName, setSupplierName] = useState(() => sp.get("supplierName") ?? "");
   const [soldOutFilter, setSoldOutFilter] = useState<SoldOutFilter>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -257,6 +262,7 @@ export default function ProductsPage() {
       .in("status", PRODUCT_STATUSES);
     if (appliedSearch) query = query.ilike(searchCol, `%${appliedSearch}%`);
     if (category)      query = query.eq("category", category);
+    if (supplierId)    query = query.eq("retail_supplier_id", supplierId);
     if (soldOutFilter === "active")   query = query.eq("sold_out", false);
     if (soldOutFilter === "sold_out") query = query.eq("sold_out", true);
     // registered_at = "진행" 시점 (마이그 214). created_at 은 fallback
@@ -319,7 +325,7 @@ export default function ProductsPage() {
     // page/pageSize/appliedSearch/searchCol/category/soldOutFilter 변경 시 자동 재조회.
     // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
     if (tenant?.id) fetchItems(tenant.id);
-  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, soldOutFilter]);
+  }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, soldOutFilter, supplierId]);
 
   type EditField = "consumer_name" | "sale_price" | "consumer_price" | "regular_sale_price";
 
@@ -506,6 +512,16 @@ export default function ProductsPage() {
   return (
     <div className="flex flex-col bg-white" style={{ height: "calc(100vh - 49px)" }}>
       <header className={styles.header}>
+        {supplierId && (
+          <div className="mb-2 flex items-center gap-2 text-xs">
+            <span className="text-gray-500">거래처 필터:</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full font-medium">
+              {supplierName || "선택된 거래처"}
+              <button type="button" onClick={() => { setSupplierId(""); setSupplierName(""); setPage(1); }}
+                className="ml-1 text-primary/70 hover:text-primary">×</button>
+            </span>
+          </div>
+        )}
         <ProductsToolbar
           searchCol={searchCol}
           onSearchColChange={setSearchCol}
@@ -1008,5 +1024,13 @@ export default function ProductsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<div className="text-xs text-gray-400 p-6">불러오는 중…</div>}>
+      <ProductsPageInner />
+    </Suspense>
   );
 }
