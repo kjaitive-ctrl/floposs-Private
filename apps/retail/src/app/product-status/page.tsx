@@ -90,7 +90,9 @@ export default function ProductStatusPage() {
   }, [rows]);
 
   const suppliersWithProducts = useMemo(
-    () => suppliers.filter(s => (grouped.get(s.id)?.length ?? 0) > 0),
+    () => suppliers
+      .filter(s => (grouped.get(s.id)?.length ?? 0) > 0)
+      .sort((a, b) => (grouped.get(b.id)?.length ?? 0) - (grouped.get(a.id)?.length ?? 0)),
     [suppliers, grouped],
   );
 
@@ -217,17 +219,17 @@ export default function ProductStatusPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {suppliersWithProducts.map(s => {
             const list = grouped.get(s.id) ?? [];
             const isOpen = expanded.has(s.id);
             return (
-              <div key={s.id} className={styles.card + " p-0 overflow-hidden"}>
+              <div key={s.id} className={styles.cardSm + " p-0 overflow-hidden"}>
                 <button type="button" onClick={() => toggleExpand(s.id)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 text-left">
+                  className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-gray-50 text-left">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-black">{s.store_name}</span>
-                    <span className="text-xs text-gray-400">{s.loc}</span>
+                    <span className="text-xs font-semibold text-black">{s.store_name}</span>
+                    <span className="text-[11px] text-gray-400">{s.loc}</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-gray-500">상품 {list.length}개</span>
