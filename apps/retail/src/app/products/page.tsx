@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { PRODUCT_STATUSES } from "@/common/constants";
 import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
-import { formatComma, parseDigits } from "@/lib/format";
+import { formatComma, parseDigits, sanitizeFilename } from "@/lib/format";
 import {
   joinUniq, materialToText, newKey, split,
   type DbProduct, type Variant,
@@ -30,6 +30,7 @@ import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
 import {
   convertToPlatformPrice, formatPlatformPrice, feeContextFor, CAFE24_FEE_RATE,
+  calcFee, FIXED_FEE_KRW,
   type Platform, type FxRates,
 } from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
@@ -39,7 +40,7 @@ function marginRateColor(sellStr: string, costStr: string, feeRatePercent: numbe
   const sell = Number(sellStr);
   const cost = Number(costStr);
   if (!sell || !cost) return "text-gray-300 hover:text-gray-500";
-  const fee = Math.round(sell * (feeRatePercent / 100) + 2200);
+  const fee = calcFee(sell, feeRatePercent, FIXED_FEE_KRW);
   const rate = (sell - fee - cost) / sell * 100;
   if (rate < 10)  return "text-red-500    hover:text-red-700";
   if (rate < 20)  return "text-orange-400 hover:text-orange-600";
@@ -113,8 +114,6 @@ function ProductsPageInner() {
   const [platform60Exporting, setPlatform60Exporting] = useState(false);
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
-  // 카테고리 dropdown 옵션 (measurement_templates 시스템 공통 + tenant 커스텀)
-  const [measureCategories, setMeasureCategories] = useState<string[]>([]);
 
   // ── 검색/필터/페이지네이션 ──
   // 한 상품 = 2 tr 이라 기본 25개 (= 50 tr). samples 와 동일 인터페이스.
@@ -277,20 +276,8 @@ function ProductsPageInner() {
     setLoading(false);
   }
 
-  // measurement_templates 카테고리 옵션 fetch — row 의 카테고리 dropdown 용
-  useEffect(() => {
-    if (!tenant?.id) return;
-    supabase.from("measurement_templates")
-      .select("category, sort_order, tenant_id")
-      .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .then(({ data }) => {
-        const set = new Set<string>();
-        (data ?? []).forEach((r: { category: string }) => set.add(r.category));
-        setMeasureCategories(Array.from(set));
-      });
-  }, [tenant?.id]);
+  // 카테고리 dropdown 옵션(필터 바 + row 셀 공용) — useCategoryOptions 훅 하나로 통일
+  // (예전엔 같은 measurement_templates 를 여기서 별도로 한 번 더 조회했음).
 
   async function updateCategory(row: ProductRow, newCategory: string) {
     if (row.category === newCategory) return;
@@ -357,7 +344,7 @@ function ProductsPageInner() {
   // 선택 상품들의 썸네일(image_type='thumbnail') 이미지를 GIF(2장+)/JPEG(1장)로 합성해 다운로드.
   // 1개 선택 = 파일 그대로 다운로드, 2개+ = ZIP 묶음 (ProductImagesModal 의 다운로드 패턴과 동일).
   function safeFilename(row: ProductRow): string {
-    return (row.consumer_name || row.wholesale_name || row.id).replace(/[\\/:*?"<>|]/g, "_");
+    return sanitizeFilename(row.consumer_name || row.wholesale_name || row.id);
   }
 
   async function fetchThumbnailFile(productId: string): Promise<{ blob: Blob; ext: string } | null> {
@@ -497,7 +484,7 @@ function ProductsPageInner() {
   // 아래 줄 — samples 박제 헤더 (공급가/할인가/제조국/혼용율/공급사) + 액션. 메모~옵션3 자리 공란
   const thBot = thBase + " bg-gray-100 sticky top-9";
   const td = "border-r border-r-gray-100 align-middle";
-  const inp = "w-full px-2 py-1.5 text-xs bg-transparent text-black placeholder:text-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset";
+  const inp = styles.gridInput;
 
   function cellProps(row: ProductRow, col: EditField) {
     return {
@@ -807,7 +794,7 @@ function ProductsPageInner() {
                           onChange={e => updateCategory(row, e.target.value)}
                           className={inp + " w-full"}>
                           <option value="">— 선택 —</option>
-                          {measureCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                          {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                       </td>
                       {/* 상품코드: 진행 시 자동 발급된 바코드 (마이그 198, 18자리). 샘플 상태면 "-". */}
@@ -915,7 +902,7 @@ function ProductsPageInner() {
           onClose={() => setSizeModalRow(null)}
           onSaved={() => {
             setSizeModalRow(null);
-            fetchItems(tenant.id);
+            refetchOneProduct(sizeModalRow.id);
           }}
         />
       )}
@@ -928,7 +915,7 @@ function ProductsPageInner() {
           onClose={() => setCommentModalRow(null)}
           onSaved={() => {
             setCommentModalRow(null);
-            fetchItems(tenant.id);
+            refetchOneProduct(commentModalRow.id);
           }}
         />
       )}
@@ -942,7 +929,7 @@ function ProductsPageInner() {
           onClose={() => setShootModalRow(null)}
           onSaved={() => {
             setShootModalRow(null);
-            fetchItems(tenant.id);
+            refetchOneProduct(shootModalRow.id);
           }}
         />
       )}
@@ -954,7 +941,7 @@ function ProductsPageInner() {
           onClose={() => {
             setImagesModalRow(null);
             // image_count 갱신 — [샘플로] 가드 동기화 (사장 결정 2026-05-29)
-            if (tenant?.id) fetchItems(tenant.id);
+            refetchOneProduct(imagesModalRow.id);
           }}
           onSaved={() => {
             // 모달 안에서 즉시 갱신하므로 list 만 별도 refresh 안 함 — 닫을 때 page refetch.
@@ -969,7 +956,7 @@ function ProductsPageInner() {
           originalPrice={priceModalRow.wholesale_price}
           currentPrice={priceModalRow.wholesale_price_current ? Number(priceModalRow.wholesale_price_current) : null}
           onClose={() => setPriceModalRow(null)}
-          onSaved={() => { setPriceModalRow(null); if (tenant?.id) fetchItems(tenant.id); }}
+          onSaved={() => { setPriceModalRow(null); refetchOneProduct(priceModalRow.id); }}
         />
       )}
 

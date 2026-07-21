@@ -108,10 +108,9 @@ export default function SamplesPage() {
   //   'all'     = 옛 반납 포함 전체                — 영구 검색용
   type ReturnFilter = "none" | "last_30" | "all";
   const [returnFilter, setReturnFilter] = useState<ReturnFilter>("none");
-  const categoryOptions = useCategoryOptions(tenant?.id);
   // 사이즈 측정 카테고리 dropdown (measurement_templates 시스템 + tenant 커스텀)
   // /products 와 동일 — samples 에서 미리 선택해두면 [진행] 시 그대로 넘어감.
-  const [measureCategories, setMeasureCategories] = useState<string[]>([]);
+  const categoryOptions = useCategoryOptions(tenant?.id);
 
   async function handleDownloadTemplate() {
     const { downloadUploadTemplate } = await import("@/lib/excelUtils");
@@ -423,20 +422,6 @@ export default function SamplesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenant?.id, page, pageSize, appliedSearch, searchCol, category, returnFilter]);
 
-  // measurement_templates 카테고리 옵션 fetch — 행별 카테고리 dropdown 용
-  useEffect(() => {
-    if (!tenant?.id) return;
-    supabase.from("measurement_templates")
-      .select("category, sort_order, tenant_id")
-      .or(`tenant_id.is.null,tenant_id.eq.${tenant.id}`)
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true })
-      .then(({ data }) => {
-        const set = new Set<string>();
-        (data ?? []).forEach((r: { category: string }) => set.add(r.category));
-        setMeasureCategories(Array.from(set));
-      });
-  }, [tenant?.id]);
 
   async function updateSampleCategory(row: EditableRow, newCategory: string) {
     if ((row.category ?? "") === newCategory) return;
@@ -569,7 +554,7 @@ export default function SamplesPage() {
   const tdDraft = "border-r border-gray-100 align-middle bg-gray-100 sticky top-8 z-10";
   // 공급상품명 입력 셀 전용 — 회색 행 위에 흰색 박스 + 검은 border 로 "여기에 입력" 강조
   const inpDraftActive = "w-full px-2 py-1 text-xs font-medium bg-white text-black placeholder:text-gray-500 border border-black rounded focus:outline-none focus:ring-1 focus:ring-black focus:ring-inset";
-  const inp = "w-full px-2 py-1.5 text-xs bg-transparent text-black placeholder:text-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset";
+  const inp = styles.gridInput;
   // date input 전용 — 빈 value 시 placeholder 글씨(연도-월-일) 옅은 회색, 채워지면 검은색
   const inpDate = "w-full px-2 py-1.5 text-xs bg-transparent placeholder:text-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset";
   const dateColor = (v: string) => v ? " text-black" : " text-gray-400";
@@ -838,7 +823,7 @@ export default function SamplesPage() {
                         disabled={isReg || !row.id}
                         className={inp + " w-full" + lockTxt}>
                         <option value="">— 선택 —</option>
-                        {measureCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                        {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </td>
                     <td className={td + " text-center border-r-0"}>

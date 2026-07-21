@@ -1,8 +1,6 @@
 "use client";
 import { formatComma } from "@/lib/format";
-import { formatPlatformPrice, type PlatformCurrency } from "@/lib/platformPricing";
-
-const FIXED_FEE_KRW = 2200;
+import { formatPlatformPrice, calcFee, FIXED_FEE_KRW, type PlatformCurrency } from "@/lib/platformPricing";
 
 interface Props {
   productName: string;
@@ -16,10 +14,6 @@ interface Props {
 
 // 수수료 = 상시판매가(해당통화) × 수수료% + 2,200원(고정, 해당통화로 환산)
 // 마진   = 상시판매가 − 수수료 − 도매가(해당통화로 환산)
-function calcFee(sell: number, feeRatePercent: number, fixedFee: number): number {
-  return Math.round(sell * (feeRatePercent / 100) + fixedFee);
-}
-
 export default function MarginCalcModal({ productName, sellPrice, wholesalePrice, feeRatePercent, currency, fxRate, onClose }: Props) {
   const needsFx = currency !== "KRW";
   const fxMissing = needsFx && !fxRate;

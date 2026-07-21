@@ -19,6 +19,14 @@ export type FxRates = {
 // 가격표시(판매가/소비자가/상시판매가 입력값)엔 적용 안 함 — 마진계산 모달 전용.
 export const CAFE24_FEE_RATE = 3.5;
 
+// 마진계산 고정 수수료(원화). MarginCalcModal + /products 마진율 색상 양쪽에서 공용.
+export const FIXED_FEE_KRW = 2200;
+
+// 수수료 = 판매가(해당통화) × 수수료% + 고정수수료(해당통화로 환산).
+export function calcFee(sell: number, feeRatePercent: number, fixedFee: number): number {
+  return Math.round(sell * (feeRatePercent / 100) + fixedFee);
+}
+
 // 기준가(원화) → 플랫폼 표시가.
 // 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
 // 외화 플랫폼 (사장 결정 2026-07-20, 수정 2026-07-20): 먼저 순수 환율변환 후,

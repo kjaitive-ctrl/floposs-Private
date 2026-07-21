@@ -1,5 +1,10 @@
 // 숫자 포맷 공통 유틸 — 프로젝트 전체에서 같은 표기.
 
+// 다운로드 파일명에 못 쓰는 문자 제거 (Windows 기준: \ / : * ? " < > |).
+export function sanitizeFilename(name: string): string {
+  return name.replace(/[\\/:*?"<>|]/g, "_");
+}
+
 // 1234 / "1234" / "01,234" → "1,234". null/빈값/잘못된 입력 → "".
 export function formatComma(v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === "") return "";

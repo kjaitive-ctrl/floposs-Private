@@ -73,14 +73,9 @@ export const styles = {
   tr: "border-b border-gray-100 hover:bg-gray-50 transition-colors",
 
   // ── 표 인라인 셀 (밀집 그리드 — /samples /products) ──
-  // 위/아래 줄 헤더 / 데이터 셀 공통 토대
-  thGrid:      "text-center px-2 py-2 text-black text-xs font-medium border-r border-b border-gray-300 bg-gray-100",
-  tdGrid:      "border-r border-b border-gray-100 align-middle h-9",
-  tdGridRead:  "px-2 py-1.5 border-r border-b border-gray-200 text-xs text-gray-500 align-middle h-9",
-  // 셀 안 input (밀집)
-  inputCell:        "w-full px-2 py-1 border border-transparent text-xs text-black bg-transparent focus:outline-none focus:ring-1 focus:ring-primary-ring focus:ring-inset rounded",
-  inputCellNumber:  "w-full px-2 py-1 border border-transparent text-xs text-black bg-transparent text-right focus:outline-none focus:ring-1 focus:ring-primary-ring focus:ring-inset rounded",
-  inputCellActive:  "w-full px-2 py-1 text-xs font-medium bg-white text-black placeholder:text-gray-500 border border-black rounded focus:outline-none focus:ring-1 focus:ring-primary-ring focus:ring-inset",
+  // 헤더/셀 구조(sticky 줄 수·border 위치)는 페이지마다 달라 로컬에 둠.
+  // gridInput 만 두 페이지에서 byte-identical 이라 공용으로 뺌.
+  gridInput: "w-full px-2 py-1.5 text-xs bg-transparent text-black placeholder:text-gray-500 focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset",
 
   // ── 네비게이션 ──
   nav: "bg-white border-b border-gray-200 px-6 flex items-center gap-1 h-12",

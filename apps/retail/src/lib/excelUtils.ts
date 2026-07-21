@@ -67,6 +67,12 @@ function pickDate(r: UploadRow, key: string): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
 }
 
+type PreparedRow = {
+  productCode: string;
+  payload: Record<string, unknown>;
+  combos: { o1: string; o2: string; o3: string }[];
+};
+
 export async function batchInsertProducts(
   tenantId: string,
   rows: UploadRow[],
@@ -75,11 +81,19 @@ export async function batchInsertProducts(
   let failed = 0;
   const errors: string[] = [];
 
-  const { count: existing } = await supabase.from("products")
-    .select("*", { count: "exact", head: true })
-    .eq("tenant_id", tenantId);
-  let nextNum = (existing ?? 0) + 1;
+  // product_code = 실제 존재하는 최대 코드 + 1 (COUNT 기반이면 대량입력/삭제로 생긴 gap 과
+  // 충돌 — 2026-07-06 samples/page.tsx 에서 발견해 수정한 것과 동일 이슈. 여기도 동일하게 적용.
+  const { data: maxRow } = await supabase.from("products")
+    .select("product_code")
+    .eq("tenant_id", tenantId)
+    .order("product_code", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let nextNum = maxRow?.product_code ? parseInt(maxRow.product_code.replace("R-", ""), 10) + 1 : 1;
 
+  // 유효 행만 골라 product_code 를 로컬에서 미리 순번 배정 + insert payload 구성.
+  // (행마다 순차 INSERT 왕복하던 걸 준비 단계와 실제 INSERT 단계로 분리해 bulk insert 가능하게 함)
+  const prepared: PreparedRow[] = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const wholesaleName = pickStr(r, "공급상품명");
@@ -88,9 +102,6 @@ export async function batchInsertProducts(
       errors.push(`${i + 2}행: 공급상품명 누락 — skip`);
       continue;
     }
-
-    const productCode = `R-${String(nextNum).padStart(3, "0")}`;
-    nextNum++;
 
     const o1 = split(pickStr(r, "옵션1(색상)"));
     const o2 = split(pickStr(r, "옵션2(사이즈)"));
@@ -104,47 +115,98 @@ export async function batchInsertProducts(
       return d.toISOString().slice(0, 10);
     })();
 
-    const { data: pData, error: pErr } = await supabase.from("products").insert({
-      tenant_id: tenantId,
-      product_code: productCode,
-      name: wholesaleName,
-      wholesale_name: wholesaleName,
-      wholesale_supplier: pickStr(r, "공급사") || null,
-      category: pickStr(r, "카테고리") || null,
-      wholesale_price: pickNum(r, "공급가"),
-      wholesale_discount_price: pickNum(r, "할인가"),
-      status: "sample_received",
-      launch_date: launchDate,
-      return_deadline: returnDeadline,
-      description: pickStr(r, "메모") || null,
-      country_of_origin: pickStr(r, "제조국") || null,
-      material_composition: textToMaterial(pickStr(r, "혼용율")),
-      option1_label: o1.length > 0 ? "색상" : null,
-      option2_label: o2.length > 0 ? "사이즈" : null,
-      option3_label: null,
-      is_active: true,
-    }).select("id").single();
+    const productCode = `R-${String(nextNum).padStart(3, "0")}`;
+    nextNum++;
 
-    if (pErr || !pData) {
-      failed++;
-      errors.push(`${productCode} INSERT 실패: ${pErr?.message ?? "unknown"}`);
-      continue;
+    prepared.push({
+      productCode,
+      payload: {
+        tenant_id: tenantId,
+        product_code: productCode,
+        name: wholesaleName,
+        wholesale_name: wholesaleName,
+        wholesale_supplier: pickStr(r, "공급사") || null,
+        category: pickStr(r, "카테고리") || null,
+        wholesale_price: pickNum(r, "공급가"),
+        wholesale_discount_price: pickNum(r, "할인가"),
+        status: "sample_received",
+        launch_date: launchDate,
+        return_deadline: returnDeadline,
+        description: pickStr(r, "메모") || null,
+        country_of_origin: pickStr(r, "제조국") || null,
+        material_composition: textToMaterial(pickStr(r, "혼용율")),
+        option1_label: o1.length > 0 ? "색상" : null,
+        option2_label: o2.length > 0 ? "사이즈" : null,
+        option3_label: null,
+        is_active: true,
+      },
+      combos: cartesian(o1, o2, o3),
+    });
+  }
+
+  if (prepared.length === 0) {
+    return { success, failed, errors };
+  }
+
+  // index(prepared 배열 내 위치) → 생성된 product id. product_code 는 폴백 경로에서
+  // 재시도 중 바뀔 수 있어 매핑 키로 쓰지 않음(index 는 절대 안 바뀜).
+  const insertedIdByIndex = new Map<number, string>();
+
+  // 1) 공통 경로 — 한 번에 bulk insert (충돌 없으면 이 경로로 끝남, 왕복 1회).
+  const bulkRes = await supabase.from("products")
+    .insert(prepared.map(p => p.payload))
+    .select("id, product_code");
+
+  if (!bulkRes.error && bulkRes.data) {
+    const idByCode = new Map<string, string>();
+    for (const row of bulkRes.data as { id: string; product_code: string }[]) {
+      idByCode.set(row.product_code, row.id);
     }
+    prepared.forEach((p, idx) => {
+      const id = idByCode.get(p.productCode);
+      if (id) { insertedIdByIndex.set(idx, id); success++; }
+    });
+  } else {
+    // 2) bulk insert 실패 — 동시입력 등으로 product_code 가 이미 존재(23505)하면 같은 statement 의
+    //    다른 행까지 전부 롤백되므로, 이 드문 경우에만 행별 순차 INSERT + 재시도로 폴백.
+    for (let idx = 0; idx < prepared.length; idx++) {
+      const p = prepared[idx];
+      let productCode = p.productCode;
+      let pData: { id: string } | null = null;
+      let pErr: { message: string; code?: string } | null = null;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const res = await supabase.from("products")
+          .insert({ ...p.payload, product_code: productCode })
+          .select("id").single();
 
-    const combos = cartesian(o1, o2, o3);
-    if (combos.length > 0) {
-      const { error: vErr } = await supabase.from("product_variants").insert(
-        combos.map(c => ({
-          product_id: pData.id,
-          color: c.o1 || null,
-          size: c.o2 || null,
-          option3: c.o3 || null,
-        }))
-      );
-      if (vErr) errors.push(`${productCode} variants INSERT 실패: ${vErr.message}`);
+        if (!res.error) { pData = res.data; pErr = null; break; }
+        if (res.error.code === "23505") { nextNum++; productCode = `R-${String(nextNum).padStart(3, "0")}`; continue; }
+        pErr = res.error;
+        break;
+      }
+
+      if (pErr || !pData) {
+        failed++;
+        errors.push(`${productCode} INSERT 실패: ${pErr?.message ?? "unknown"}`);
+        continue;
+      }
+      insertedIdByIndex.set(idx, pData.id);
+      success++;
     }
+  }
 
-    success++;
+  // variants — 성공한 product 전체를 모아 한 번에 bulk insert.
+  const variantRows: { product_id: string; color: string | null; size: string | null; option3: string | null }[] = [];
+  prepared.forEach((p, idx) => {
+    const productId = insertedIdByIndex.get(idx);
+    if (!productId) return;
+    for (const c of p.combos) {
+      variantRows.push({ product_id: productId, color: c.o1 || null, size: c.o2 || null, option3: c.o3 || null });
+    }
+  });
+  if (variantRows.length > 0) {
+    const { error: vErr } = await supabase.from("product_variants").insert(variantRows);
+    if (vErr) errors.push(`variants 일괄 INSERT 실패 (${variantRows.length}건): ${vErr.message}`);
   }
 
   return { success, failed, errors };

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { styles } from "@/common/styles";
 import { keyFromR2Url } from "@/lib/r2Client";
+import { sanitizeFilename } from "@/lib/format";
 // jszip 은 다중 다운로드 시점에만 dynamic import — 초기 번들 크기 영향 X
 
 // MD기능 [IMG] — 상품별 이미지 업로드/관리. (사장 결정 v3)
@@ -297,7 +298,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
 
       setDownloadStatus("ZIP 생성 중...");
       const blob = await zip.generateAsync({ type: "blob" });
-      const safeName = productName.replace(/[\\/:*?"<>|]/g, "_") || "images";
+      const safeName = sanitizeFilename(productName) || "images";
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

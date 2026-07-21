@@ -9,6 +9,9 @@ import { useTenant } from "@/lib/TenantContext";
 // TEST 전용 SKU(variant) 목록.
 // dev 서버에서만 NavBar 에 노출 (NODE_ENV 체크).
 // 현재 tenant 의 활성 variant 전수 표시 — 추후 재고 관리 페이지 기반.
+//
+// ⚠️ 사장 명시 지시: 리팩토링/정리 작업 중이라도 이 페이지는 삭제하지 말 것.
+//    "죽은 코드"로 보여도 삭제 대상 아님 — 별도 안내 있을 때까지 유지.
 
 type Row = {
   id: string;
