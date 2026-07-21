@@ -239,15 +239,16 @@ export function exportProductsToExcel(rows: ExportRow[]) {
 export interface Platform60ExportInput {
   id: string;
   consumer_name: string;
-  consumer_price: string;
+  regular_sale_price: string;
   variants: Variant[];
 }
 
-// platform=null 이면 원화 그대로(변환 없음). 통화환산 필요한데 환율 미설정이면 에러로 중단
+// platform 필수 — 60% 는 외화 플랫폼 업로드용이라 채널 미선택이면 원화가 그대로 새어나가는
+// 사고를 막기 위해 아예 막는다. 통화환산 필요한데 환율 미설정이면 에러로 중단
 // (호출부가 catch 해서 "환율 설정 필요" 등으로 안내).
 export async function exportPlatform60Excel(
   products: Platform60ExportInput[],
-  platform: Platform | null,
+  platform: Platform,
   fxRates: FxRates,
 ): Promise<void> {
   const ids = products.map(p => p.id);
@@ -265,17 +266,13 @@ export async function exportPlatform60Excel(
   }
 
   const sourceProducts: Platform60SourceProduct[] = products.map(p => {
-    const baseKrw = p.consumer_price ? Number(p.consumer_price) : 0;
-    let price = baseKrw;
-    if (platform) {
-      const converted = convertToPlatformPrice(baseKrw, platform, fxRates);
-      if (converted === null) throw new Error(`환율 설정 필요 (${platform.currency})`);
-      price = converted;
-    }
+    const baseKrw = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
+    const converted = convertToPlatformPrice(baseKrw, platform, fxRates);
+    if (converted === null) throw new Error(`환율 설정 필요 (${platform.currency})`);
     return {
       id: p.id,
       consumer_name: p.consumer_name,
-      price,
+      price: converted,
       variants: p.variants,
       images: imagesByProduct.get(p.id) ?? [],
     };

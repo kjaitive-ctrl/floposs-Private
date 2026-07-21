@@ -412,18 +412,27 @@ export default function ProductsPage() {
     }
   }
 
+  // "60% 업로드" 버튼은 화면 위쪽 채널 토글(selectedPlatform)과 무관하게 항상 "식스티퍼센트"
+  // 채널로 변환한다 — 토글을 안 눌러도 되게. 판매채널 관리에 이름에 "식스티" 또는 "60%"
+  // 들어간 채널이 등록되어 있어야 함.
+  const platform60 = platforms.find(p => /식스티|60%/.test(p.name)) ?? null;
+
   async function handlePlatform60Export() {
     const targets = rows.filter(r => selectedIds.has(r.id));
     if (targets.length === 0) return;
+    if (!platform60) {
+      alert('60% 채널이 판매채널 관리에 등록되어 있지 않습니다. 설정에서 이름에 "식스티" 또는 "60%"가 들어간 채널을 등록해주세요.');
+      return;
+    }
     setPlatform60Exporting(true);
     try {
       const { exportPlatform60Excel } = await import("@/lib/excelUtils");
       await exportPlatform60Excel(targets.map(r => ({
         id: r.id,
         consumer_name: r.consumer_name,
-        consumer_price: r.consumer_price,
+        regular_sale_price: r.regular_sale_price,
         variants: r.variants,
-      })), selectedPlatform, fxRates);
+      })), platform60, fxRates);
     } catch (e) {
       alert(`60% 업로드 엑셀 생성 실패: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
