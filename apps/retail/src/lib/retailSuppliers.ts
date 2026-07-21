@@ -120,7 +120,7 @@ type MySupplierRow = {
 export async function loadMySuppliers(tenantId: string): Promise<MySupplier[]> {
   const { data, error } = await supabase
     .from("retail_suppliers")
-    .select("id, slot_id, slots(building, floor, section), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
+    .select("id, slot_id, slots(building, floor, section, unit), store:slot_stores!selected_store_id(store_name, phone, smartphone)")
     .eq("retail_tenant_id", tenantId);
   if (error || !data) { console.error("loadMySuppliers:", error); return []; }
   return (data as MySupplierRow[])
