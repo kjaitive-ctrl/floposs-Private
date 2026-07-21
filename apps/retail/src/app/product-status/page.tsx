@@ -41,13 +41,17 @@ export default function ProductStatusPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [seasonDraft, setSeasonDraft] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // 진단용 — 전체 등록상품 중 거래처 미연결 개수 (거래처가 안 뜰 때 원인 구분용)
+  const [unlinkedCount, setUnlinkedCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!tenant?.id) return;
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [supplierList, { data: productData }, { data: tenantRow }] = await Promise.all([
+      setLoadError(null);
+      const [supplierList, productRes, tenantRes, totalRes] = await Promise.all([
         loadMySuppliers(tenant.id),
         supabase.from("products")
           .select("id, consumer_name, wholesale_name, retail_supplier_id, registered_at, launch_date, sold_out, season, season_status, cafe24_product_no, cafe24_display")
@@ -57,11 +61,18 @@ export default function ProductStatusPage() {
           .not("retail_supplier_id", "is", null)
           .order("registered_at", { ascending: false, nullsFirst: false }),
         supabase.from("tenants").select("cafe24_mall_id").eq("id", tenant.id).single(),
+        supabase.from("products").select("id", { count: "exact", head: true })
+          .eq("tenant_id", tenant.id).eq("is_active", true).in("status", PRODUCT_STATUSES),
       ]);
       if (cancelled) return;
+      if (productRes.error) {
+        console.error("product-status products fetch:", productRes.error);
+        setLoadError(productRes.error.message);
+      }
       setSuppliers(supplierList);
-      setRows((productData ?? []) as StatusRow[]);
-      setCafe24Connected(!!(tenantRow as { cafe24_mall_id?: string | null } | null)?.cafe24_mall_id);
+      setRows((productRes.data ?? []) as StatusRow[]);
+      setUnlinkedCount((totalRes.count ?? 0) - (productRes.data?.length ?? 0));
+      setCafe24Connected(!!(tenantRes.data as { cafe24_mall_id?: string | null } | null)?.cafe24_mall_id);
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -190,10 +201,21 @@ export default function ProductStatusPage() {
         </div>
       )}
 
+      {loadError && (
+        <div className={`${styles.msgError} mb-4`}>상품 목록 로드 실패: {loadError}</div>
+      )}
+
       {loading ? (
         <p className="text-xs text-gray-400">불러오는 중…</p>
       ) : suppliersWithProducts.length === 0 ? (
-        <p className="text-xs text-gray-400">상품이 연결된 거래처가 없습니다.</p>
+        <div className="text-xs text-gray-400 space-y-1">
+          <p>상품이 연결된 거래처가 없습니다.</p>
+          <p>
+            (진단: 등록된 거래처 {suppliers.length}곳 · 거래처 연결 없는 등록상품 {unlinkedCount ?? "—"}개.
+            상품 등록 시 공급사를 자유텍스트로만 입력하고 자동완성에서 실제 거래처를 선택하지 않으면
+            거래처가 연결되지 않아 여기 안 뜹니다 — /products 에서 공급사 칸을 자동완성으로 다시 선택해보세요.)
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
           {suppliersWithProducts.map(s => {
