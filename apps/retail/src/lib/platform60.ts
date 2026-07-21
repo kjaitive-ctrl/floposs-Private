@@ -69,7 +69,7 @@ export function buildPlatform60Rows(products: Platform60SourceProduct[]): (strin
         "",                                        // Material Percent
         (v.consumer_label_size ?? "").trim(),       // Variant Size (원본 그대로)
         (v.consumer_label_color ?? "").trim(),      // Variant Color (원본 그대로)
-        v.variant_code ?? "",                      // Variant SKU
+        v.barcode ?? v.variant_code ?? "",          // Variant SKU (진짜 바코드 우선, 미발급이면 사람읽는코드로 대체)
         price,                                      // Variant Price
         QUANTITY_FIXED,                             // Variant Quantity
         "",                                        // Variant Image URL

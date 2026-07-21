@@ -14,6 +14,7 @@ export type Variant = {
   is_for_sale?: boolean;
   sold_out?: boolean;
   variant_code?: string | null;
+  barcode?: string | null;  // 마이그 198/203 — 진행 시 자동 발급된 실제 Code128 바코드. 미발급이면 null.
   sort_order?: number;  // 마이그 033 — 클라이언트 INSERT 순 보존 박제
 };
 
