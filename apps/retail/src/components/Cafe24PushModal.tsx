@@ -23,32 +23,38 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
   const updates  = canPush.filter(r => r.cafe24_product_no != null);
   const creates  = canPush.filter(r => r.cafe24_product_no == null);
 
+  // 상품 하나씩 순차 요청 — 한 번에 다 묶어 보내면 이미지 많은 배치가 Vercel 함수 시간제한(무료
+  // 플랜은 60초 강제 clamp, maxDuration 설정 무시)에 걸려 통째로 죽음. 상품 단위로 쪼개면 요청 하나당
+  // 처리량이 줄어 제한에 걸릴 확률이 낮아지고, 진행 상황도 실시간으로 보여줄 수 있음.
   async function handlePush() {
     if (canPush.length === 0) return;
     setPushing(true);
-    try {
-      const res = await fetch("/api/cafe24/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productIds: canPush.map(r => r.id) }),
-      });
-      const data = await res.json() as { results?: PushResult[]; error?: string };
-      if (!res.ok || data.error) {
-        alert(data.error ?? "전송 실패");
-        setPushing(false);
-        return;
-      }
-      setResults(data.results ?? []);
+    setResults([]);
+    const collected: PushResult[] = [];
+    const map = new Map<string, number>();
 
-      // 성공한 항목의 cafe24_product_no 맵 저장 — 닫기 버튼에서 onDone 호출
-      const map = new Map<string, number>();
-      (data.results ?? []).forEach(r => {
-        if (r.ok && r.cafe24_product_no) map.set(r.id, r.cafe24_product_no);
-      });
-      setUpdatedMap(map);
-    } catch (e) {
-      alert(String(e));
+    for (const row of canPush) {
+      try {
+        const res = await fetch("/api/cafe24/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productIds: [row.id] }),
+        });
+        const data = await res.json() as { results?: PushResult[]; error?: string };
+        if (!res.ok || data.error) {
+          collected.push({ id: row.id, ok: false, error: data.error ?? `HTTP ${res.status}` });
+        } else {
+          const r = (data.results ?? [])[0];
+          collected.push(r ?? { id: row.id, ok: false, error: "응답 없음" });
+          if (r?.ok && r.cafe24_product_no) map.set(r.id, r.cafe24_product_no);
+        }
+      } catch (e) {
+        collected.push({ id: row.id, ok: false, error: String(e) });
+      }
+      setResults([...collected]);
     }
+
+    setUpdatedMap(map);
     setPushing(false);
   }
 
@@ -60,7 +66,7 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
       <div className={`${styles.card} w-full max-w-lg max-h-[80vh] flex flex-col`}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-black">카페24 전송</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-black text-lg leading-none">×</button>
+          <button onClick={onClose} disabled={pushing} className="text-gray-400 hover:text-black text-lg leading-none disabled:opacity-30">×</button>
         </div>
 
         {!results ? (
@@ -115,7 +121,9 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
           <>
             <div className="flex-1 overflow-y-auto space-y-2 mb-4">
               <div className="text-xs font-semibold text-black mb-2">
-                전송 완료: 성공 {successCount}개 / 실패 {failCount}개
+                {pushing
+                  ? `전송 중… (${results.length}/${canPush.length})`
+                  : `전송 완료: 성공 ${successCount}개 / 실패 ${failCount}개`}
               </div>
               {results.map(r => {
                 const row = rows.find(p => p.id === r.id);
@@ -138,7 +146,13 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
                 );
               })}
             </div>
-            <button onClick={() => onDone(updatedMap)} className={`${styles.btnPrimary} w-full`}>닫기</button>
+            <button
+              onClick={() => onDone(updatedMap)}
+              disabled={pushing}
+              className={`${styles.btnPrimary} w-full disabled:opacity-50`}
+            >
+              {pushing ? "전송 중…" : "닫기"}
+            </button>
           </>
         )}
       </div>
