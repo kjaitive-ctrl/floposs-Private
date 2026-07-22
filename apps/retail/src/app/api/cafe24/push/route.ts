@@ -371,10 +371,28 @@ export async function POST(req: NextRequest) {
           .eq("id", p.id);
       }
 
+      // 카테고리(상품분류) 진열 반영 — products 생성/수정 body 의 category 필드만으로는
+      // 카페24 관리자 "상품분류" 화면에 실제 진열 반영이 안 되는 것으로 확인됨. 카페24 REST 리소스
+      // 설계상 상품-카테고리 연결은 별도 리소스(categories/{category_no}/products, display_group=진열영역)
+      // 로 관리되므로, 카테고리별로 순차 등록 호출해서 확정.
+      let imageWarning: string | undefined;
+      if (cafe24ProductNo && categoryNos.length > 0) {
+        for (const categoryNo of categoryNos) {
+          try {
+            await cafe24Api(token.mall_id, token.access_token, "POST", `categories/${categoryNo}/products`, {
+              shop_no: 1,
+              request: { product_no: [cafe24ProductNo], display_group: 1 },
+            });
+          } catch (catErr) {
+            const msg = `카테고리(${categoryNo}) 등록 실패: ${String(catErr).slice(0, 200)}`;
+            imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
+          }
+        }
+      }
+
       // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립.
       // 순차 처리 — 병렬로 한꺼번에 쏘면 카페24 쪽 동시요청/버스트 제한에 걸려 뒷부분이 HTML 에러로
       // 튕기는 사례가 있었음. 이미지 1장 실패해도 나머지 성공한 이미지만으로 상세페이지는 반드시 생성.
-      let imageWarning: string | undefined;
       if (cafe24ProductNo) {
         const cdnUrls: string[] = [];
         const failReasons: string[] = [];
@@ -392,7 +410,8 @@ export async function POST(req: NextRequest) {
           }
         }
         if (failReasons.length > 0) {
-          imageWarning = `이미지 ${failReasons.length}/${images.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
+          const msg = `이미지 ${failReasons.length}/${images.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
+          imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
         }
 
         try {
