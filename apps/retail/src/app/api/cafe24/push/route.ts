@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { getValidTokenForTenant, cafe24Api, cafe24UploadImageToProduct } from "@/lib/cafe24";
+import { getValidTokenForTenant, cafe24Api, cafe24UploadImageToProduct, type ValidToken } from "@/lib/cafe24";
 import { getObjectBuffer, keyFromPublicUrl } from "@/lib/r2";
 import { buildThumbnailAsset } from "@/lib/thumbnailGif";
 
@@ -217,6 +217,10 @@ ${piRow("품질보증기준", QUALITY_GUARANTEE_TEXT, true)}
   return lines.join("\n");
 }
 
+// 상품별 이미지 순차 업로드+리사이징 때문에 다건 전송 시 오래 걸림 — Vercel 기본 제한(10~60초대)
+// 걸리지 않도록 여유 확보 (Pro 플랜 기준 최대 300초).
+export const maxDuration = 300;
+
 // POST /api/cafe24/push — 선택된 상품 카페24로 전송.
 // body: { productIds: string[] }
 // - cafe24_product_no 없음 → POST create
@@ -241,6 +245,23 @@ export async function POST(req: NextRequest) {
   const initialToken = await getValidTokenForTenant(tenantId);
   if (!initialToken) return NextResponse.json({ error: "카페24 미연동 또는 토큰 만료. 설정에서 카페24 재연동 해주세요." }, { status: 400 });
   let token = initialToken;
+
+  // 다건 전송은 순차 처리라 시간이 걸림 — 처음에 유효했던 token이 배치 도중 실제로 만료될 수 있음.
+  // 호출마다 이걸로 감싸서 401 나오면 그 즉시 refresh 후 같은 호출을 재시도(이 상품도 살림).
+  const callCafe24 = async <T,>(fn: (t: ValidToken) => Promise<T>): Promise<T> => {
+    try {
+      return await fn(token);
+    } catch (e) {
+      if (String(e).includes("401")) {
+        const refreshed = await getValidTokenForTenant(tenantId, true);
+        if (refreshed) {
+          token = refreshed;
+          return await fn(refreshed);
+        }
+      }
+      throw e;
+    }
+  };
 
   const db = supabaseAdmin;
 
@@ -358,13 +379,13 @@ export async function POST(req: NextRequest) {
       let cafe24ProductNo = p.cafe24_product_no;
 
       if (cafe24ProductNo) {
-        await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+        await callCafe24(t => cafe24Api(t.mall_id, t.access_token, "PUT", `products/${cafe24ProductNo}`, {
           shop_no: 1, request,
-        });
+        }));
       } else {
-        const res = await cafe24Api<{ product: { product_no: number } }>(
-          token.mall_id, token.access_token, "POST", "products", { shop_no: 1, request }
-        );
+        const res = await callCafe24(t => cafe24Api<{ product: { product_no: number } }>(
+          t.mall_id, t.access_token, "POST", "products", { shop_no: 1, request }
+        ));
         cafe24ProductNo = res.product.product_no;
         await db.from("products")
           .update({ cafe24_product_no: cafe24ProductNo })
@@ -379,10 +400,10 @@ export async function POST(req: NextRequest) {
       if (cafe24ProductNo && categoryNos.length > 0) {
         for (const categoryNo of categoryNos) {
           try {
-            await cafe24Api(token.mall_id, token.access_token, "POST", `categories/${categoryNo}/products`, {
+            await callCafe24(t => cafe24Api(t.mall_id, t.access_token, "POST", `categories/${categoryNo}/products`, {
               shop_no: 1,
               request: { product_no: [cafe24ProductNo], display_group: 1 },
-            });
+            }));
           } catch (catErr) {
             const msg = `카테고리(${categoryNo}) 등록 실패: ${String(catErr).slice(0, 200)}`;
             imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
@@ -401,9 +422,9 @@ export async function POST(req: NextRequest) {
             const imgName = img.url.split("/").pop() ?? "image.jpg";
             const buf = await fetchImageBuffer(img.url);
             const capped = await capImageForCafe24(buf);
-            const { cdnUrl } = await cafe24UploadImageToProduct(
-              token.mall_id, token.access_token, cafe24ProductNo!, capped, imgName,
-            );
+            const { cdnUrl } = await callCafe24(t => cafe24UploadImageToProduct(
+              t.mall_id, t.access_token, cafe24ProductNo!, capped, imgName,
+            ));
             if (cdnUrl) cdnUrls.push(cdnUrl);
           } catch (imgErr) {
             failReasons.push(String(imgErr).slice(0, 300));
@@ -418,10 +439,10 @@ export async function POST(req: NextRequest) {
           // CDN URL로 상세 HTML 조립 → description 필드 업데이트 (일부 이미지 실패해도 진행)
           const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys, companyName);
           if (detailHtml) {
-            await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
+            await callCafe24(t => cafe24Api(t.mall_id, t.access_token, "PUT", `products/${cafe24ProductNo}`, {
               shop_no: 1,
               request: { description: detailHtml },
-            });
+            }));
           }
         } catch (descErr) {
           const msg = `상세페이지 등록 실패: ${String(descErr).slice(0, 500)}`;
@@ -437,9 +458,9 @@ export async function POST(req: NextRequest) {
             .map(img => img.url);
           const asset = await buildThumbnailAsset(thumbUrls);
           if (asset) {
-            await cafe24UploadImageToProduct(
-              token.mall_id, token.access_token, cafe24ProductNo, asset.buffer, `thumbnail.${asset.ext}`,
-            );
+            await callCafe24(t => cafe24UploadImageToProduct(
+              t.mall_id, t.access_token, cafe24ProductNo!, asset.buffer, `thumbnail.${asset.ext}`,
+            ));
           }
         } catch (thumbErr) {
           const msg = `썸네일 생성 실패: ${String(thumbErr).slice(0, 400)}`;
@@ -457,12 +478,9 @@ export async function POST(req: NextRequest) {
 
       results.push({ id: p.id, ok: true, cafe24_product_no: cafe24ProductNo ?? undefined, error: imageWarning });
     } catch (e) {
+      // 401은 callCafe24 안에서 이미 refresh+재시도까지 마친 뒤에도 실패한 경우
+      // (refresh_token 자체 만료 등) — 여기선 로깅만.
       const errStr = String(e);
-      // 401 토큰 만료 → force refresh 후 재시도 없이 안내 (다음 상품부터 새 토큰 사용)
-      if (errStr.includes("401")) {
-        const refreshed = await getValidTokenForTenant(tenantId, true);
-        if (refreshed) token = refreshed;
-      }
       db.from("cafe24_export_log").insert({
         retail_tenant_id: tenantId,
         product_id: p.id,

@@ -295,7 +295,7 @@ export function exportProductsToExcel(rows: ExportRow[]) {
 // "60%" 플랫폼 업로드 양식 export (2026-07-20)
 // — SKU(variant) 단위 한 줄. 원본 템플릿(public/templates)을 그대로 불러와
 //   Template 시트만 교체 → Master 시트(드롭다운 값)는 원본 그대로 보존.
-// — 상품명/옵션명 번역 없음. 카테고리/성별/편직/소재/Variant Image URL = 공란,
+// — 상품명/옵션명 번역 없음. 카테고리/성별/편직/소재/Variant Image URL/Image URL 1~10 = 공란,
 //   Vendor="un:tyl"/Variant Quantity=9999 고정 (사장 결정 2026-07-20).
 // ────────────────────────────────────────────
 export interface Platform60ExportInput {
@@ -313,20 +313,6 @@ export async function exportPlatform60Excel(
   platform: Platform,
   fxRates: FxRates,
 ): Promise<void> {
-  const ids = products.map(p => p.id);
-  const { data: imgRows } = await supabase
-    .from("product_images")
-    .select("product_id, url, sort_order")
-    .in("product_id", ids)
-    .order("sort_order", { ascending: true });
-
-  const imagesByProduct = new Map<string, string[]>();
-  for (const r of (imgRows ?? []) as { product_id: string; url: string }[]) {
-    const arr = imagesByProduct.get(r.product_id) ?? [];
-    arr.push(r.url);
-    imagesByProduct.set(r.product_id, arr);
-  }
-
   const sourceProducts: Platform60SourceProduct[] = products.map(p => {
     const baseKrw = p.regular_sale_price ? Number(p.regular_sale_price) : 0;
     const converted = convertToPlatformPrice(baseKrw, platform, fxRates);
@@ -336,7 +322,6 @@ export async function exportPlatform60Excel(
       consumer_name: p.consumer_name,
       price: converted,
       variants: p.variants,
-      images: imagesByProduct.get(p.id) ?? [],
     };
   });
 
