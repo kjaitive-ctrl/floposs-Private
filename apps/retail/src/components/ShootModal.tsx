@@ -107,6 +107,18 @@ export default function ShootModal({
     setSearchSupplier("");
   }
 
+  // 등록 성공 후 — 모델은 남겨둠. 같은 모델이 옵션 여러 개 입고 연달아 촬영하는 경우가 흔해서,
+  // 매번 모델을 다시 골라야 하면 깜빡하고 안 고른 채 등록해 model_id가 null로 박히는 사고가 남.
+  function resetFormAfterSave() {
+    setEditingId(null);
+    setWornVariantId("");
+    setShootDate("");
+    setCoords([]);
+    setMemo("");
+    setSearchOwn("");
+    setSearchSupplier("");
+  }
+
   function loadIntoForm(s: Shoot) {
     setEditingId(s.id);
     setModelId(s.model_id ?? "");
@@ -132,7 +144,7 @@ export default function ShootModal({
       await supabase.from("product_shoots").insert(payload);
     }
     setSaving(false);
-    resetForm();
+    resetFormAfterSave();
     await fetchAll();
     onSaved();
   }
