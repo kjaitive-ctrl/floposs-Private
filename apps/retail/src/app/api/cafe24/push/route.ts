@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getValidTokenForTenant, cafe24Api, cafe24UploadImageToProduct } from "@/lib/cafe24";
@@ -10,6 +11,25 @@ async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
   const key = keyFromPublicUrl(r2Url);
   if (!key) throw new Error(`R2 URL 형식 오류: ${r2Url}`);
   return getObjectBuffer(key);
+}
+
+// 상세/기타 이미지는 원본 그대로(무제한 해상도) 카페24에 올라가던 문제 —
+// 큰 원본 1장이 카페24 업로드 API 자체를 실패시키면(WAF/사이즈 제한) Promise.all 전체가
+// 죽어 나머지 이미지도 다 같이 실패하고 상세페이지도 아예 안 만들어짐. 안전 상한선으로 사전 축소.
+const DETAIL_IMG_MAX_BYTES = 2 * 1024 * 1024; // 2MB 안전 마진
+const DETAIL_IMG_EDGE_CANDIDATES = [2000, 1600, 1200, 900]; // 긴 변 기준 순차 축소
+
+async function capImageForCafe24(buf: Buffer): Promise<Buffer> {
+  if (buf.length <= DETAIL_IMG_MAX_BYTES) return buf;
+  let last = buf;
+  for (const edge of DETAIL_IMG_EDGE_CANDIDATES) {
+    last = await sharp(buf)
+      .resize({ width: edge, height: edge, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+    if (last.length <= DETAIL_IMG_MAX_BYTES) return last;
+  }
+  return last; // 최소 후보로도 초과 — 그래도 원본보다 작은 최후 결과 반환
 }
 
 interface PushBody { productIds: string[] }
@@ -97,10 +117,29 @@ function infoRow(label: string, value: string): string {
   return `<div style="text-align:center;margin-bottom:18px;"><span ${INFO_LABEL}>${escapeHtml(label)}</span><p ${INFO_VAL}>${escapeHtml(value)}</p></div>`;
 }
 
+const QUALITY_GUARANTEE_TEXT = "소비자보호에 관한 법률로 규정되어있는 소비자 청약 철회 가능범위에 해당되는 경우";
+
+// 원산지 표기 정규화 — 자유입력값을 괄호 없는 표준 문구로 치환
+function formatOrigin(raw: string | null): string {
+  const v = (raw ?? "").trim();
+  if (!v) return "-";
+  if (v.includes("내수")) return "대한민국";
+  if (v.includes("중국")) return "중국";
+  return "기타국가";
+}
+
+function piRow(label: string, value: string, isLast = false): string {
+  const borderBottom = isLast ? "border-bottom:1px solid #e5e5e5;" : "";
+  const labelStyle = `style="width:120px;padding:8px 12px;border-top:1px solid #e5e5e5;${borderBottom}color:#888;font-size:12px;background:#fafafa;"`;
+  const valueStyle = `style="padding:8px 12px;border-top:1px solid #e5e5e5;${borderBottom}color:#333;font-size:12px;"`;
+  return `<tr><td ${labelStyle}>${escapeHtml(label)}</td><td ${valueStyle}>${escapeHtml(value)}</td></tr>`;
+}
+
 function buildDetailHtml(
   p: DbProduct,
   imageUrls: string[],  // cafe24 CDN URL
   fieldKeys: string[],
+  companyName: string,  // tenants.company_name — "제조사" 표기용
 ): string {
   const lines: string[] = [];
   const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
@@ -151,8 +190,29 @@ function buildDetailHtml(
   const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys);
   if (sizeTable) {
     lines.push(sizeTable);
-    lines.push(`<p style="font-size:11px;color:#888;margin-top:4px;">- 측정 방법에 따라 1~3cm 오차가 발생할 수 있습니다.</p>`);
+    lines.push(`<div style="font-size:11px;color:#888;margin-top:4px;line-height:1.6;">
+<p style="margin:2px 0;">1. 사이즈는 단면기준으로 측정됩니다.</p>
+<p style="margin:2px 0;">2. 사이즈는 측정 방법과 생산시차에 따라 약 1~3cm 정도 오차가 있을 수 있습니다.</p>
+<p style="margin:2px 0;">3. 제품색상은 사용자의 모니터의 해상도에 따라 실제 색상과 다소 차이가 있을 수 있습니다.</p>
+<p style="margin:2px 0;">4. 조명이나 환경으로 인해 제품 색상이 정확하지 않을 수 있습니다. 디테일컷의 색상이 실제 상품 색상과 가장 비슷합니다.</p>
+</div>`);
   }
+
+  // 6. PRODUCT INFO — 상품명/소재/제조사/원산지/품질보증기준. 제조사 = 테넌트 상호 + "협력업체".
+  const piProductName = (p.consumer_name || p.wholesale_name || "").trim() || "상품명 미입력";
+  const piMaterial = material || "-";
+  const piManufacturer = companyName ? `${companyName} 협력업체` : "-";
+  const piOrigin = formatOrigin(p.country_of_origin);
+  lines.push(`<div style="margin-top:48px;">
+<p style="text-align:center;font-size:13px;font-weight:700;letter-spacing:0.15em;color:#222;margin-bottom:14px;">PRODUCT INFO</p>
+<table style="width:100%;border-collapse:collapse;">
+${piRow("상품명", piProductName)}
+${piRow("소재", piMaterial)}
+${piRow("제조사", piManufacturer)}
+${piRow("원산지", piOrigin)}
+${piRow("품질보증기준", QUALITY_GUARANTEE_TEXT, true)}
+</table>
+</div>`);
 
   return lines.join("\n");
 }
@@ -190,10 +250,11 @@ export async function POST(req: NextRequest) {
       .select("retail_category, cafe24_category_no")
       .eq("retail_tenant_id", tenantId),
     db.from("tenants")
-      .select("cafe24_global_category_nos")
+      .select("cafe24_global_category_nos, company_name")
       .eq("id", tenantId)
       .single(),
   ]);
+  const companyName = (tenantRow as { company_name?: string | null } | null)?.company_name?.trim() || "";
   const categoryMap = new Map<string, number>(
     (mappingRows ?? []).map((m: { retail_category: string; cafe24_category_no: number }) =>
       [m.retail_category, m.cafe24_category_no]
@@ -310,32 +371,42 @@ export async function POST(req: NextRequest) {
           .eq("id", p.id);
       }
 
-      // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립
+      // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립.
+      // 순차 처리 — 병렬로 한꺼번에 쏘면 카페24 쪽 동시요청/버스트 제한에 걸려 뒷부분이 HTML 에러로
+      // 튕기는 사례가 있었음. 이미지 1장 실패해도 나머지 성공한 이미지만으로 상세페이지는 반드시 생성.
       let imageWarning: string | undefined;
       if (cafe24ProductNo) {
-        try {
-          const cdnResults = await Promise.all(
-            images.map(async (img) => {
-              const imgName = img.url.split("/").pop() ?? "image.jpg";
-              const buf = await fetchImageBuffer(img.url);
-              const { cdnUrl } = await cafe24UploadImageToProduct(
-                token.mall_id, token.access_token, cafe24ProductNo!, buf, imgName,
-              );
-              return cdnUrl;
-            })
-          );
-          const cdnUrls = cdnResults.filter(Boolean) as string[];
+        const cdnUrls: string[] = [];
+        const failReasons: string[] = [];
+        for (const img of images) {
+          try {
+            const imgName = img.url.split("/").pop() ?? "image.jpg";
+            const buf = await fetchImageBuffer(img.url);
+            const capped = await capImageForCafe24(buf);
+            const { cdnUrl } = await cafe24UploadImageToProduct(
+              token.mall_id, token.access_token, cafe24ProductNo!, capped, imgName,
+            );
+            if (cdnUrl) cdnUrls.push(cdnUrl);
+          } catch (imgErr) {
+            failReasons.push(String(imgErr).slice(0, 300));
+          }
+        }
+        if (failReasons.length > 0) {
+          imageWarning = `이미지 ${failReasons.length}/${images.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
+        }
 
-          // CDN URL로 상세 HTML 조립 → description 필드 업데이트
-          const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys);
+        try {
+          // CDN URL로 상세 HTML 조립 → description 필드 업데이트 (일부 이미지 실패해도 진행)
+          const detailHtml = buildDetailHtml(p, cdnUrls, fieldKeys, companyName);
           if (detailHtml) {
             await cafe24Api(token.mall_id, token.access_token, "PUT", `products/${cafe24ProductNo}`, {
               shop_no: 1,
               request: { description: detailHtml },
             });
           }
-        } catch (imgErr) {
-          imageWarning = `이미지 등록 실패: ${String(imgErr).slice(0, 500)}`;
+        } catch (descErr) {
+          const msg = `상세페이지 등록 실패: ${String(descErr).slice(0, 500)}`;
+          imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
         }
 
         // 대표이미지(썸네일) 확정 — image_type='thumbnail' 이미지로 GIF(2장+)/단일이미지(1장) 합성 후

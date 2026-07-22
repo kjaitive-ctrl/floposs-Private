@@ -42,6 +42,17 @@ export interface Cafe24Token {
   mall_id?: string;
 }
 
+// res.json() 이 HTML(WAF/점검페이지/리다이렉트 등)을 만나면 "Unexpected token '<'" 라는
+// 정체불명 SyntaxError만 남기고 실제 원인(상태코드/응답 앞부분)이 사라짐 — text로 받아 직접 파싱해 진단 가능하게.
+async function parseJsonOrThrow<T>(res: Response, context: string): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`${context} ${res.status}: JSON 아닌 응답 — ${text.slice(0, 300)}`);
+  }
+}
+
 async function tokenRequest(mallId: string, body: Record<string, string>): Promise<Cafe24Token> {
   const res = await fetch(`${baseUrl(mallId)}/api/v2/oauth/token`, {
     method: "POST",
@@ -49,7 +60,7 @@ async function tokenRequest(mallId: string, body: Record<string, string>): Promi
     body: new URLSearchParams(body).toString(),
   });
   if (!res.ok) throw new Error(`cafe24 token ${res.status}: ${await res.text()}`);
-  return res.json();
+  return parseJsonOrThrow<Cafe24Token>(res, "cafe24 token");
 }
 
 // 인증코드 → 토큰
@@ -117,7 +128,7 @@ export async function cafe24Api<T = unknown>(
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`cafe24 api ${method} ${path} ${res.status}: ${await res.text()}`);
-  return res.json();
+  return parseJsonOrThrow<T>(res, `cafe24 api ${method} ${path}`);
 }
 
 // 이미지 Buffer → 순수 base64(접두어 없음) → POST /products/{product_no}/images 로 업로드
