@@ -19,6 +19,11 @@ async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
 const DETAIL_IMG_MAX_BYTES = 2 * 1024 * 1024; // 2MB 안전 마진
 const DETAIL_IMG_EDGE_CANDIDATES = [2000, 1600, 1200, 900]; // 긴 변 기준 순차 축소
 
+// 이미지 많은 상품이 Vercel 함수 시간제한(무료 플랜 60초 강제)에 걸리는 걸 줄이기 위해 완전 순차
+// 대신 2장씩 동시 처리. 예전에 전체를 한꺼번에 병렬로 쐈다가 카페24 버스트 제한에 걸린 적 있어
+// 2로 제한 — 더 걸리면 이 숫자만 낮추면 됨.
+const IMAGE_UPLOAD_CONCURRENCY = 2;
+
 async function capImageForCafe24(buf: Buffer): Promise<Buffer> {
   if (buf.length <= DETAIL_IMG_MAX_BYTES) return buf;
   let last = buf;
@@ -248,12 +253,19 @@ export async function POST(req: NextRequest) {
 
   // 다건 전송은 순차 처리라 시간이 걸림 — 처음에 유효했던 token이 배치 도중 실제로 만료될 수 있음.
   // 호출마다 이걸로 감싸서 401 나오면 그 즉시 refresh 후 같은 호출을 재시도(이 상품도 살림).
+  // 이미지 업로드를 동시성 2로 돌리면서 두 요청이 하필 같은 순간 401을 받을 수 있음 — refresh_token이
+  // 회전(rotate)되는 경우 동시에 두 번 refresh 시도하면 나중 것이 "이미 쓰인 refresh_token"으로 실패할
+  // 수 있어, 이미 진행 중인 refresh가 있으면 그 Promise를 공유해서 실제 refresh 호출은 한 번만 나가게 함.
+  let refreshInFlight: Promise<ValidToken | null> | null = null;
   const callCafe24 = async <T,>(fn: (t: ValidToken) => Promise<T>): Promise<T> => {
     try {
       return await fn(token);
     } catch (e) {
       if (String(e).includes("401")) {
-        const refreshed = await getValidTokenForTenant(tenantId, true);
+        if (!refreshInFlight) {
+          refreshInFlight = getValidTokenForTenant(tenantId, true).finally(() => { refreshInFlight = null; });
+        }
+        const refreshed = await refreshInFlight;
         if (refreshed) {
           token = refreshed;
           return await fn(refreshed);
@@ -412,24 +424,34 @@ export async function POST(req: NextRequest) {
       }
 
       // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립.
-      // 순차 처리 — 병렬로 한꺼번에 쏘면 카페24 쪽 동시요청/버스트 제한에 걸려 뒷부분이 HTML 에러로
-      // 튕기는 사례가 있었음. 이미지 1장 실패해도 나머지 성공한 이미지만으로 상세페이지는 반드시 생성.
+      // 2장씩 동시 처리(IMAGE_UPLOAD_CONCURRENCY) — 완료 순서가 뒤섞일 수 있어 원래 인덱스 자리에
+      // 결과를 꽂아 상세페이지 이미지 순서를 보존. 이미지 1장 실패해도(allSettled) 나머지 성공한
+      // 이미지만으로 상세페이지는 반드시 생성.
       if (cafe24ProductNo) {
-        const cdnUrls: string[] = [];
+        const cdnUrlsByIndex: (string | null)[] = new Array(images.length).fill(null);
         const failReasons: string[] = [];
-        for (const img of images) {
-          try {
+
+        for (let i = 0; i < images.length; i += IMAGE_UPLOAD_CONCURRENCY) {
+          const batch = images.slice(i, i + IMAGE_UPLOAD_CONCURRENCY);
+          const settled = await Promise.allSettled(batch.map(async (img, offset) => {
             const imgName = img.url.split("/").pop() ?? "image.jpg";
             const buf = await fetchImageBuffer(img.url);
             const capped = await capImageForCafe24(buf);
             const { cdnUrl } = await callCafe24(t => cafe24UploadImageToProduct(
               t.mall_id, t.access_token, cafe24ProductNo!, capped, imgName,
             ));
-            if (cdnUrl) cdnUrls.push(cdnUrl);
-          } catch (imgErr) {
-            failReasons.push(String(imgErr).slice(0, 300));
+            return { index: i + offset, cdnUrl };
+          }));
+          for (const r of settled) {
+            if (r.status === "fulfilled") {
+              if (r.value.cdnUrl) cdnUrlsByIndex[r.value.index] = r.value.cdnUrl;
+            } else {
+              failReasons.push(String(r.reason).slice(0, 300));
+            }
           }
         }
+
+        const cdnUrls = cdnUrlsByIndex.filter((u): u is string => !!u);
         if (failReasons.length > 0) {
           const msg = `이미지 ${failReasons.length}/${images.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
           imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
