@@ -625,6 +625,7 @@ function ProductsPageInner() {
                   </div>
                 </th>
                 <th className={thTopInput + " min-w-[140px]"}>메모(진행)</th>
+                <th className={thTopInput + " w-32"}>MD기능</th>
                 <th rowSpan={2} className={thTop} style={{ width: 22, padding: "0 1px" }} title="플랫폼 전송 현황">연동</th>
                 <th className={thTopInput + " min-w-[160px]"}>상품명</th>
                 <th className={thTopInput + " min-w-[130px]"}>옵션1</th>
@@ -634,12 +635,12 @@ function ProductsPageInner() {
                 <th className={thTopInput + " w-32"}>판매가</th>
                 <th className={thTopInput + " w-32"}>소비자가</th>
                 <th className={thTopInput + " w-32"}>카테고리</th>
-                <th className={thTopInput + " w-32"}>상품코드</th>
-                <th className={thTopInput + " w-32 border-r-0"}>MD기능</th>
+                <th className={thTopInput + " w-32 border-r-0"}>상품코드</th>
               </tr>
               {/* 아래 줄: samples 박제 헤더 */}
               <tr>
                 <th className={thBot + " min-w-[140px]"}>메모(샘플)</th>
+                <th className={thBot + " w-32"}>액션</th>
                 <th className={thBot + " min-w-[160px]"}>공급상품명</th>
                 <th className={thBot + " min-w-[130px]"}>옵션1 (색상)</th>
                 <th className={thBot + " min-w-[130px]"}>옵션2 (사이즈)</th>
@@ -648,8 +649,7 @@ function ProductsPageInner() {
                 <th className={thBot + " w-32"}>할인가</th>
                 <th className={thBot + " w-32"}>제조국</th>
                 <th className={thBot + " w-24"}>혼용율</th>
-                <th className={thBot + " min-w-[180px]"}>공급사</th>
-                <th className={thBot + " w-32 border-r-0"}>액션</th>
+                <th className={thBot + " min-w-[180px] border-r-0"}>공급사</th>
               </tr>
             </thead>
             {loading ? (
@@ -685,6 +685,19 @@ function ProductsPageInner() {
                         onClick={() => setMemoModal({ row, kind: "progress" })}>
                         <div className="px-2 py-1.5 text-xs text-black truncate max-w-[140px]">
                           {row.progress_memo || <span className="text-gray-400">메모 (클릭)</span>}
+                        </div>
+                      </td>
+                      {/* MD기능: 멘트 / 촬영 / IMG.
+                          하나라도 등록(멘트=comment_data, 촬영=product_shoots, 이미지=product_images)되면
+                          해당 버튼 배경 초록으로 (등록됨 시각 표시). */}
+                      <td className={tdTop + " text-center"}>
+                        <div className="flex gap-1 justify-center">
+                          <button onClick={() => setCommentModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
+                          <button onClick={() => setShootModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
+                          <button onClick={() => setImagesModalRow(row)}
+                            className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>IMG</button>
                         </div>
                       </td>
                       {/* 플랫폼 아이콘 셀 (rowSpan=2) — 전송된 플랫폼 뱃지 표시. 플랫폼 추가 시 아이콘만 추가 */}
@@ -798,23 +811,10 @@ function ProductsPageInner() {
                         </select>
                       </td>
                       {/* 상품코드: 진행 시 자동 발급된 바코드 (마이그 198, 18자리). 샘플 상태면 "-". */}
-                      <td className={tdTop + " text-center"}>
+                      <td className={tdTop + " text-center border-r-0"}>
                         <span className="text-[11px] font-mono text-black select-all">
                           {row.barcode ?? <span className="text-gray-300">-</span>}
                         </span>
-                      </td>
-                      {/* MD기능: 멘트 / 촬영 / IMG.
-                          하나라도 등록(멘트=comment_data, 촬영=product_shoots, 이미지=product_images)되면
-                          해당 버튼 배경 초록으로 (등록됨 시각 표시). */}
-                      <td className={tdTop + " border-r-0 text-center"}>
-                        <div className="flex gap-1 justify-center">
-                          <button onClick={() => setCommentModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
-                          <button onClick={() => setShootModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
-                          <button onClick={() => setImagesModalRow(row)}
-                            className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>IMG</button>
-                        </div>
                       </td>
                     </tr>
                     <tr className="group-hover:bg-sky-50/60">
@@ -823,6 +823,22 @@ function ProductsPageInner() {
                       <td className={tdBot + " cursor-pointer hover:bg-gray-100 truncate max-w-[140px]"}
                         onClick={() => setMemoModal({ row, kind: "sample" })}>
                         {row.description || "-"}
+                      </td>
+                      {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성.
+                          product_measurements 박제 row 가 0 이면 옅은 주황으로 환기 (사이즈표 미박제). */}
+                      <td className={tdBot + " text-center"}>
+                        <div className="flex gap-1 justify-center">
+                          <button onClick={() => setSizeModalRow(row)}
+                            className={styles.btnSmall + (row.measurements_count > 0 ? "" : " !bg-orange-50")}>
+                            SIZE
+                          </button>
+                          <button onClick={() => handleRevert(row)}
+                            disabled={row.image_count > 0}
+                            title={row.image_count > 0 ? `이미지 ${row.image_count}장 등록됨 — 먼저 삭제 후 가능` : "샘플 단계로 되돌리기"}
+                            className={styles.btnSmallGhost + " whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"}>
+                            샘플로
+                          </button>
+                        </div>
                       </td>
                       {/* 상품명/옵션1/2/3: 아래=samples 박제 read-only */}
                       <td className={tdBot + " font-medium"}>{row.wholesale_name || "-"}</td>
@@ -845,26 +861,10 @@ function ProductsPageInner() {
                       <td className={tdBot + " text-right"}>{formatComma(row.wholesale_discount_price) || "-"}</td>
                       <td className={tdBot + " text-center"}>{row.country_of_origin || "-"}</td>
                       <td className={tdBot}>{row.material_composition || "-"}</td>
-                      <td className={tdBot} title={row.wholesale_supplier ? [row.wholesale_supplier, row.supplier_loc].filter(Boolean).join(" · ") : undefined}>
+                      <td className={tdBot + " border-r-0"} title={row.wholesale_supplier ? [row.wholesale_supplier, row.supplier_loc].filter(Boolean).join(" · ") : undefined}>
                         {row.wholesale_supplier
                           ? <>{row.wholesale_supplier}{row.supplier_loc && <span className="text-gray-400"> · {row.supplier_loc}</span>}</>
                           : "-"}
-                      </td>
-                      {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성.
-                          product_measurements 박제 row 가 0 이면 옅은 주황으로 환기 (사이즈표 미박제). */}
-                      <td className={tdBot + " text-center border-r-0"}>
-                        <div className="flex gap-1 justify-center">
-                          <button onClick={() => setSizeModalRow(row)}
-                            className={styles.btnSmall + (row.measurements_count > 0 ? "" : " !bg-orange-50")}>
-                            SIZE
-                          </button>
-                          <button onClick={() => handleRevert(row)}
-                            disabled={row.image_count > 0}
-                            title={row.image_count > 0 ? `이미지 ${row.image_count}장 등록됨 — 먼저 삭제 후 가능` : "샘플 단계로 되돌리기"}
-                            className={styles.btnSmallGhost + " whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"}>
-                            샘플로
-                          </button>
-                        </div>
                       </td>
                     </tr>
                   </tbody>
