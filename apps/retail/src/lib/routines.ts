@@ -35,6 +35,7 @@ export interface ScheduleEvent {
   end_date: string; // 단발 일정 = event_date 와 동일값. 기간 일정 = event_date~end_date
   title: string;
   memo: string | null;
+  is_done: boolean; // 마이그 217
 }
 
 // ── 루틴 ──────────────────────────────
@@ -105,7 +106,7 @@ export async function unsetCheck(routineId: string, dateIso: string): Promise<vo
 export async function loadEvents(tenantId: string, fromIso: string, toIso: string): Promise<ScheduleEvent[]> {
   const { data } = await supabase
     .from("schedule_events")
-    .select("id, assignee, event_date, end_date, title, memo")
+    .select("id, assignee, event_date, end_date, title, memo, is_done")
     .eq("tenant_id", tenantId)
     .lte("event_date", toIso)
     .gte("end_date", fromIso)
@@ -123,4 +124,13 @@ export async function addEvent(tenantId: string, dateIso: string, title: string,
 }
 export async function deleteEvent(id: string): Promise<void> {
   await supabase.from("schedule_events").delete().eq("id", id);
+}
+export async function toggleEventDone(id: string, isDone: boolean): Promise<void> {
+  await supabase.from("schedule_events").update({ is_done: isDone }).eq("id", id);
+}
+export async function updateEvent(
+  id: string,
+  patch: Partial<Pick<ScheduleEvent, "title" | "assignee" | "event_date" | "end_date">>
+): Promise<void> {
+  await supabase.from("schedule_events").update(patch).eq("id", id);
 }

@@ -6,7 +6,7 @@
 // 레인(lane)을 배정해 여러 줄로 쌓아서 보여줌(구글캘린더 월간뷰 방식).
 import { useCallback, useEffect, useState } from "react";
 import { styles } from "@/common/styles";
-import { isoDate, loadEvents, addEvent, deleteEvent, type ScheduleEvent } from "@/lib/routines";
+import { isoDate, loadEvents, addEvent, deleteEvent, toggleEventDone, updateEvent, type ScheduleEvent } from "@/lib/routines";
 
 const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
 const CHIP_COLORS = [
@@ -19,9 +19,11 @@ const CHIP_COLORS = [
   "bg-cyan-100 text-cyan-800",
   "bg-fuchsia-100 text-fuchsia-800",
 ];
-function chipColor(id: string): string {
+const DONE_CHIP_COLOR = "bg-gray-100 text-gray-400";
+function chipColor(e: ScheduleEvent): string {
+  if (e.is_done) return DONE_CHIP_COLOR;
   let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < e.id.length; i++) h = (h * 31 + e.id.charCodeAt(i)) >>> 0;
   return CHIP_COLORS[h % CHIP_COLORS.length];
 }
 
@@ -83,6 +85,13 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   const [assignee, setAssignee] = useState("");
   const [endDate, setEndDate] = useState<string>(isoDate(today));
 
+  // 수정 중인 일정 (인라인 편집). 한 번에 하나만 편집.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editAssignee, setEditAssignee] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+
   const monthStart = isoDate(new Date(y, m, 1));
   const monthEnd = isoDate(new Date(y, m + 1, 0));
 
@@ -125,6 +134,32 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
   }
   async function remove(id: string) { await deleteEvent(id); reload(); }
 
+  async function toggleDone(e: ScheduleEvent) {
+    setEvents((prev) => prev.map((x) => (x.id === e.id ? { ...x, is_done: !x.is_done } : x))); // optimistic
+    await toggleEventDone(e.id, !e.is_done);
+  }
+
+  function startEdit(e: ScheduleEvent) {
+    setEditingId(e.id);
+    setEditTitle(e.title);
+    setEditAssignee(e.assignee ?? "");
+    setEditStart(e.event_date);
+    setEditEnd(e.end_date);
+  }
+  function cancelEdit() { setEditingId(null); }
+
+  async function saveEdit() {
+    if (!editingId || !editTitle.trim()) return;
+    const id = editingId;
+    const end = editEnd >= editStart ? editEnd : editStart;
+    setEvents((prev) => prev.map((x) => (x.id === id
+      ? { ...x, title: editTitle.trim(), assignee: editAssignee || null, event_date: editStart, end_date: end }
+      : x))); // optimistic
+    setEditingId(null);
+    await updateEvent(id, { title: editTitle.trim(), assignee: editAssignee || null, event_date: editStart, end_date: end });
+    reload();
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* 캘린더 */}
@@ -161,7 +196,7 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
                           const round = (seg.isStart ? "rounded-l " : "") + (seg.isEnd ? "rounded-r" : "");
                           return (
                             <div key={li} title={seg.e.title}
-                              className={`h-[16px] leading-[16px] text-[10px] px-1 truncate ${chipColor(seg.e.id)} ${round}`}>
+                              className={`h-[16px] leading-[16px] text-[10px] px-1 truncate ${chipColor(seg.e)} ${round} ${seg.e.is_done ? "line-through" : ""}`}>
                               {seg.isStart ? seg.e.title : " "}
                             </div>
                           );
@@ -196,16 +231,39 @@ export default function ScheduleCalendar({ tenantId }: { tenantId: string }) {
           <div className="text-xs text-gray-400 py-4 text-center">{fmtMD(selected)} 일정 없음</div>
         ) : (
           <ul className="space-y-1">
-            {selEvents.map((e) => (
+            {selEvents.map((e) => editingId === e.id ? (
+              <li key={e.id} className="flex flex-col gap-1.5 px-2 py-2 bg-gray-50 rounded text-sm">
+                <input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)}
+                  onKeyDown={(ev) => { if (ev.key === "Enter") saveEdit(); }} className={styles.inputMd} />
+                <input value={editAssignee} onChange={(ev) => setEditAssignee(ev.target.value)}
+                  placeholder="담당" className={`${styles.inputMd} w-20 px-2`} />
+                <div className="flex items-center gap-1">
+                  <input type="date" value={editStart} onChange={(ev) => setEditStart(ev.target.value)}
+                    className={`${styles.inputMd} min-w-0 px-2 flex-1`} />
+                  <span className="text-[11px] text-gray-400 shrink-0">~</span>
+                  <input type="date" value={editEnd} min={editStart} onChange={(ev) => setEditEnd(ev.target.value)}
+                    className={`${styles.inputMd} min-w-0 px-2 flex-1`} />
+                </div>
+                <div className="flex items-center gap-2 justify-end">
+                  <button onClick={cancelEdit} className="text-xs text-gray-400 hover:text-black">취소</button>
+                  <button onClick={saveEdit} className={styles.btnSmall}>저장</button>
+                </div>
+              </li>
+            ) : (
               <li key={e.id} className="flex items-center gap-2 px-2 py-1.5 bg-gray-50 rounded text-sm">
-                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${chipColor(e.id).split(" ")[0]}`} />
-                <span className="text-black flex-1">
+                <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${chipColor(e).split(" ")[0]}`} />
+                <span className={"flex-1 " + (e.is_done ? "text-gray-400 line-through" : "text-black")}>
                   {e.title}
                   {e.assignee && <span className="text-gray-400 text-xs"> · {e.assignee}</span>}
                   {e.event_date !== e.end_date && (
                     <span className="text-gray-400 text-[11px]"> ({fmtMD(e.event_date)}~{fmtMD(e.end_date)})</span>
                   )}
                 </span>
+                <button onClick={() => toggleDone(e)}
+                  className={"text-xs " + (e.is_done ? "text-emerald-600 hover:text-emerald-700" : "text-gray-300 hover:text-emerald-600")}>
+                  {e.is_done ? "완료됨" : "완료"}
+                </button>
+                <button onClick={() => startEdit(e)} className="text-xs text-gray-300 hover:text-black">수정</button>
                 <button onClick={() => remove(e.id)} className="text-xs text-gray-300 hover:text-rose-500">삭제</button>
               </li>
             ))}
