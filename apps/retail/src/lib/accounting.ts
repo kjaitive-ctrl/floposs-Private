@@ -167,11 +167,13 @@ export interface LedgerParty {
   bank_name: string | null;
   account_number: string | null;
   memo: string | null;
+  management_tag: string | null;
+  evidence_type: string | null;
   sort_order: number;
   category?: { name: string; type: AccountType } | null;
 }
 
-const LEDGER_PARTY_COLS = "id, name, retail_supplier_id, account_category_id, direction, vat_included_default, bank_name, account_number, memo, sort_order";
+const LEDGER_PARTY_COLS = "id, name, retail_supplier_id, account_category_id, direction, vat_included_default, bank_name, account_number, memo, management_tag, evidence_type, sort_order";
 
 export async function loadLedgerParties(tenantId: string): Promise<LedgerParty[]> {
   const { data, error } = await supabase
@@ -209,6 +211,8 @@ export interface AddLedgerPartyInput {
   bank_name?: string | null;
   account_number?: string | null;
   memo?: string | null;
+  management_tag?: string | null;
+  evidence_type?: string | null;
 }
 
 export async function addLedgerParty(tenantId: string, input: AddLedgerPartyInput): Promise<LedgerParty | null> {
