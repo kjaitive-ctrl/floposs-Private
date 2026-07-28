@@ -7,14 +7,15 @@ import { styles } from "@/common/styles";
 import { formatComma, parseDigits } from "@/lib/format";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import SaveStatusDot from "@/components/SaveStatusDot";
-import { searchSlotStores, ensureRetailSupplier, type SlotStoreHit } from "@/lib/retailSuppliers";
+import CounterpartyCell from "@/components/accounting/CounterpartyCell";
+import CategoryCombobox from "@/components/accounting/CategoryCombobox";
 import {
   type AccountCategory, type CashTransaction, type CashTransactionInput,
   loadAccountCategories, loadCashTransactions, addCashTransaction, updateCashTransaction, deleteCashTransaction,
   splitVat,
 } from "@/lib/accounting";
 
-type Row = CashTransactionInput & { id: string | null; _key: string; supply_amount: number; vat_amount: number };
+type Row = CashTransactionInput & { id: string | null; _key: string; supply_amount: number; vat_amount: number; category_name: string };
 
 function todayIso(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
@@ -32,6 +33,7 @@ function toRow(t: CashTransaction): Row {
     account_category_id: t.account_category_id, retail_supplier_id: t.retail_supplier_id,
     counterparty_name: t.counterparty_name, amount: t.amount, vat_included: t.vat_included,
     memo: t.memo, supply_amount: t.supply_amount, vat_amount: t.vat_amount,
+    category_name: t.category?.name ?? "",
   };
 }
 function blankRow(dateIso: string): Row {
@@ -39,59 +41,8 @@ function blankRow(dateIso: string): Row {
     id: null, _key: `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     txn_date: dateIso, direction: "out", account_category_id: null, retail_supplier_id: null,
     counterparty_name: "", amount: 0, vat_included: false, memo: null,
-    supply_amount: 0, vat_amount: 0,
+    supply_amount: 0, vat_amount: 0, category_name: "",
   };
-}
-
-// 거래처 입력 — 타이핑 = 자유텍스트, 매칭되면 slot 거래처 링크(선택 사항).
-// /samples 의 SupplierAutocomplete 와 달리 "미연결" 경고 없음 — 직원/임대인/국세청처럼
-// slot 이 없는 수취인이 정상 케이스라 경고를 띄우면 오해를 줌.
-function CounterpartyCell({ tenantId, value, onPick }: {
-  tenantId: string; value: string; onPick: (name: string, supplierId: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hits, setHits] = useState<SlotStoreHit[]>([]);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleInput(text: string) {
-    onPick(text, null);
-    if (timer.current) clearTimeout(timer.current);
-    const t = text.trim();
-    if (!t) { setHits([]); setOpen(false); return; }
-    timer.current = setTimeout(async () => {
-      setHits(await searchSlotStores(t));
-      setOpen(true);
-    }, 250);
-  }
-
-  async function choose(hit: SlotStoreHit) {
-    setOpen(false);
-    const sid = await ensureRetailSupplier(tenantId, hit.slot.id, hit.id);
-    onPick(hit.store_name, sid);
-  }
-
-  return (
-    <div className="relative w-full">
-      <input
-        value={value}
-        placeholder="거래처/수취인"
-        onChange={e => handleInput(e.target.value)}
-        onFocus={() => { if (value.trim()) setOpen(true); }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        className={styles.gridInput}
-      />
-      {open && hits.length > 0 && (
-        <div className="absolute left-0 top-full z-30 mt-0.5 w-56 bg-white border border-gray-300 rounded-lg shadow-lg max-h-56 overflow-auto text-xs">
-          {hits.map(h => (
-            <button key={h.id} type="button" onMouseDown={e => { e.preventDefault(); choose(h); }}
-              className="w-full text-left px-3 py-1.5 border-b border-gray-100 hover:bg-gray-50">
-              <div className="font-medium text-black">{h.store_name}</div>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function TransactionLedger({ tenantId }: { tenantId: string }) {
@@ -220,10 +171,14 @@ export default function TransactionLedger({ tenantId }: { tenantId: string }) {
                   </select>
                 </td>
                 <td className={styles.tdCenter}>
-                  <select value={row.account_category_id ?? ""} onChange={e => patchRow(row._key, { account_category_id: e.target.value || null })} className={styles.gridInput}>
-                    <option value="">선택안함</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <CategoryCombobox
+                    tenantId={tenantId}
+                    categories={categories}
+                    value={row.category_name}
+                    onTextChange={text => patchRow(row._key, { category_name: text })}
+                    onPick={(id, name) => patchRow(row._key, { account_category_id: id, category_name: name })}
+                    onCreated={cat => setCategories(prev => [...prev, cat])}
+                  />
                 </td>
                 <td className={styles.tdText}>
                   <CounterpartyCell

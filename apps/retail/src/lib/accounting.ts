@@ -132,3 +132,123 @@ export async function updateCashTransaction(id: string, patch: Partial<CashTrans
 export async function deleteCashTransaction(id: string): Promise<void> {
   await supabase.from("cash_transactions").delete().eq("id", id);
 }
+
+// ── 거래처 매트릭스 (ledger_parties, 마이그 219) ──────────────────────
+// 월과 무관하게 영속하는 "행" — 이름/계정과목/방향/VAT관행을 한 번 정하면
+// 사용자가 지울 때까지 매달 계속 뜬다. 매트릭스 셀(거래처×날짜) 하나 =
+// cash_transactions 한 행 (ledger_party_id 로 링크).
+export interface LedgerParty {
+  id: string;
+  name: string;
+  retail_supplier_id: string | null;
+  account_category_id: string | null;
+  direction: "in" | "out";
+  vat_included_default: boolean;
+  sort_order: number;
+  category?: { name: string; type: AccountType } | null;
+}
+
+export async function loadLedgerParties(tenantId: string): Promise<LedgerParty[]> {
+  const { data, error } = await supabase
+    .from("ledger_parties")
+    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order, category:account_categories(name, type)")
+    .eq("tenant_id", tenantId)
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("created_at");
+  if (error) { console.error("loadLedgerParties:", error); return []; }
+  return (data ?? []).map(r => ({
+    ...r,
+    category: Array.isArray(r.category) ? r.category[0] ?? null : r.category,
+  })) as LedgerParty[];
+}
+
+// 이름으로 기존 행 찾기 — 있으면 재사용(중복 방지), 없으면 null.
+export async function findLedgerPartyByName(tenantId: string, name: string): Promise<LedgerParty | null> {
+  const { data } = await supabase
+    .from("ledger_parties")
+    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order")
+    .eq("tenant_id", tenantId)
+    .eq("name", name.trim())
+    .eq("is_active", true)
+    .maybeSingle();
+  return data as LedgerParty | null;
+}
+
+export interface AddLedgerPartyInput {
+  name: string;
+  retail_supplier_id: string | null;
+  account_category_id: string | null;
+  direction: "in" | "out";
+  vat_included_default: boolean;
+}
+
+export async function addLedgerParty(tenantId: string, input: AddLedgerPartyInput): Promise<LedgerParty | null> {
+  const { data: maxRow } = await supabase
+    .from("ledger_parties").select("sort_order")
+    .eq("tenant_id", tenantId).order("sort_order", { ascending: false }).limit(1).maybeSingle();
+  const sort_order = (maxRow?.sort_order ?? 0) + 1;
+  const { data, error } = await supabase
+    .from("ledger_parties")
+    .insert({ tenant_id: tenantId, ...input, name: input.name.trim(), sort_order })
+    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order")
+    .single();
+  if (error) { console.error("addLedgerParty:", error); return null; }
+  return data as LedgerParty;
+}
+
+export async function updateLedgerParty(id: string, patch: Partial<AddLedgerPartyInput>): Promise<void> {
+  await supabase.from("ledger_parties").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+}
+
+export async function deactivateLedgerParty(id: string): Promise<void> {
+  await supabase.from("ledger_parties").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
+}
+
+// 선택된 달의 매트릭스 셀 값 — key: `${ledger_party_id}:${txn_date}`
+export async function loadMatrixCells(tenantId: string, fromIso: string, toIso: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from("cash_transactions")
+    .select("ledger_party_id, txn_date, amount")
+    .eq("tenant_id", tenantId)
+    .not("ledger_party_id", "is", null)
+    .gte("txn_date", fromIso)
+    .lte("txn_date", toIso);
+  if (error) { console.error("loadMatrixCells:", error); return new Map(); }
+  const map = new Map<string, number>();
+  for (const r of data ?? []) map.set(`${r.ledger_party_id}:${r.txn_date}`, r.amount);
+  return map;
+}
+
+// 셀 하나 저장 — 있으면 갱신, 없으면 새로 생성, 0/빈값이면 삭제.
+// partial unique index 라 upsert(onConflict) 대신 select-then-write.
+export async function setMatrixCell(tenantId: string, party: LedgerParty, dateIso: string, amount: number): Promise<boolean> {
+  const { data: existing } = await supabase
+    .from("cash_transactions")
+    .select("id")
+    .eq("ledger_party_id", party.id)
+    .eq("txn_date", dateIso)
+    .maybeSingle();
+
+  if (amount <= 0) {
+    if (existing) await supabase.from("cash_transactions").delete().eq("id", existing.id);
+    return true;
+  }
+
+  const { supply_amount, vat_amount } = splitVat(amount, party.vat_included_default);
+  const payload = {
+    tenant_id: tenantId, txn_date: dateIso, direction: party.direction,
+    account_category_id: party.account_category_id, retail_supplier_id: party.retail_supplier_id,
+    counterparty_name: party.name, amount, vat_included: party.vat_included_default,
+    supply_amount, vat_amount, ledger_party_id: party.id,
+    updated_at: new Date().toISOString(),
+  };
+  if (existing) {
+    const { error } = await supabase.from("cash_transactions").update(payload).eq("id", existing.id);
+    if (error) console.error("setMatrixCell update:", error);
+    return !error;
+  }
+  const { error } = await supabase.from("cash_transactions").insert(payload);
+  if (error) console.error("setMatrixCell insert:", error);
+  return !error;
+}
