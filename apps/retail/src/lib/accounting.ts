@@ -9,10 +9,23 @@ export type AccountType = (typeof ACCOUNT_TYPES)[number];
 // 손익(매출-매입원가-인건비-판관비-세금과공과)에 들어가는 타입. 자본거래(대납/가지급금 등)는 제외.
 export const PNL_TYPES: AccountType[] = ["매출", "매입원가", "인건비", "판관비", "세금과공과"];
 
+// 재무상태표 5분류 — 복식부기 전표의 차변/대변 방향 판단용 (마이그 221).
+export const GUBUN_TYPES = ["자산", "부채", "자본", "수익", "비용"] as const;
+export type Gubun = (typeof GUBUN_TYPES)[number];
+
+// type → gubun 기본 매핑. '자본거래'만 자산/부채 어느 쪽인지 애매해서 명시 필요(기본값 자산).
+export function deriveGubun(type: AccountType, explicitGubun?: "자산" | "부채"): Gubun {
+  if (type === "매출") return "수익";
+  if (type === "자본거래") return explicitGubun ?? "자산";
+  return "비용";
+}
+
 export interface AccountCategory {
   id: string;
   name: string;
   type: AccountType;
+  gubun: Gubun;
+  is_system?: boolean;
   sort_order: number;
   is_active: boolean;
 }
@@ -41,27 +54,29 @@ export function splitVat(amount: number, vatIncluded: boolean): { supply_amount:
 }
 
 // ── 계정과목 ──────────────────────────────
-export async function loadAccountCategories(tenantId: string): Promise<AccountCategory[]> {
-  const { data, error } = await supabase
+// includeSystem=true 로 부르면 보통예금/부가세대급금/부가세예수금 같은 내부 시스템계정도 섞어서 반환
+// (수동전표 입력 시 필요 — 매트릭스/리스트의 일반 계정 선택엔 절대 안 섞음).
+export async function loadAccountCategories(tenantId: string, opts?: { includeSystem?: boolean }): Promise<AccountCategory[]> {
+  let q = supabase
     .from("account_categories")
-    .select("id, name, type, sort_order, is_active")
+    .select("id, name, type, gubun, is_system, sort_order, is_active")
     .eq("tenant_id", tenantId)
-    .eq("is_active", true)
-    .order("sort_order")
-    .order("created_at");
+    .eq("is_active", true);
+  if (!opts?.includeSystem) q = q.eq("is_system", false);
+  const { data, error } = await q.order("sort_order").order("created_at");
   if (error) { console.error("loadAccountCategories:", error); return []; }
   return (data ?? []) as AccountCategory[];
 }
 
-export async function addAccountCategory(tenantId: string, name: string, type: AccountType): Promise<AccountCategory | null> {
+export async function addAccountCategory(tenantId: string, name: string, type: AccountType, explicitGubun?: "자산" | "부채"): Promise<AccountCategory | null> {
   const { data: maxRow } = await supabase
     .from("account_categories").select("sort_order")
     .eq("tenant_id", tenantId).order("sort_order", { ascending: false }).limit(1).maybeSingle();
   const sort_order = (maxRow?.sort_order ?? 0) + 1;
   const { data, error } = await supabase
     .from("account_categories")
-    .insert({ tenant_id: tenantId, name: name.trim(), type, sort_order })
-    .select("id, name, type, sort_order, is_active")
+    .insert({ tenant_id: tenantId, name: name.trim(), type, gubun: deriveGubun(type, explicitGubun), sort_order })
+    .select("id, name, type, gubun, is_system, sort_order, is_active")
     .single();
   if (error) { console.error("addAccountCategory:", error); return null; }
   return data as AccountCategory;
@@ -69,6 +84,11 @@ export async function addAccountCategory(tenantId: string, name: string, type: A
 
 export async function renameAccountCategory(id: string, name: string): Promise<void> {
   await supabase.from("account_categories").update({ name: name.trim(), updated_at: new Date().toISOString() }).eq("id", id);
+}
+
+// 자본거래 타입 계정의 재무상태표 분류(자산/부채) 수정 — 마이그 221 백필값 교정용.
+export async function updateAccountCategoryGubun(id: string, gubun: "자산" | "부채"): Promise<void> {
+  await supabase.from("account_categories").update({ gubun, updated_at: new Date().toISOString() }).eq("id", id);
 }
 
 export async function deactivateAccountCategory(id: string): Promise<void> {
@@ -259,4 +279,82 @@ export async function setMatrixCell(tenantId: string, party: LedgerParty, dateIs
   const { error } = await supabase.from("cash_transactions").insert(payload);
   if (error) console.error("setMatrixCell insert:", error);
   return !error;
+}
+
+// ── 복식부기 전표 (journal_entries/journal_lines, 마이그 221) ──────────
+// cash_transactions 은 DB 트리거가 자동으로 2~3줄 균형전표를 만든다(현금은
+// 항상 보통예금이 상대계정). 현금이 안 오가는 전표(감가상각/재고조정/이월
+// 등)만 여기서 수동 생성 — source_cash_transaction_id 가 NULL 인 것들.
+export interface JournalLineRow {
+  id: string;
+  entry_id: string;
+  entry_date: string;
+  memo: string | null;
+  is_manual: boolean;          // source_cash_transaction_id NULL 여부
+  account_name: string;
+  gubun: Gubun;
+  counterparty_name: string | null;
+  debit_amount: number;
+  credit_amount: number;
+}
+
+export async function loadJournalLines(tenantId: string, fromIso: string, toIso: string): Promise<JournalLineRow[]> {
+  const { data, error } = await supabase
+    .from("journal_lines")
+    .select("id, entry_id, entry_date, counterparty_name, debit_amount, credit_amount, sort_order, account:account_categories(name, gubun), entry:journal_entries(memo, source_cash_transaction_id)")
+    .eq("tenant_id", tenantId)
+    .gte("entry_date", fromIso)
+    .lte("entry_date", toIso)
+    .order("entry_date")
+    .order("entry_id")
+    .order("sort_order");
+  if (error) { console.error("loadJournalLines:", error); return []; }
+  return (data ?? []).map(r => {
+    const account = Array.isArray(r.account) ? r.account[0] : r.account;
+    const entry = Array.isArray(r.entry) ? r.entry[0] : r.entry;
+    return {
+      id: r.id, entry_id: r.entry_id, entry_date: r.entry_date,
+      memo: entry?.memo ?? null, is_manual: !entry?.source_cash_transaction_id,
+      account_name: account?.name ?? "", gubun: (account?.gubun ?? "비용") as Gubun,
+      counterparty_name: r.counterparty_name, debit_amount: r.debit_amount, credit_amount: r.credit_amount,
+    };
+  }) as JournalLineRow[];
+}
+
+export interface ManualJournalLineInput {
+  account_category_id: string;
+  counterparty_name: string | null;
+  debit_amount: number;
+  credit_amount: number;
+}
+
+// 수동 전표 생성 — 호출 전 차변합계=대변합계 검증은 UI 책임(여기선 그대로 박음).
+export async function addManualJournalEntry(
+  tenantId: string, entryDate: string, memo: string | null, lines: ManualJournalLineInput[]
+): Promise<boolean> {
+  const { data: entry, error: entryErr } = await supabase
+    .from("journal_entries")
+    .insert({ tenant_id: tenantId, entry_date: entryDate, memo: memo || null })
+    .select("id")
+    .single();
+  if (entryErr || !entry) { console.error("addManualJournalEntry entry:", entryErr); return false; }
+
+  const { error: linesErr } = await supabase.from("journal_lines").insert(
+    lines.map((l, i) => ({
+      entry_id: entry.id, tenant_id: tenantId, entry_date: entryDate,
+      account_category_id: l.account_category_id, counterparty_name: l.counterparty_name,
+      debit_amount: l.debit_amount, credit_amount: l.credit_amount, sort_order: i + 1,
+    }))
+  );
+  if (linesErr) {
+    console.error("addManualJournalEntry lines:", linesErr);
+    await supabase.from("journal_entries").delete().eq("id", entry.id);
+    return false;
+  }
+  return true;
+}
+
+// 수동 전표만 삭제 가능(현금거래 자동생성분은 cash_transactions 를 고쳐야 함) — UI 에서 is_manual 가드.
+export async function deleteJournalEntry(entryId: string): Promise<void> {
+  await supabase.from("journal_entries").delete().eq("id", entryId);
 }

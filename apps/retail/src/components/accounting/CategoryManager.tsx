@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { styles } from "@/common/styles";
 import {
   ACCOUNT_TYPES, type AccountCategory, type AccountType,
-  loadAccountCategories, addAccountCategory, deactivateAccountCategory,
+  loadAccountCategories, addAccountCategory, deactivateAccountCategory, updateAccountCategoryGubun,
 } from "@/lib/accounting";
 
 // 빈 상태에서 클릭 한 번으로 추가할 수 있는 제안 — 강제 아님, 그냥 시작점.
@@ -28,6 +28,7 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [type, setType] = useState<AccountType>("판관비");
+  const [newGubun, setNewGubun] = useState<"자산" | "부채">("자산");
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -38,11 +39,11 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
 
   useEffect(() => { refresh(); }, [tenantId]);
 
-  async function handleAdd(n: string, t: AccountType) {
+  async function handleAdd(n: string, t: AccountType, gubun?: "자산" | "부채") {
     const trimmed = n.trim();
     if (!trimmed || busy) return;
     setBusy(true);
-    const created = await addAccountCategory(tenantId, trimmed, t);
+    const created = await addAccountCategory(tenantId, trimmed, t, t === "자본거래" ? (gubun ?? newGubun) : undefined);
     setBusy(false);
     if (created) {
       setCategories(prev => [...prev, created]);
@@ -54,6 +55,12 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
     if (!confirm("이 계정과목을 삭제할까요? (이미 입력된 거래는 유지되고 계정만 비워집니다)")) return;
     await deactivateAccountCategory(id);
     setCategories(prev => prev.filter(c => c.id !== id));
+  }
+
+  async function handleToggleGubun(c: AccountCategory) {
+    const next = c.gubun === "자산" ? "부채" : "자산";
+    await updateAccountCategoryGubun(c.id, next);
+    setCategories(prev => prev.map(x => x.id === c.id ? { ...x, gubun: next } : x));
   }
 
   const existingNames = new Set(categories.map(c => c.name));
@@ -81,6 +88,15 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
               {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
+          {type === "자본거래" && (
+            <div className="w-32">
+              <label className={styles.modalLabel}>재무상태 분류</label>
+              <select className={styles.inputMd} value={newGubun} onChange={e => setNewGubun(e.target.value as "자산" | "부채")}>
+                <option value="자산">자산</option>
+                <option value="부채">부채</option>
+              </select>
+            </div>
+          )}
           <button type="submit" disabled={!name.trim() || busy} className={styles.btnPrimary}>추가</button>
         </form>
 
@@ -114,6 +130,7 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
               <tr>
                 <th className={styles.thLeft}>이름</th>
                 <th className={styles.th}>손익 성격</th>
+                <th className={styles.th}>재무상태 분류</th>
                 <th className={styles.th}></th>
               </tr>
             </thead>
@@ -125,6 +142,17 @@ export default function CategoryManager({ tenantId }: { tenantId: string }) {
                     <span className={styles.badge + " " + (c.type === "매출" ? "bg-green-50 text-green-700" : c.type === "자본거래" ? "bg-gray-100 text-gray-600" : "bg-blue-50 text-blue-700")}>
                       {c.type}
                     </span>
+                  </td>
+                  <td className={styles.tdCenter}>
+                    {c.type === "자본거래" ? (
+                      <button type="button" onClick={() => handleToggleGubun(c)}
+                        className={styles.badge + " " + (c.gubun === "자산" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700")}
+                        title="클릭해서 자산/부채 전환">
+                        {c.gubun} ⇄
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">{c.gubun}</span>
+                    )}
                   </td>
                   <td className={styles.tdCenter}>
                     <button type="button" onClick={() => handleDelete(c.id)} className="text-gray-400 hover:text-red-600">삭제</button>
