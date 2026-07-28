@@ -11,12 +11,13 @@ interface Props {
   id?: string;
   tenantId: string;
   value: string;
+  readOnly?: boolean;
   onPick: (name: string, supplierId: string | null) => void;
   onKeyDownNav?: (e: KeyboardEvent<HTMLInputElement>) => void;
   placeholder?: string;
 }
 
-export default function CounterpartyCell({ id, tenantId, value, onPick, onKeyDownNav, placeholder }: Props) {
+export default function CounterpartyCell({ id, tenantId, value, readOnly, onPick, onKeyDownNav, placeholder }: Props) {
   const [open, setOpen] = useState(false);
   const [hits, setHits] = useState<SlotStoreHit[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -43,6 +44,7 @@ export default function CounterpartyCell({ id, tenantId, value, onPick, onKeyDow
       <input
         id={id}
         value={value}
+        readOnly={readOnly}
         placeholder={placeholder ?? "거래처/수취인"}
         onChange={e => handleInput(e.target.value)}
         onFocus={() => { if (value.trim()) setOpen(true); }}

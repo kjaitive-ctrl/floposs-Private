@@ -159,7 +159,7 @@ export async function deleteCashTransaction(id: string): Promise<void> {
 // cash_transactions 한 행 (ledger_party_id 로 링크).
 export interface LedgerParty {
   id: string;
-  name: string;
+  name: string | null;
   retail_supplier_id: string | null;
   account_category_id: string | null;
   direction: "in" | "out";
@@ -203,7 +203,7 @@ export async function findLedgerPartyByName(tenantId: string, name: string): Pro
 }
 
 export interface AddLedgerPartyInput {
-  name: string;
+  name: string | null;
   retail_supplier_id: string | null;
   account_category_id: string | null;
   direction: "in" | "out";
@@ -222,7 +222,7 @@ export async function addLedgerParty(tenantId: string, input: AddLedgerPartyInpu
   const sort_order = (maxRow?.sort_order ?? 0) + 1;
   const { data, error } = await supabase
     .from("ledger_parties")
-    .insert({ tenant_id: tenantId, ...input, name: input.name.trim(), sort_order })
+    .insert({ tenant_id: tenantId, ...input, name: input.name?.trim() || null, sort_order })
     .select(LEDGER_PARTY_COLS)
     .single();
   if (error) { console.error("addLedgerParty:", error); return null; }
@@ -361,4 +361,63 @@ export async function addManualJournalEntry(
 // 수동 전표만 삭제 가능(현금거래 자동생성분은 cash_transactions 를 고쳐야 함) — UI 에서 is_manual 가드.
 export async function deleteJournalEntry(entryId: string): Promise<void> {
   await supabase.from("journal_entries").delete().eq("id", entryId);
+}
+
+// ── 월마감 (accounting_periods, 마이그 223) ──────────────────────
+// 입력 자체는 자유롭게(거래처/계정과목 나중에 채워도 됨) — 완성도 강제는
+// 마감 시점으로 미룸. 부족한 행이 있으면 마감 자체를 막는다(검증은 UI 책임).
+export interface PeriodStatus { closed: boolean; closedAt: string | null }
+
+export async function loadPeriodStatus(tenantId: string, periodMonthIso: string): Promise<PeriodStatus> {
+  const { data } = await supabase
+    .from("accounting_periods")
+    .select("closed_at")
+    .eq("tenant_id", tenantId)
+    .eq("period_month", periodMonthIso)
+    .maybeSingle();
+  return { closed: !!data?.closed_at, closedAt: data?.closed_at ?? null };
+}
+
+export async function closeMonth(tenantId: string, periodMonthIso: string): Promise<void> {
+  await supabase.from("accounting_periods")
+    .upsert({ tenant_id: tenantId, period_month: periodMonthIso, closed_at: new Date().toISOString() }, { onConflict: "tenant_id,period_month" });
+}
+
+export async function reopenMonth(tenantId: string, periodMonthIso: string): Promise<void> {
+  await supabase.from("accounting_periods")
+    .update({ closed_at: null })
+    .eq("tenant_id", tenantId)
+    .eq("period_month", periodMonthIso);
+}
+
+// ── 통장 기준잔액 (cash_balance_anchors, 마이그 224) ──────────────────
+// 특정 날짜의 실제 통장 잔액 하나만 저장 — 이후 모든 날의 기초/기말잔액은
+// 이 기준점 + cash_transactions 순증감 누적으로 매번 다시 계산(고정 저장 X).
+export interface CashBalanceAnchor { as_of_date: string; amount: number }
+
+export async function loadCashBalanceAnchor(tenantId: string): Promise<CashBalanceAnchor | null> {
+  const { data } = await supabase
+    .from("cash_balance_anchors")
+    .select("as_of_date, amount")
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  return data as CashBalanceAnchor | null;
+}
+
+export async function setCashBalanceAnchor(tenantId: string, asOfDate: string, amount: number): Promise<void> {
+  await supabase.from("cash_balance_anchors")
+    .upsert({ tenant_id: tenantId, as_of_date: asOfDate, amount, updated_at: new Date().toISOString() }, { onConflict: "tenant_id" });
+}
+
+// 기준일(제외) 초과 ~ toIso(포함) 사이 순증감(입금-출금) 합계.
+export async function loadNetCashDelta(tenantId: string, fromIsoExclusive: string, toIsoInclusive: string): Promise<number> {
+  if (fromIsoExclusive >= toIsoInclusive) return 0;
+  const { data, error } = await supabase
+    .from("cash_transactions")
+    .select("direction, amount")
+    .eq("tenant_id", tenantId)
+    .gt("txn_date", fromIsoExclusive)
+    .lte("txn_date", toIsoInclusive);
+  if (error) { console.error("loadNetCashDelta:", error); return 0; }
+  return (data ?? []).reduce((s, r) => s + (r.direction === "in" ? r.amount : -r.amount), 0);
 }

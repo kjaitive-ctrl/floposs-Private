@@ -5,13 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
 import MatrixLedger from "@/components/accounting/MatrixLedger";
-import TransactionLedger from "@/components/accounting/TransactionLedger";
 import PnlReport from "@/components/accounting/PnlReport";
 import VendorAnalysis from "@/components/accounting/VendorAnalysis";
 import CategoryManager from "@/components/accounting/CategoryManager";
 import JournalView from "@/components/accounting/JournalView";
 
-// 회계 장부 — 거래입력(기본=매트릭스) / 전표 / 손익리포트 / 거래처분석 / 계정과목. 마이그 218/219/221.
+// 회계 장부 — 거래입력(매트릭스 단일) / 전표 / 손익리포트 / 거래처분석 / 계정과목. 마이그 218/219/221/222.
+// 반복거래/예외 구분 없음 — 거래처 행이 월과 무관하게 영속하므로(전월 양식 자동 유지),
+// 필요 없어진 행은 사용자가 ×로 직접 제거. 리스트(예외·일회성) 뷰는 폐기.
 type Tab = "ledger" | "journal" | "pnl" | "vendor" | "category";
 const TABS: [Tab, string][] = [["ledger", "거래입력"], ["journal", "전표"], ["pnl", "손익리포트"], ["vendor", "거래처분석"], ["category", "계정과목"]];
 
@@ -20,8 +21,6 @@ function AccountingInner() {
   const sp = useSearchParams();
   const initial = sp.get("tab") as Tab | null;
   const [tab, setTab] = useState<Tab>(initial && TABS.some(([k]) => k === initial) ? initial : "ledger");
-  // 매트릭스=반복 거래(거래처 고정, 매달 계속 뜸) / 리스트=예외·일회성 거래(대납 등). 마이그 219 설계.
-  const [ledgerView, setLedgerView] = useState<"matrix" | "list">("matrix");
 
   if (!tenant?.id) return <div className="text-xs text-gray-400">불러오는 중…</div>;
 
@@ -36,17 +35,7 @@ function AccountingInner() {
           </button>
         ))}
       </div>
-      {tab === "ledger" && (
-        <>
-          <div className="flex items-center gap-1 mb-3">
-            <button type="button" onClick={() => setLedgerView("matrix")}
-              className={ledgerView === "matrix" ? styles.btnSmall : styles.btnSmallGhost}>매트릭스 (반복거래)</button>
-            <button type="button" onClick={() => setLedgerView("list")}
-              className={ledgerView === "list" ? styles.btnSmall : styles.btnSmallGhost}>리스트 (예외·일회성)</button>
-          </div>
-          {ledgerView === "matrix" ? <MatrixLedger tenantId={tenant.id} /> : <TransactionLedger tenantId={tenant.id} />}
-        </>
-      )}
+      {tab === "ledger" && <MatrixLedger tenantId={tenant.id} />}
       {tab === "journal" && <JournalView tenantId={tenant.id} />}
       {tab === "pnl" && <PnlReport tenantId={tenant.id} />}
       {tab === "vendor" && <VendorAnalysis tenantId={tenant.id} />}
