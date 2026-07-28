@@ -33,3 +33,17 @@ html, body {
   --color-primary-soft-hover: #dbeafe; /* blue-100 — 옅은 bg hover */
   --color-primary-soft: #eff6ff;       /* blue-50 — 옅은 bg base (선택 상태) */
 }
+
+/* 샘플 사이즈 측정표 인쇄 (A4 가로) — /samples "측정표 출력".
+   body.printing-measurement-sheet 일 때만 나머지 화면 숨기고 표만 인쇄.
+   (앱 전체에 다른 인쇄 기능이 없어 @page 전역 설정을 이 용도로 사용) */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body.printing-measurement-sheet * { visibility: hidden; }
+  body.printing-measurement-sheet .measurement-sheet-print,
+  body.printing-measurement-sheet .measurement-sheet-print * { visibility: visible; }
+  body.printing-measurement-sheet .measurement-sheet-print {
+    display: block !important;
+    position: absolute; top: 0; left: 0; width: 100%;
+  }
+}

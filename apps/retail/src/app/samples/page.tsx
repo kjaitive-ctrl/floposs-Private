@@ -18,6 +18,7 @@ import HelpDot from "@/components/HelpDot";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
 import ProductsToolbar, { type SearchCol } from "@/components/ProductsToolbar";
+import MeasurementSheetPrint from "@/components/MeasurementSheetPrint";
 import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
@@ -93,6 +94,32 @@ export default function SamplesPage() {
   const [memoModalRow, setMemoModalRow] = useState<EditableRow | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // ── 사이즈 측정표 인쇄 (선택 상품 → A4 가로 인쇄) ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [printNames, setPrintNames] = useState<string[]>([]);
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  useEffect(() => {
+    if (printNames.length === 0) return;
+    document.body.classList.add("printing-measurement-sheet");
+    const cleanup = () => document.body.classList.remove("printing-measurement-sheet");
+    window.addEventListener("afterprint", cleanup, { once: true });
+    const t = setTimeout(() => window.print(), 50); // 렌더 반영 후 인쇄 다이얼로그
+    return () => clearTimeout(t);
+  }, [printNames]);
+  function handlePrintMeasurementSheet() {
+    const names = rows
+      .filter((r) => r.id && selectedIds.has(r.id))
+      .map((r) => r.wholesale_name || r.consumer_name || r.product_code || "(이름 없음)");
+    if (names.length === 0) { alert("측정표를 출력할 상품을 먼저 선택하세요."); return; }
+    setPrintNames(names);
+  }
 
   // ── 검색/필터/페이지네이션 ──
   // applied = Enter 시점에 commit 된 값. fetchItems 의존성. searchCol 변경만으론 fetch 안 함 (다음 Enter 까지 유효 입력).
@@ -616,6 +643,11 @@ export default function SamplesPage() {
             </button>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv"
               onChange={handleUploadFile} className="hidden" />
+            <button onClick={handlePrintMeasurementSheet} disabled={selectedIds.size === 0}
+              className={styles.btnSmall + " py-1 disabled:opacity-50"}>
+              측정표 출력 {selectedIds.size > 0 && `(${selectedIds.size})`}
+            </button>
+            <HelpDot>왼쪽 체크박스로 상품 선택 후 [측정표 출력] — 사이즈/누끼 체크표 A4 가로 인쇄</HelpDot>
             <HelpDot>공급상품명 Enter = 등록 · ↑↓ / Shift+Enter 위아래 · Tab 좌우</HelpDot>
           </>}
         />
@@ -627,6 +659,7 @@ export default function SamplesPage() {
           <table className="min-w-full" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
             <thead className="border-b-2 border-gray-300 bg-gray-100 shadow">
               <tr className="text-left">
+                <th className={th + " w-6 text-center"}></th>
                 <th className={th + " w-6 text-center"}></th>
                 <th className={th + " min-w-[140px]"}>메모</th>
                 <th className={th + " w-24"}>입고일</th>
@@ -659,6 +692,7 @@ export default function SamplesPage() {
                   rows[0] 는 항상 빈 draft (초기/INSERT 후 새 prepend 로 유지). 도매상품명 Enter = INSERT. */}
               {rows[0] && !rows[0].id && (
                 <tr>
+                  <td className={tdDraft + " w-6 text-center"}></td>
                   <td className={tdDraft + " w-6 text-center"}><SaveStatusDot status={saveState[rows[0]._key]} hideWhenIdle /></td>
                   {/* 좌측 빈 5칸 병합 → 셀 이동 가이드. draft row 가 thead 안이라 헤더 높이 증가 X. */}
                   <td className={tdDraft + " text-right pr-3"} colSpan={5}>
@@ -707,6 +741,10 @@ export default function SamplesPage() {
                 const lockTxt = isReg ? " text-gray-400 bg-gray-50 cursor-not-allowed" : "";
                 return (
                   <tr key={row._key} className="border-b border-gray-100 hover:bg-sky-100/70">
+                    <td className={td + " text-center"}>
+                      <input type="checkbox" checked={selectedIds.has(row.id!)}
+                        onChange={() => toggleSelect(row.id!)} className="cursor-pointer" />
+                    </td>
                     <td className={td + " text-center"}><SaveStatusDot status={saveState[row._key]} /></td>
                     {/* 메모(description): 클릭 시 MemoModal 열림. 줄바꿈 박제 가능. registered 후에도 편집 가능 */}
                     <td className={td}>
@@ -870,6 +908,8 @@ export default function SamplesPage() {
           }}
         />
       )}
+
+      <MeasurementSheetPrint names={printNames} />
     </div>
   );
 }
