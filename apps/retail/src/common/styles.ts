@@ -17,6 +17,7 @@ export const styles = {
   header: "bg-white border-b border-gray-200 px-6 py-4",
   headerTitle: "text-xl font-bold text-black",
   main: "max-w-6xl mx-auto px-6 py-8",
+  mainWide: "max-w-[1800px] mx-auto px-6 py-8",  // 매트릭스처럼 가로로 넓은 표가 있는 페이지용
 
   // ── 카드 컨테이너 ──
   card: "bg-white border border-gray-200 rounded-2xl p-6",

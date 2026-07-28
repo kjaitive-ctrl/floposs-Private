@@ -55,7 +55,7 @@ function AccountingInner() {
 
 export default function AccountingPage() {
   return (
-    <main className={styles.main}>
+    <main className={styles.mainWide}>
       <Suspense fallback={<div className="text-xs text-gray-400">…</div>}>
         <AccountingInner />
       </Suspense>

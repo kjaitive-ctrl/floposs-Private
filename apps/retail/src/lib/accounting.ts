@@ -144,14 +144,19 @@ export interface LedgerParty {
   account_category_id: string | null;
   direction: "in" | "out";
   vat_included_default: boolean;
+  bank_name: string | null;
+  account_number: string | null;
+  memo: string | null;
   sort_order: number;
   category?: { name: string; type: AccountType } | null;
 }
 
+const LEDGER_PARTY_COLS = "id, name, retail_supplier_id, account_category_id, direction, vat_included_default, bank_name, account_number, memo, sort_order";
+
 export async function loadLedgerParties(tenantId: string): Promise<LedgerParty[]> {
   const { data, error } = await supabase
     .from("ledger_parties")
-    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order, category:account_categories(name, type)")
+    .select(`${LEDGER_PARTY_COLS}, category:account_categories(name, type)`)
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
     .order("sort_order")
@@ -167,7 +172,7 @@ export async function loadLedgerParties(tenantId: string): Promise<LedgerParty[]
 export async function findLedgerPartyByName(tenantId: string, name: string): Promise<LedgerParty | null> {
   const { data } = await supabase
     .from("ledger_parties")
-    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order")
+    .select(LEDGER_PARTY_COLS)
     .eq("tenant_id", tenantId)
     .eq("name", name.trim())
     .eq("is_active", true)
@@ -181,6 +186,9 @@ export interface AddLedgerPartyInput {
   account_category_id: string | null;
   direction: "in" | "out";
   vat_included_default: boolean;
+  bank_name?: string | null;
+  account_number?: string | null;
+  memo?: string | null;
 }
 
 export async function addLedgerParty(tenantId: string, input: AddLedgerPartyInput): Promise<LedgerParty | null> {
@@ -191,7 +199,7 @@ export async function addLedgerParty(tenantId: string, input: AddLedgerPartyInpu
   const { data, error } = await supabase
     .from("ledger_parties")
     .insert({ tenant_id: tenantId, ...input, name: input.name.trim(), sort_order })
-    .select("id, name, retail_supplier_id, account_category_id, direction, vat_included_default, sort_order")
+    .select(LEDGER_PARTY_COLS)
     .single();
   if (error) { console.error("addLedgerParty:", error); return null; }
   return data as LedgerParty;

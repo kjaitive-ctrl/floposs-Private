@@ -2,9 +2,10 @@
 
 // 거래처 매트릭스 — 원본 엑셀의 핵심(거래처=세로 한 행, 날짜=가로 열, 한 줄만 보면 스캔 가능)을
 // 그대로 살리되 엑셀의 한계(거래처 늘면 칸 부족, 계정입력하면 좌우 좁아짐)는 코드로 없앰.
-// 거래처 행은 월과 무관하게 영속 — 한 번 만들면 사용자가 지울 때까지 매달 계속 뜬다(마이그 219).
+// 왼쪽 고정열(거래처/계정과목/은행/계좌번호/적요/합계, 마이그 220)은 엑셀 틀고정 그대로 —
+// 날짜열만 가로 스크롤. 거래처 행은 월과 무관하게 영속(마이그 219).
 // 입력은 철저히 키보드 위주: 거래처/계정과목 모두 "타이핑 후 매칭", 방향/VAT는 토글(Tab+Space).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { styles } from "@/common/styles";
 import { formatComma, parseDigits } from "@/lib/format";
 import { useRowAutosave } from "@/lib/useRowAutosave";
@@ -12,9 +13,9 @@ import { useCellNavigation } from "@/lib/useCellNavigation";
 import CounterpartyCell from "@/components/accounting/CounterpartyCell";
 import CategoryCombobox from "@/components/accounting/CategoryCombobox";
 import {
-  type AccountCategory, type LedgerParty,
+  type AccountCategory, type LedgerParty, type AddLedgerPartyInput,
   loadAccountCategories, loadLedgerParties, loadMatrixCells, setMatrixCell,
-  findLedgerPartyByName, addLedgerParty, deactivateLedgerParty,
+  findLedgerPartyByName, addLedgerParty, updateLedgerParty, deactivateLedgerParty,
 } from "@/lib/accounting";
 
 function monthRange(anchor: Date): { fromIso: string; toIso: string; label: string; days: number[] } {
@@ -22,6 +23,21 @@ function monthRange(anchor: Date): { fromIso: string; toIso: string; label: stri
   const lastDay = new Date(y, m + 1, 0).getDate();
   const iso = (d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   return { fromIso: iso(1), toIso: iso(lastDay), label: `${y}년 ${m + 1}월`, days: Array.from({ length: lastDay }, (_, i) => i + 1) };
+}
+
+// 왼쪽 고정열 — 거래처/계정과목/은행/계좌번호/적요/합계 순, 여기까지 틀고정 → 날짜열 스크롤.
+const FROZEN = [
+  { key: "name", label: "거래처", width: 160 },
+  { key: "category", label: "계정과목", width: 150 },
+  { key: "bank", label: "은행", width: 90 },
+  { key: "account", label: "계좌번호", width: 130 },
+  { key: "memo", label: "적요", width: 140 },
+  { key: "total", label: "합계", width: 100 },
+] as const;
+const DAY_W = 72;
+function frozenLeft(i: number): number { return FROZEN.slice(0, i).reduce((s, c) => s + c.width, 0); }
+function frozenStyle(i: number): CSSProperties {
+  return { position: "sticky", left: frozenLeft(i), width: FROZEN[i].width, minWidth: FROZEN[i].width, zIndex: 2 };
 }
 
 interface Draft {
@@ -95,6 +111,32 @@ export default function MatrixLedger({ tenantId }: { tenantId: string }) {
   useEffect(() => { rowsRefForNav.current = navRows; }, [navRows]);
   const handleNav = useCellNavigation({ rowsRef: rowsRefForNav, cellIdPrefix: "mcell" });
 
+  function patchPartyLocal(id: string, patch: Partial<LedgerParty>) {
+    setParties(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+  }
+
+  function saveCategoryForParty(party: LedgerParty, categoryId: string, categoryName: string) {
+    const cat = categories.find(c => c.id === categoryId);
+    patchPartyLocal(party.id, { account_category_id: categoryId, category: { name: cat?.name ?? categoryName, type: cat?.type ?? "판관비" } });
+    updateLedgerParty(party.id, { account_category_id: categoryId });
+  }
+
+  function saveTextField(party: LedgerParty, field: "bank_name" | "account_number" | "memo", value: string) {
+    updateLedgerParty(party.id, { [field]: value || null } as Partial<AddLedgerPartyInput>);
+  }
+
+  function toggleDirection(party: LedgerParty) {
+    const next = party.direction === "in" ? "out" : "in";
+    patchPartyLocal(party.id, { direction: next });
+    updateLedgerParty(party.id, { direction: next });
+  }
+
+  function toggleVat(party: LedgerParty) {
+    const next = !party.vat_included_default;
+    patchPartyLocal(party.id, { vat_included_default: next });
+    updateLedgerParty(party.id, { vat_included_default: next });
+  }
+
   async function handleRemoveParty(party: LedgerParty) {
     if (!confirm(`"${party.name}" 행을 목록에서 지울까요? (이미 입력된 거래는 그대로 남아요)`)) return;
     await deactivateLedgerParty(party.id);
@@ -151,49 +193,76 @@ export default function MatrixLedger({ tenantId }: { tenantId: string }) {
           <table className="text-xs border-collapse">
             <thead>
               <tr className="bg-gray-50">
-                <th className={styles.thLeft + " sticky left-0 bg-gray-50 z-10 w-56"}>거래처</th>
-                {days.map(d => <th key={d} className={styles.th + " w-16"}>{d}</th>)}
-                <th className={styles.th + " w-24"}>합계</th>
+                {FROZEN.map((c, i) => (
+                  <th key={c.key} style={frozenStyle(i)} className={(i === 0 ? styles.thLeft : styles.th) + " bg-gray-50"}>{c.label}</th>
+                ))}
+                {days.map(d => <th key={d} style={{ width: DAY_W, minWidth: DAY_W }} className={styles.th}>{d}</th>)}
                 <th className={styles.th + " w-6"}></th>
               </tr>
             </thead>
             <tbody>
               {parties.map(party => (
                 <tr key={party.id} className={styles.tr}>
-                  <td className="sticky left-0 bg-white px-2 py-1.5 border-b border-gray-100">
-                    <div className="font-medium text-black">{party.name}</div>
+                  <td style={frozenStyle(0)} className="bg-white px-2 py-1.5 border-b border-gray-100">
+                    <div className="font-medium text-black truncate" title={party.name}>{party.name}</div>
                     <div className="flex items-center gap-1 mt-0.5">
-                      <span className={styles.badge + " " + (party.direction === "in" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700")}>
+                      <button type="button" onClick={() => toggleDirection(party)}
+                        className={styles.badge + " " + (party.direction === "in" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700")}>
                         {party.direction === "in" ? "입금" : "출금"}
-                      </span>
-                      <span className="text-[10px] text-gray-400">{party.category?.name ?? "미분류"}</span>
-                      {party.vat_included_default && <span className="text-[10px] text-gray-400">VAT포함</span>}
+                      </button>
+                      <label className="flex items-center gap-0.5 text-[10px] text-gray-400">
+                        <input type="checkbox" checked={party.vat_included_default} onChange={() => toggleVat(party)} /> VAT
+                      </label>
                     </div>
+                  </td>
+                  <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
+                    <CategoryCombobox
+                      tenantId={tenantId}
+                      categories={categories}
+                      value={party.category?.name ?? ""}
+                      onTextChange={text => patchPartyLocal(party.id, { category: { name: text, type: party.category?.type ?? "판관비" } })}
+                      onPick={(id, name) => saveCategoryForParty(party, id, name)}
+                      onCreated={cat => setCategories(prev => [...prev, cat])}
+                    />
+                  </td>
+                  <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
+                    <input defaultValue={party.bank_name ?? ""} placeholder="은행"
+                      onBlur={e => saveTextField(party, "bank_name", e.target.value)} className={styles.gridInput} />
+                  </td>
+                  <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
+                    <input defaultValue={party.account_number ?? ""} placeholder="계좌번호"
+                      onBlur={e => saveTextField(party, "account_number", e.target.value)} className={styles.gridInput} />
+                  </td>
+                  <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
+                    <input defaultValue={party.memo ?? ""} placeholder="적요"
+                      onBlur={e => saveTextField(party, "memo", e.target.value)} className={styles.gridInput} />
+                  </td>
+                  <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 text-right px-2 text-black font-medium">
+                    {formatComma(rowTotal(party.id))}
                   </td>
                   {days.map(d => {
                     const key = `${party.id}:${d}`;
                     return (
-                      <td key={d} className="border-b border-gray-100 p-0.5">
+                      <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="border-b border-gray-100 p-0.5">
                         <input
                           id={`mcell-${party.id}-${d}`}
                           value={formatComma(cellValues[key] ?? "")}
                           onChange={e => updateCell(party.id, d, e.target.value)}
                           onKeyDown={e => handleNav(e, party.id, String(d))}
-                          className={styles.gridInput + " text-right w-16" + (saveState[key] === "saving" ? " bg-gray-100" : saveState[key] === "error" ? " ring-1 ring-red-400" : "")}
+                          className={styles.gridInput + " text-right" + (saveState[key] === "saving" ? " bg-gray-100" : saveState[key] === "error" ? " ring-1 ring-red-400" : "")}
                         />
                       </td>
                     );
                   })}
-                  <td className="text-right px-2 text-black font-medium border-b border-gray-100">{formatComma(rowTotal(party.id))}</td>
                   <td className="text-center border-b border-gray-100">
                     <button type="button" onClick={() => handleRemoveParty(party)} className="text-gray-300 hover:text-red-600">×</button>
                   </td>
                 </tr>
               ))}
 
-              {/* 새 거래처 추가 draft — 이름 → VAT → 방향 → 계정과목(Enter=확정) 순, 전부 키보드로 */}
+              {/* 새 거래처 추가 draft — 이름 → 계정과목(Enter=확정) 순, VAT/방향은 옆에서 미리 토글 */}
               <tr className="bg-amber-50/40">
-                <td className="sticky left-0 bg-amber-50 px-2 py-1.5">
+                <td style={frozenStyle(0)} className="bg-amber-50 px-2 py-1.5">
                   <CounterpartyCell
                     tenantId={tenantId}
                     value={draft.name}
@@ -201,52 +270,60 @@ export default function MatrixLedger({ tenantId }: { tenantId: string }) {
                     onPick={(name, sid) => setDraft(d => ({ ...d, name, supplierId: sid }))}
                   />
                 </td>
-                <td colSpan={days.length} className="px-2 text-gray-400">
-                  <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1">
-                      <input type="checkbox" checked={draft.vat} onChange={e => setDraft(d => ({ ...d, vat: e.target.checked }))} /> VAT포함
+                <td style={frozenStyle(1)} className="bg-amber-50 px-1">
+                  <CategoryCombobox
+                    tenantId={tenantId}
+                    categories={categories}
+                    value={draft.categoryName}
+                    onTextChange={text => setDraft(d => ({ ...d, categoryName: text }))}
+                    onPick={(id, name) => { setDraft(d => ({ ...d, categoryName: name })); finalizeDraft(id, name); }}
+                    onCreated={cat => setCategories(prev => [...prev, cat])}
+                  />
+                </td>
+                <td style={{ position: "sticky", left: frozenLeft(2), width: FROZEN[2].width + FROZEN[3].width + FROZEN[4].width, zIndex: 2 }}
+                  className="bg-amber-50 px-2 text-gray-500">
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 whitespace-nowrap">
+                      <input type="checkbox" checked={draft.vat} onChange={e => setDraft(d => ({ ...d, vat: e.target.checked }))} /> VAT
                     </label>
                     <button type="button"
                       onClick={() => setDraft(d => ({ ...d, direction: d.direction === "in" ? "out" : "in", directionTouched: true }))}
-                      className={styles.btnSmallGhost}>
-                      {draft.direction === "in" ? "입금" : "출금"} (클릭/Tab+Space로 전환)
+                      className={styles.btnSmallGhost + " whitespace-nowrap"}>
+                      {draft.direction === "in" ? "입금" : "출금"}
                     </button>
-                    <div className="w-40">
-                      <CategoryCombobox
-                        tenantId={tenantId}
-                        categories={categories}
-                        value={draft.categoryName}
-                        onTextChange={text => setDraft(d => ({ ...d, categoryName: text }))}
-                        onPick={(id, name) => { setDraft(d => ({ ...d, categoryName: name })); finalizeDraft(id, name); }}
-                        onCreated={cat => setCategories(prev => [...prev, cat])}
-                      />
-                    </div>
-                    {draftBusy && <span className="text-gray-400">저장 중…</span>}
-                    {draftMsg && <span className="text-amber-700">{draftMsg}</span>}
                   </div>
+                </td>
+                <td style={frozenStyle(5)} className="bg-amber-50"></td>
+                <td colSpan={days.length} className="px-2 text-xs text-amber-700">
+                  {draftBusy ? "저장 중…" : draftMsg}
                 </td>
                 <td></td>
               </tr>
 
               <tr className="border-t-2 border-gray-300 bg-gray-50">
-                <td className="sticky left-0 bg-gray-50 px-2 py-1 font-medium text-green-700">입금합계</td>
-                {days.map(d => <td key={d} className="text-right px-1 text-green-700">{formatComma(dayTotal(d, "in"))}</td>)}
-                <td className="text-right px-2 font-bold text-green-700">{formatComma(grand("in"))}</td>
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(5), zIndex: 2 }} colSpan={5}
+                  className="bg-gray-50 px-2 py-1 font-medium text-green-700">입금합계</td>
+                <td style={frozenStyle(5)} className="bg-gray-50 text-right px-2 font-bold text-green-700">{formatComma(grand("in"))}</td>
+                {days.map(d => <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-green-700">{formatComma(dayTotal(d, "in"))}</td>)}
                 <td></td>
               </tr>
               <tr className="bg-gray-50">
-                <td className="sticky left-0 bg-gray-50 px-2 py-1 font-medium text-red-700">출금합계</td>
-                {days.map(d => <td key={d} className="text-right px-1 text-red-700">{formatComma(dayTotal(d, "out"))}</td>)}
-                <td className="text-right px-2 font-bold text-red-700">{formatComma(grand("out"))}</td>
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(5), zIndex: 2 }} colSpan={5}
+                  className="bg-gray-50 px-2 py-1 font-medium text-red-700">출금합계</td>
+                <td style={frozenStyle(5)} className="bg-gray-50 text-right px-2 font-bold text-red-700">{formatComma(grand("out"))}</td>
+                {days.map(d => <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-red-700">{formatComma(dayTotal(d, "out"))}</td>)}
                 <td></td>
               </tr>
               <tr className="bg-gray-50">
-                <td className="sticky left-0 bg-gray-50 px-2 py-1 font-medium text-black">순증감</td>
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(5), zIndex: 2 }} colSpan={5}
+                  className="bg-gray-50 px-2 py-1 font-medium text-black">순증감</td>
+                <td style={frozenStyle(5)} className={"bg-gray-50 text-right px-2 font-bold " + (grand("in") - grand("out") >= 0 ? "text-black" : "text-red-600")}>
+                  {formatComma(grand("in") - grand("out"))}
+                </td>
                 {days.map(d => {
                   const v = dayTotal(d, "in") - dayTotal(d, "out");
-                  return <td key={d} className={"text-right px-1 " + (v >= 0 ? "text-black" : "text-red-600")}>{formatComma(v)}</td>;
+                  return <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className={"text-right px-1 " + (v >= 0 ? "text-black" : "text-red-600")}>{formatComma(v)}</td>;
                 })}
-                <td className={"text-right px-2 font-bold " + (grand("in") - grand("out") >= 0 ? "text-black" : "text-red-600")}>{formatComma(grand("in") - grand("out"))}</td>
                 <td></td>
               </tr>
             </tbody>
