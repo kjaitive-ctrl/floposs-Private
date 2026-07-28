@@ -10,6 +10,7 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/products", label: "내 상품" },
   { href: "/product-status", label: "상품현황" },
   { href: "/routines", label: "업무루틴" },
+  { href: "/accounting", label: "회계" },
   // 발주(DEV) = 외부주문포털(안건3). dev 작업/테스트용 — Vercel(prod+preview) 빌드는 NODE_ENV=production 이라 숨김.
   //   C4(전자노트 박제) 완료 후 게이트 해제해 정식 노출.
   // SKU (TEST) — ⚠️ 사장 명시 지시: 리팩토링 중 삭제 금지, 별도 안내 있을 때까지 유지.
