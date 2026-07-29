@@ -17,7 +17,7 @@ import {
   type Account, type Counterparty, type CashLineItem,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
   addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty,
-  loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta,
+  loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta, checkAccountingReady,
 } from "@/lib/accounting";
 
 function monthRange(anchor: Date): { fromIso: string; toIso: string; label: string; days: number[] } {
@@ -54,10 +54,12 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [cellValues, setCellValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [addingRows, setAddingRows] = useState<"in" | "out" | null>(null);
+  const [addRowsErr, setAddRowsErr] = useState<string | null>(null);
   const [openingBalance, setOpeningBalance] = useState<number | null>(null);
   const [anchorForm, setAnchorForm] = useState(false);
   const [anchorDate, setAnchorDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
   const [anchorAmount, setAnchorAmount] = useState("");
+  const [tableErr, setTableErr] = useState<string | null>(null);
 
   const itemsRef = useRef<CashLineItem[]>([]);
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -68,6 +70,9 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
+    const probe = await checkAccountingReady();
+    setTableErr(probe);
+    if (probe) { setLoading(false); return; }
     const [accs, cps, list, cells, balAnchor] = await Promise.all([
       loadAccounts(tenantId),
       loadCounterparties(tenantId),
@@ -163,9 +168,11 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   // 빈 행 5개를 한 번에 만들고, 그 자리에서 적요/거래처/계정을 채워 넣는 방식.
   async function handleAddRows(direction: "in" | "out") {
     setAddingRows(direction);
-    const created = await addBlankLineItems(tenantId, direction, 5);
+    setAddRowsErr(null);
+    const { items: created, error } = await addBlankLineItems(tenantId, direction, 5);
     setAddingRows(null);
-    if (created.length === 0) return;
+    if (error) { setAddRowsErr(error); return; }
+    if (created.length === 0) { setAddRowsErr("알 수 없는 이유로 생성되지 않았어요."); return; }
     setItems(prev => [...prev, ...created.map(c => ({ ...c, account: null, counterparty: null }))]);
     setTimeout(() => document.getElementById(`cmcell-${created[0].id}-name`)?.focus(), 50);
   }
@@ -264,9 +271,12 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     return (
       <tr>
         <td colSpan={FROZEN.length + days.length + 1} className="px-2 py-1.5 bg-white">
-          <button type="button" onClick={() => handleAddRows(direction)} disabled={addingRows === direction} className={styles.btnSmallGhost}>
-            {addingRows === direction ? "추가 중…" : "+ 5줄 추가"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => handleAddRows(direction)} disabled={addingRows === direction} className={styles.btnSmallGhost}>
+              {addingRows === direction ? "추가 중…" : "+ 5줄 추가"}
+            </button>
+            {addRowsErr && <span className="text-xs text-red-600">{addRowsErr}</span>}
+          </div>
         </td>
       </tr>
     );
@@ -290,11 +300,16 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
           <span className="text-xs text-gray-400">이후 모든 달의 기초/기말잔액이 이 기준으로 재계산돼요</span>
         </div>
       )}
-      {openingBalance === null && (
+      {tableErr && (
+        <div className={styles.msgError + " mb-3"}>
+          회계 테이블에 접근할 수 없어요 — 마이그레이션(225)이 적용 안 됐을 수 있어요. 원본 에러: {tableErr}
+        </div>
+      )}
+      {!tableErr && openingBalance === null && (
         <div className={styles.msgWarn + " mb-3"}>통장 기준잔액이 아직 설정 안 됐어요 — 위에서 아무 날짜의 실제 통장 잔액을 한 번 입력해주세요. 그래야 기초/기말잔액이 표시돼요.</div>
       )}
 
-      {loading ? (
+      {tableErr ? null : loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
       ) : (
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
