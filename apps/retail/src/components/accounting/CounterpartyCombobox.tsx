@@ -44,7 +44,10 @@ export default function CounterpartyCombobox({
       if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => Math.min(a + 1, hits.length - 1)); return; }
       if (e.key === "ArrowUp")   { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); return; }
     }
-    if (e.key === "Enter") { e.preventDefault(); commit(open && hits.length > 0 ? hits[active] : undefined); return; }
+    // 한글 입력 중 Enter는 조합 확정용으로 먼저 소모될 수 있음 — 조합 중엔 무시.
+    if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+      e.preventDefault(); commit(open && hits.length > 0 ? hits[active] : undefined); return;
+    }
     if (e.key === "Escape") { setOpen(false); return; }
     onKeyDownNav?.(e);
   }

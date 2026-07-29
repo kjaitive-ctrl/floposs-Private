@@ -65,6 +65,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [draftIn, setDraftIn] = useState<Draft>(emptyDraft);
   const [draftOut, setDraftOut] = useState<Draft>(emptyDraft);
   const [draftBusy, setDraftBusy] = useState<"in" | "out" | null>(null);
+  const [draftErr, setDraftErr] = useState<{ dir: "in" | "out"; text: string } | null>(null);
   const [openingBalance, setOpeningBalance] = useState<number | null>(null);
   const [anchorForm, setAnchorForm] = useState(false);
   const [anchorDate, setAnchorDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
@@ -176,12 +177,13 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     const memo = draft.memo.trim();
     if (!memo || draftBusy) return;
     setDraftBusy(direction);
+    setDraftErr(null);
     const created = await addCashLineItem(tenantId, {
       direction, account_id: draft.accountId, counterparty_id: draft.counterpartyId,
       management_tag: draft.managementTag.trim() || null, memo,
     });
     setDraftBusy(null);
-    if (!created) return;
+    if (!created) { setDraftErr({ dir: direction, text: "행 생성 실패 — 다시 시도해주세요 (콘솔에 에러 로그가 남아요)." }); return; }
     const acc = accounts.find(a => a.id === draft.accountId);
     const cp = counterparties.find(c => c.id === draft.counterpartyId);
     const newItem: CashLineItem = { ...created, account: acc ? { code: acc.code, name: acc.name, gubun: acc.gubun } : null, counterparty: cp ?? null };
@@ -288,7 +290,13 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             value={draft.memo}
             placeholder="적요(예: 법인폰대금) — Enter로 행 생성"
             onChange={e => setDraft({ ...draft, memo: e.target.value })}
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); finalizeDraft(direction, draft, setDraft); } }}
+            onKeyDown={e => {
+              // 한글 입력 중 Enter는 조합 확정용으로 먼저 소모될 수 있음 — 조합 중엔 무시.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                e.preventDefault();
+                finalizeDraft(direction, draft, setDraft);
+              }
+            }}
             className={styles.gridInput + " ring-1 ring-inset ring-amber-300"}
           />
         </td>
@@ -312,7 +320,9 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
           <input value={draft.managementTag} placeholder="관리항목" onChange={e => setDraft({ ...draft, managementTag: e.target.value })} className={styles.gridInput} />
         </td>
         <td style={frozenStyle(TOTAL_IDX)} className="bg-amber-50"></td>
-        <td colSpan={days.length} className="px-2 text-xs text-amber-700">{draftBusy === direction ? "저장 중…" : ""}</td>
+        <td colSpan={days.length} className="px-2 text-xs text-amber-700">
+          {draftBusy === direction ? "저장 중…" : draftErr?.dir === direction ? draftErr.text : ""}
+        </td>
         <td></td>
       </tr>
     );
