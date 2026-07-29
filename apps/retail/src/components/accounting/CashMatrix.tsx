@@ -3,8 +3,9 @@
 // 입출금 매트릭스 — 거래처=세로 행, 날짜=가로 열, 입금/출금 위아래 섹션.
 // 셀 하나 = 통장에 찍힌 실제 숫자 그대로(부가세/원천징수 분해 없음).
 // DB 트리거가 뒤에서 단순 2줄 전표(현금↔해당계정)를 자동 생성 — 실제
-// 분개(후처리)는 전표 화면(다음 라운드)에서. 행은 적요만으로 생성,
-// 거래처/계정은 나중에 채워도 됨 + 월 무관 영속(이월). 마이그 225.
+// 분개(후처리)는 전표 화면(다음 라운드)에서. 행은 "+5줄 추가"로 빈 채
+// 만들고 그 자리에서 적요/거래처/계정을 채움(Enter 트리거 없음 — 한글
+// IME 이슈 회피) + 월 무관 영속(이월). 마이그 225.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { styles } from "@/common/styles";
 import { formatComma, parseDigits } from "@/lib/format";
@@ -15,7 +16,7 @@ import CounterpartyCombobox from "@/components/accounting/CounterpartyCombobox";
 import {
   type Account, type Counterparty, type CashLineItem,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
-  addCashLineItem, updateCashLineItem, deactivateCashLineItem, updateCounterparty,
+  addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty,
   loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta,
 } from "@/lib/accounting";
 
@@ -44,16 +45,6 @@ function frozenStyle(i: number): CSSProperties {
 }
 const TOTAL_IDX = FROZEN.length - 1;
 
-interface Draft {
-  counterpartyId: string | null;
-  counterpartyName: string;
-  accountId: string | null;
-  accountName: string;
-  managementTag: string;
-  memo: string;
-}
-const emptyDraft: Draft = { counterpartyId: null, counterpartyName: "", accountId: null, accountName: "", managementTag: "", memo: "" };
-
 export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [anchor, setAnchor] = useState(() => new Date());
   const { fromIso, toIso, label, days } = monthRange(anchor);
@@ -62,10 +53,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [items, setItems] = useState<CashLineItem[]>([]);
   const [cellValues, setCellValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [draftIn, setDraftIn] = useState<Draft>(emptyDraft);
-  const [draftOut, setDraftOut] = useState<Draft>(emptyDraft);
-  const [draftBusy, setDraftBusy] = useState<"in" | "out" | null>(null);
-  const [draftErr, setDraftErr] = useState<{ dir: "in" | "out"; text: string } | null>(null);
+  const [addingRows, setAddingRows] = useState<"in" | "out" | null>(null);
   const [openingBalance, setOpeningBalance] = useState<number | null>(null);
   const [anchorForm, setAnchorForm] = useState(false);
   const [anchorDate, setAnchorDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
@@ -172,24 +160,14 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     setItems(prev => prev.filter(i => i.id !== item.id));
   }
 
-  // 적요(성격 메모)만 있으면 행 생성 — 거래처/계정은 나중에 채워도 됨.
-  async function finalizeDraft(direction: "in" | "out", draft: Draft, setDraft: (d: Draft) => void) {
-    const memo = draft.memo.trim();
-    if (!memo || draftBusy) return;
-    setDraftBusy(direction);
-    setDraftErr(null);
-    const created = await addCashLineItem(tenantId, {
-      direction, account_id: draft.accountId, counterparty_id: draft.counterpartyId,
-      management_tag: draft.managementTag.trim() || null, memo,
-    });
-    setDraftBusy(null);
-    if (!created) { setDraftErr({ dir: direction, text: "행 생성 실패 — 다시 시도해주세요 (콘솔에 에러 로그가 남아요)." }); return; }
-    const acc = accounts.find(a => a.id === draft.accountId);
-    const cp = counterparties.find(c => c.id === draft.counterpartyId);
-    const newItem: CashLineItem = { ...created, account: acc ? { code: acc.code, name: acc.name, gubun: acc.gubun } : null, counterparty: cp ?? null };
-    setItems(prev => [...prev, newItem]);
-    setDraft(emptyDraft);
-    setTimeout(() => document.getElementById(`cmcell-${newItem.id}-1`)?.focus(), 50);
+  // 빈 행 5개를 한 번에 만들고, 그 자리에서 적요/거래처/계정을 채워 넣는 방식.
+  async function handleAddRows(direction: "in" | "out") {
+    setAddingRows(direction);
+    const created = await addBlankLineItems(tenantId, direction, 5);
+    setAddingRows(null);
+    if (created.length === 0) return;
+    setItems(prev => [...prev, ...created.map(c => ({ ...c, account: null, counterparty: null }))]);
+    setTimeout(() => document.getElementById(`cmcell-${created[0].id}-name`)?.focus(), 50);
   }
 
   const rowTotal = (itemId: string) => days.reduce((s, d) => s + Number(cellValues[`${itemId}:${d}`] || 0), 0);
@@ -282,48 +260,14 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     );
   }
 
-  function renderDraftRow(direction: "in" | "out", draft: Draft, setDraft: (d: Draft) => void) {
+  function renderAddRowsButton(direction: "in" | "out") {
     return (
-      <tr className="bg-amber-50/40">
-        <td style={frozenStyle(0)} className="bg-amber-50 px-1">
-          <input
-            value={draft.memo}
-            placeholder="적요(예: 법인폰대금) — Enter로 행 생성"
-            onChange={e => setDraft({ ...draft, memo: e.target.value })}
-            onKeyDown={e => {
-              // 한글 입력 중 Enter는 조합 확정용으로 먼저 소모될 수 있음 — 조합 중엔 무시.
-              if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) {
-                e.preventDefault();
-                finalizeDraft(direction, draft, setDraft);
-              }
-            }}
-            className={styles.gridInput + " ring-1 ring-inset ring-amber-300"}
-          />
+      <tr>
+        <td colSpan={FROZEN.length + days.length + 1} className="px-2 py-1.5 bg-white">
+          <button type="button" onClick={() => handleAddRows(direction)} disabled={addingRows === direction} className={styles.btnSmallGhost}>
+            {addingRows === direction ? "추가 중…" : "+ 5줄 추가"}
+          </button>
         </td>
-        <td style={frozenStyle(1)} className="bg-amber-50 px-1">
-          <CounterpartyCombobox tenantId={tenantId} counterparties={counterparties} value={draft.counterpartyName}
-            onTextChange={text => setDraft({ ...draft, counterpartyName: text })}
-            onPick={(id, name) => setDraft({ ...draft, counterpartyId: id, counterpartyName: name })}
-            onCreated={cp => setCounterparties(prev => [...prev, cp])} />
-        </td>
-        <td style={frozenStyle(2)} className="bg-amber-50"></td>
-        <td style={frozenStyle(3)} className="bg-amber-50"></td>
-        <td style={frozenStyle(4)} className="bg-amber-50"></td>
-        <td style={frozenStyle(5)} className="bg-amber-50 px-1">
-          <AccountCombobox tenantId={tenantId} accounts={accounts} value={draft.accountName}
-            defaultGubunForNew={direction === "in" ? "수익" : "비용"}
-            onTextChange={text => setDraft({ ...draft, accountName: text })}
-            onPick={(id, name) => setDraft({ ...draft, accountId: id, accountName: name })}
-            onCreated={acc => setAccounts(prev => [...prev, acc])} />
-        </td>
-        <td style={frozenStyle(6)} className="bg-amber-50 px-1">
-          <input value={draft.managementTag} placeholder="관리항목" onChange={e => setDraft({ ...draft, managementTag: e.target.value })} className={styles.gridInput} />
-        </td>
-        <td style={frozenStyle(TOTAL_IDX)} className="bg-amber-50"></td>
-        <td colSpan={days.length} className="px-2 text-xs text-amber-700">
-          {draftBusy === direction ? "저장 중…" : draftErr?.dir === direction ? draftErr.text : ""}
-        </td>
-        <td></td>
       </tr>
     );
   }
@@ -398,7 +342,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
                 <td colSpan={days.length + 1}></td>
               </tr>
               {inItems.map(renderItemRow)}
-              {renderDraftRow("in", draftIn, setDraftIn)}
+              {renderAddRowsButton("in")}
               <tr className="border-t-2 border-gray-300 bg-gray-50">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
                   className="bg-gray-50 px-2 py-1 font-medium text-green-700">입금합계</td>
@@ -413,7 +357,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
                 <td colSpan={days.length + 1}></td>
               </tr>
               {outItems.map(renderItemRow)}
-              {renderDraftRow("out", draftOut, setDraftOut)}
+              {renderAddRowsButton("out")}
               <tr className="border-t-2 border-gray-300 bg-gray-50">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
                   className="bg-gray-50 px-2 py-1 font-medium text-red-700">출금합계</td>

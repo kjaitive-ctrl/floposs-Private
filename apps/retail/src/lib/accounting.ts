@@ -132,6 +132,18 @@ export async function addCashLineItem(tenantId: string, input: AddLineItemInput)
   return data as CashLineItem;
 }
 
+// 빈 행 여러 개를 한 번에 생성 — 전부 비워둔 채로, 그 자리에서 바로 채워 넣는 방식.
+// Enter로 한 줄씩 만드는 것보다 편함(한글 IME Enter 이슈도 회피).
+export async function addBlankLineItems(tenantId: string, direction: "in" | "out", count: number): Promise<CashLineItem[]> {
+  const { data: maxRow } = await supabase.from("cash_line_items").select("sort_order")
+    .eq("tenant_id", tenantId).order("sort_order", { ascending: false }).limit(1).maybeSingle();
+  let sort_order = maxRow?.sort_order ?? 0;
+  const rows = Array.from({ length: count }, () => ({ tenant_id: tenantId, direction, sort_order: ++sort_order }));
+  const { data, error } = await supabase.from("cash_line_items").insert(rows).select(LINE_ITEM_COLS);
+  if (error) { console.error("addBlankLineItems:", error); return []; }
+  return (data ?? []) as CashLineItem[];
+}
+
 export async function updateCashLineItem(id: string, patch: Partial<AddLineItemInput>): Promise<void> {
   await supabase.from("cash_line_items").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
 }
