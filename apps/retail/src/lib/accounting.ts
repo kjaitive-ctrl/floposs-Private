@@ -171,3 +171,32 @@ export async function setCashEntry(tenantId: string, lineItemId: string, txnDate
   if (error) console.error("setCashEntry insert:", error);
   return !error;
 }
+
+// ── 통장 기준잔액 (cash_balance_anchors, 마이그 226) ──────────────────
+// 특정 날짜의 실제 통장 잔액 하나만 저장 — 이후 모든 날의 기초/기말잔액은
+// 이 기준점 + cash_entries 순증감 누적으로 매번 다시 계산(고정 저장 X).
+export interface CashBalanceAnchor { as_of_date: string; amount: number }
+
+export async function loadCashBalanceAnchor(tenantId: string): Promise<CashBalanceAnchor | null> {
+  const { data } = await supabase.from("cash_balance_anchors")
+    .select("as_of_date, amount").eq("tenant_id", tenantId).maybeSingle();
+  return data as CashBalanceAnchor | null;
+}
+
+export async function setCashBalanceAnchor(tenantId: string, asOfDate: string, amount: number): Promise<void> {
+  await supabase.from("cash_balance_anchors")
+    .upsert({ tenant_id: tenantId, as_of_date: asOfDate, amount, updated_at: new Date().toISOString() }, { onConflict: "tenant_id" });
+}
+
+// 기준일(제외) 초과 ~ toIso(포함) 사이 순증감(입금-출금) 합계. direction 은 line_item 을 통해 조인.
+export async function loadNetCashDelta(tenantId: string, fromIsoExclusive: string, toIsoInclusive: string): Promise<number> {
+  if (fromIsoExclusive >= toIsoInclusive) return 0;
+  const { data, error } = await supabase.from("cash_entries")
+    .select("amount, line_item:cash_line_items(direction)")
+    .eq("tenant_id", tenantId).gt("txn_date", fromIsoExclusive).lte("txn_date", toIsoInclusive);
+  if (error) { console.error("loadNetCashDelta:", error); return 0; }
+  return (data ?? []).reduce((s, r) => {
+    const li = Array.isArray(r.line_item) ? r.line_item[0] : r.line_item;
+    return s + (li?.direction === "in" ? r.amount : -r.amount);
+  }, 0);
+}

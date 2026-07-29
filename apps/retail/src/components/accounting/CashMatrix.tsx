@@ -16,6 +16,7 @@ import {
   type Account, type Counterparty, type CashLineItem,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
   addCashLineItem, updateCashLineItem, deactivateCashLineItem, updateCounterparty,
+  loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta,
 } from "@/lib/accounting";
 
 function monthRange(anchor: Date): { fromIso: string; toIso: string; label: string; days: number[] } {
@@ -25,14 +26,15 @@ function monthRange(anchor: Date): { fromIso: string; toIso: string; label: stri
   return { fromIso: iso(1), toIso: iso(lastDay), label: `${y}년 ${m + 1}월`, days: Array.from({ length: lastDay }, (_, i) => i + 1) };
 }
 
+// 적요(거래 성격)를 맨 앞에 — 거래처보다 "무엇 때문인지"를 먼저 입력.
 const FROZEN = [
-  { key: "name", label: "거래처", width: 130 },
+  { key: "memo", label: "적요", width: 130 },
+  { key: "name", label: "거래처", width: 120 },
   { key: "holder", label: "예금주", width: 80 },
   { key: "bank", label: "은행", width: 80 },
   { key: "account", label: "계좌번호", width: 110 },
   { key: "acct", label: "계정", width: 110 },
   { key: "mgmt", label: "관리항목", width: 90 },
-  { key: "memo", label: "적요", width: 110 },
   { key: "total", label: "합계", width: 90 },
 ] as const;
 const DAY_W = 68;
@@ -63,6 +65,10 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [draftIn, setDraftIn] = useState<Draft>(emptyDraft);
   const [draftOut, setDraftOut] = useState<Draft>(emptyDraft);
   const [draftBusy, setDraftBusy] = useState<"in" | "out" | null>(null);
+  const [openingBalance, setOpeningBalance] = useState<number | null>(null);
+  const [anchorForm, setAnchorForm] = useState(false);
+  const [anchorDate, setAnchorDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
+  const [anchorAmount, setAnchorAmount] = useState("");
 
   const itemsRef = useRef<CashLineItem[]>([]);
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -73,11 +79,12 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [accs, cps, list, cells] = await Promise.all([
+    const [accs, cps, list, cells, balAnchor] = await Promise.all([
       loadAccounts(tenantId),
       loadCounterparties(tenantId),
       loadCashLineItems(tenantId),
       loadCashEntries(tenantId, fromIso, toIso),
+      loadCashBalanceAnchor(tenantId),
     ]);
     setAccounts(accs);
     setCounterparties(cps);
@@ -85,9 +92,26 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     const vals: Record<string, string> = {};
     for (const [key, amount] of cells) vals[key] = String(amount);
     setCellValues(vals);
+    if (balAnchor) {
+      const dayBefore = new Date(fromIso);
+      dayBefore.setDate(dayBefore.getDate() - 1);
+      const dayBeforeIso = dayBefore.toLocaleDateString("en-CA");
+      const delta = await loadNetCashDelta(tenantId, balAnchor.as_of_date, dayBeforeIso);
+      setOpeningBalance(balAnchor.amount + delta);
+    } else {
+      setOpeningBalance(null);
+    }
     setLoading(false);
   }, [tenantId, fromIso, toIso]);
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  async function handleSaveAnchor() {
+    const amount = Number(parseDigits(anchorAmount) || "0");
+    await setCashBalanceAnchor(tenantId, anchorDate, amount);
+    setAnchorForm(false);
+    setAnchorAmount("");
+    loadAll();
+  }
 
   function dateForDay(day: number): string {
     const a = anchorRef.current;
@@ -171,6 +195,21 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     items.filter(i => i.direction === direction).reduce((s, i) => s + Number(cellValues[`${i.id}:${day}`] || 0), 0);
   const grand = (direction: "in" | "out") => days.reduce((s, d) => s + dayTotal(d, direction), 0);
 
+  // 기초/기말잔액 — 통장 기준잔액 + 그날까지 순증감 누적. 기준잔액 미설정 시 표시 안 함.
+  const dailyClosing: Record<number, number> = {};
+  if (openingBalance !== null) {
+    let running = openingBalance;
+    for (const d of days) {
+      running += dayTotal(d, "in") - dayTotal(d, "out");
+      dailyClosing[d] = running;
+    }
+  }
+  function dailyOpeningFor(d: number): number | null {
+    if (openingBalance === null) return null;
+    return d === 1 ? openingBalance : dailyClosing[d - 1];
+  }
+  const monthEndClosing = openingBalance === null ? null : dailyClosing[days[days.length - 1]];
+
   const inItems = items.filter(i => i.direction === "in");
   const outItems = items.filter(i => i.direction === "out");
 
@@ -178,8 +217,13 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     return (
       <tr key={item.id} className={styles.tr}>
         <td style={frozenStyle(0)} className="bg-white border-b border-gray-100 px-1">
-          <CounterpartyCombobox
+          <input
             id={`cmcell-${item.id}-name`}
+            defaultValue={item.memo ?? ""} placeholder="적요(거래 성격)"
+            onBlur={e => saveTextField(item, "memo", e.target.value)} className={styles.gridInput} />
+        </td>
+        <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
+          <CounterpartyCombobox
             tenantId={tenantId} counterparties={counterparties}
             value={item.counterparty?.name ?? ""}
             onTextChange={text => patchItemLocal(item.id, { counterparty: item.counterparty ? { ...item.counterparty, name: text } : { id: "", name: text, account_holder: null, bank_name: null, account_number: null, memo: null } })}
@@ -187,19 +231,19 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             onCreated={cp => setCounterparties(prev => [...prev, cp])}
           />
         </td>
-        <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
           <input defaultValue={item.counterparty?.account_holder ?? ""} placeholder="예금주" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "account_holder", e.target.value)} className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
           <input defaultValue={item.counterparty?.bank_name ?? ""} placeholder="은행" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "bank_name", e.target.value)} className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
           <input defaultValue={item.counterparty?.account_number ?? ""} placeholder="계좌번호" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "account_number", e.target.value)} className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 px-1">
           <AccountCombobox
             tenantId={tenantId} accounts={accounts} value={item.account?.name ?? ""}
             defaultGubunForNew={item.direction === "in" ? "수익" : "비용"}
@@ -208,13 +252,9 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             onCreated={acc => setAccounts(prev => [...prev, acc])}
           />
         </td>
-        <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(6)} className="bg-white border-b border-gray-100 px-1">
           <input defaultValue={item.management_tag ?? ""} placeholder="관리항목"
             onBlur={e => saveTextField(item, "management_tag", e.target.value)} className={styles.gridInput} />
-        </td>
-        <td style={frozenStyle(6)} className="bg-white border-b border-gray-100 px-1">
-          <input defaultValue={item.memo ?? ""} placeholder="적요"
-            onBlur={e => saveTextField(item, "memo", e.target.value)} className={styles.gridInput} />
         </td>
         <td style={frozenStyle(TOTAL_IDX)} className="bg-white border-b border-gray-100 text-right px-2 text-black font-medium">
           {formatComma(rowTotal(item.id))}
@@ -244,32 +284,32 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     return (
       <tr className="bg-amber-50/40">
         <td style={frozenStyle(0)} className="bg-amber-50 px-1">
+          <input
+            value={draft.memo}
+            placeholder="적요(예: 법인폰대금) — Enter로 행 생성"
+            onChange={e => setDraft({ ...draft, memo: e.target.value })}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); finalizeDraft(direction, draft, setDraft); } }}
+            className={styles.gridInput + " ring-1 ring-inset ring-amber-300"}
+          />
+        </td>
+        <td style={frozenStyle(1)} className="bg-amber-50 px-1">
           <CounterpartyCombobox tenantId={tenantId} counterparties={counterparties} value={draft.counterpartyName}
             onTextChange={text => setDraft({ ...draft, counterpartyName: text })}
             onPick={(id, name) => setDraft({ ...draft, counterpartyId: id, counterpartyName: name })}
             onCreated={cp => setCounterparties(prev => [...prev, cp])} />
         </td>
-        <td style={frozenStyle(1)} className="bg-amber-50"></td>
         <td style={frozenStyle(2)} className="bg-amber-50"></td>
         <td style={frozenStyle(3)} className="bg-amber-50"></td>
-        <td style={frozenStyle(4)} className="bg-amber-50 px-1">
+        <td style={frozenStyle(4)} className="bg-amber-50"></td>
+        <td style={frozenStyle(5)} className="bg-amber-50 px-1">
           <AccountCombobox tenantId={tenantId} accounts={accounts} value={draft.accountName}
             defaultGubunForNew={direction === "in" ? "수익" : "비용"}
             onTextChange={text => setDraft({ ...draft, accountName: text })}
             onPick={(id, name) => setDraft({ ...draft, accountId: id, accountName: name })}
             onCreated={acc => setAccounts(prev => [...prev, acc])} />
         </td>
-        <td style={frozenStyle(5)} className="bg-amber-50 px-1">
-          <input value={draft.managementTag} placeholder="관리항목" onChange={e => setDraft({ ...draft, managementTag: e.target.value })} className={styles.gridInput} />
-        </td>
         <td style={frozenStyle(6)} className="bg-amber-50 px-1">
-          <input
-            value={draft.memo}
-            placeholder="항목명(예: 법인폰대금) — Enter로 행 생성"
-            onChange={e => setDraft({ ...draft, memo: e.target.value })}
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); finalizeDraft(direction, draft, setDraft); } }}
-            className={styles.gridInput + " ring-1 ring-inset ring-amber-300"}
-          />
+          <input value={draft.managementTag} placeholder="관리항목" onChange={e => setDraft({ ...draft, managementTag: e.target.value })} className={styles.gridInput} />
         </td>
         <td style={frozenStyle(TOTAL_IDX)} className="bg-amber-50"></td>
         <td colSpan={days.length} className="px-2 text-xs text-amber-700">{draftBusy === direction ? "저장 중…" : ""}</td>
@@ -280,11 +320,25 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
 
   return (
     <div>
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-2">
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>‹</button>
         <div className="text-sm font-bold text-black w-24 text-center">{label}</div>
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>›</button>
+        <button type="button" onClick={() => setAnchorForm(o => !o)} className={styles.btnSmallGhost + " ml-auto"}>통장 기준잔액 설정</button>
       </div>
+      {anchorForm && (
+        <div className={styles.cardSm + " mb-3 flex items-center gap-2"}>
+          <span className="text-xs text-gray-500">이 날짜의</span>
+          <input type="date" value={anchorDate} onChange={e => setAnchorDate(e.target.value)} className={styles.inputSm} />
+          <span className="text-xs text-gray-500">실제 통장 잔액</span>
+          <input value={formatComma(anchorAmount)} onChange={e => setAnchorAmount(parseDigits(e.target.value))} className={styles.inputSm + " text-right w-32"} placeholder="금액" />
+          <button type="button" onClick={handleSaveAnchor} className={styles.btnPrimary}>저장</button>
+          <span className="text-xs text-gray-400">이후 모든 달의 기초/기말잔액이 이 기준으로 재계산돼요</span>
+        </div>
+      )}
+      {openingBalance === null && (
+        <div className={styles.msgWarn + " mb-3"}>통장 기준잔액이 아직 설정 안 됐어요 — 위에서 아무 날짜의 실제 통장 잔액을 한 번 입력해주세요. 그래야 기초/기말잔액이 표시돼요.</div>
+      )}
 
       {loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
@@ -301,6 +355,33 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
               </tr>
             </thead>
             <tbody>
+              <tr className="bg-white">
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
+                  className="bg-white px-2 py-1 font-medium text-gray-600">기초잔액</td>
+                <td style={frozenStyle(TOTAL_IDX)} className="bg-white text-right px-2 font-bold text-gray-700">
+                  {openingBalance !== null ? formatComma(openingBalance) : "-"}
+                </td>
+                {days.map(d => (
+                  <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-gray-500">
+                    {dailyOpeningFor(d) !== null ? formatComma(dailyOpeningFor(d) as number) : ""}
+                  </td>
+                ))}
+                <td></td>
+              </tr>
+              <tr className="bg-white border-b-2 border-gray-300">
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
+                  className="bg-white px-2 py-1 font-medium text-gray-600">기말잔액</td>
+                <td style={frozenStyle(TOTAL_IDX)} className="bg-white text-right px-2 font-bold text-gray-700">
+                  {monthEndClosing !== null ? formatComma(monthEndClosing) : "-"}
+                </td>
+                {days.map(d => (
+                  <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-gray-500">
+                    {dailyClosing[d] !== undefined ? formatComma(dailyClosing[d]) : ""}
+                  </td>
+                ))}
+                <td></td>
+              </tr>
+
               <tr className="bg-green-50/60">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX) + FROZEN[TOTAL_IDX].width, zIndex: 2 }} colSpan={FROZEN.length}
                   className="bg-green-50 px-2 py-1 text-sm font-bold text-green-700">입금</td>
