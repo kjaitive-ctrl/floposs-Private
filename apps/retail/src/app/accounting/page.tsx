@@ -2,17 +2,18 @@
 
 import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
+import CashMatrix from "@/components/accounting/CashMatrix";
 
-// 회계 탭 — 재설계 중. DB 스키마부터 다시 논의 후 기능을 채운다.
+// 회계 탭 — 재설계 1단계: 입출금 매트릭스. 전표/후처리 화면은 다음 라운드. 마이그 225.
 export default function AccountingPage() {
   const { tenant } = useTenant();
 
   return (
-    <main className={styles.main}>
+    <main className={styles.mainWide}>
       {!tenant?.id ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
       ) : (
-        <div className="text-sm text-gray-400">회계 — 설계 중입니다.</div>
+        <CashMatrix tenantId={tenant.id} />
       )}
     </main>
   );
