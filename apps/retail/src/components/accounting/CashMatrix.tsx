@@ -27,8 +27,10 @@ function monthRange(anchor: Date): { fromIso: string; toIso: string; label: stri
   return { fromIso: iso(1), toIso: iso(lastDay), label: `${y}년 ${m + 1}월`, days: Array.from({ length: lastDay }, (_, i) => i + 1) };
 }
 
-// 적요(거래 성격)를 맨 앞에 — 거래처보다 "무엇 때문인지"를 먼저 입력.
+// 관리(삭제 등 행 액션)를 맨 왼쪽에 — 날짜열까지 스크롤 안 해도 바로 지울 수 있게.
+// 적요(거래 성격)는 그다음 — 거래처보다 "무엇 때문인지"를 먼저 입력.
 const FROZEN = [
+  { key: "action", label: "관리", width: 40 },
   { key: "memo", label: "적요", width: 130 },
   { key: "name", label: "거래처", width: 120 },
   { key: "holder", label: "예금주", width: 80 },
@@ -36,7 +38,7 @@ const FROZEN = [
   { key: "account", label: "계좌번호", width: 110 },
   { key: "acct", label: "계정", width: 110 },
   { key: "mgmt", label: "관리항목", width: 90 },
-  { key: "total", label: "합계", width: 90 },
+  { key: "total", label: "소계", width: 90 },
 ] as const;
 const DAY_W = 68;
 function frozenLeft(i: number): number { return FROZEN.slice(0, i).reduce((s, c) => s + c.width, 0); }
@@ -233,7 +235,10 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   function renderItemRow(item: CashLineItem) {
     return (
       <tr key={item.id} className={styles.tr}>
-        <td style={frozenStyle(0)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(0)} className="bg-white border-b border-gray-100 text-center">
+          <button type="button" onClick={() => handleRemoveItem(item)} className="text-gray-300 hover:text-red-600" title="이 행 삭제">×</button>
+        </td>
+        <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
           <input
             id={`cmcell-${item.id}-memo`}
             defaultValue={item.memo ?? ""} placeholder="적요(거래 성격)"
@@ -241,7 +246,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             onKeyDown={e => handleNav(e, item.id, "memo")}
             className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
           <CounterpartyCombobox
             id={`cmcell-${item.id}-name`}
             tenantId={tenantId} counterparties={counterparties}
@@ -252,25 +257,25 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             onKeyDownNav={e => handleNav(e, item.id, "name")}
           />
         </td>
-        <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
           <input id={`cmcell-${item.id}-holder`} defaultValue={item.counterparty?.account_holder ?? ""} placeholder="예금주" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "account_holder", e.target.value)}
             onKeyDown={e => handleNav(e, item.id, "holder")}
             className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
           <input id={`cmcell-${item.id}-bank`} defaultValue={item.counterparty?.bank_name ?? ""} placeholder="은행" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "bank_name", e.target.value)}
             onKeyDown={e => handleNav(e, item.id, "bank")}
             className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 px-1">
           <input id={`cmcell-${item.id}-account`} defaultValue={item.counterparty?.account_number ?? ""} placeholder="계좌번호" disabled={!item.counterparty_id}
             onBlur={e => saveCounterpartyField(item, "account_number", e.target.value)}
             onKeyDown={e => handleNav(e, item.id, "account")}
             className={styles.gridInput} />
         </td>
-        <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(6)} className="bg-white border-b border-gray-100 px-1">
           <AccountCombobox
             id={`cmcell-${item.id}-acct`}
             tenantId={tenantId} accounts={accounts} value={item.account?.name ?? ""}
@@ -281,7 +286,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             onKeyDownNav={e => handleNav(e, item.id, "acct")}
           />
         </td>
-        <td style={frozenStyle(6)} className="bg-white border-b border-gray-100 px-1">
+        <td style={frozenStyle(7)} className="bg-white border-b border-gray-100 px-1">
           <input id={`cmcell-${item.id}-mgmt`} defaultValue={item.management_tag ?? ""} placeholder="관리항목"
             onBlur={e => saveTextField(item, "management_tag", e.target.value)}
             onKeyDown={e => handleNav(e, item.id, "mgmt")}
@@ -304,9 +309,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
             </td>
           );
         })}
-        <td className="text-center border-b border-gray-100">
-          <button type="button" onClick={() => handleRemoveItem(item)} className="text-gray-300 hover:text-red-600">×</button>
-        </td>
+        <td className="border-b border-gray-100"></td>
       </tr>
     );
   }
