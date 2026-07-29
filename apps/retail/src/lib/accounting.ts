@@ -102,6 +102,11 @@ export async function updateCounterparty(id: string, patch: Partial<Omit<Counter
   await supabase.from("counterparties").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
 }
 
+// 소프트 삭제 — 목록/자동완성에서만 빠짐. 이미 연결된 행의 숫자는 그대로 남음(통장 대조로 나중에 다시 맞춤).
+export async function deactivateCounterparty(id: string): Promise<void> {
+  await supabase.from("counterparties").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
+}
+
 // ── 매트릭스 행 (cash_line_items) ──────────────────────────────
 const LINE_ITEM_COLS = "id, direction, account_id, counterparty_id, management_tag, memo, sort_order";
 

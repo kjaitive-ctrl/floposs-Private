@@ -16,7 +16,7 @@ import CounterpartyCombobox from "@/components/accounting/CounterpartyCombobox";
 import {
   type Account, type Counterparty, type CashLineItem,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
-  addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty,
+  addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty, deactivateCounterparty,
   loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta, checkAccountingReady,
 } from "@/lib/accounting";
 
@@ -60,6 +60,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   const [anchorDate, setAnchorDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
   const [anchorAmount, setAnchorAmount] = useState("");
   const [tableErr, setTableErr] = useState<string | null>(null);
+  const [cpPanelOpen, setCpPanelOpen] = useState(false);
 
   const itemsRef = useRef<CashLineItem[]>([]);
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -149,6 +150,11 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   }
 
   function saveCounterpartyForItem(item: CashLineItem, cpId: string, cpName: string) {
+    if (!cpId) { // 지우고 나간 경우 — 실제로 연결 해제(저장)
+      patchItemLocal(item.id, { counterparty_id: null, counterparty: null });
+      updateCashLineItem(item.id, { counterparty_id: null });
+      return;
+    }
     const cp = counterparties.find(c => c.id === cpId);
     patchItemLocal(item.id, { counterparty_id: cpId, counterparty: cp ?? { id: cpId, name: cpName, account_holder: null, bank_name: null, account_number: null, memo: null } });
     updateCashLineItem(item.id, { counterparty_id: cpId });
@@ -168,6 +174,20 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     if (!confirm(`"${item.memo || item.counterparty?.name || "(이름 없음)"}" 행을 지울까요? (이미 입력된 거래는 그대로 남아요)`)) return;
     await deactivateCashLineItem(item.id);
     setItems(prev => prev.filter(i => i.id !== item.id));
+  }
+
+  function saveCounterpartyMaster(cp: Counterparty, field: keyof Omit<Counterparty, "id">, value: string) {
+    const patch = { [field]: value || null };
+    setCounterparties(prev => prev.map(c => c.id === cp.id ? { ...c, ...patch } : c));
+    // 이미 이 거래처를 물고 있는 행들도 화면에 바로 반영
+    setItems(prev => prev.map(i => i.counterparty?.id === cp.id ? { ...i, counterparty: { ...i.counterparty!, ...patch } } : i));
+    updateCounterparty(cp.id, patch);
+  }
+
+  async function handleRemoveCounterparty(cp: Counterparty) {
+    if (!confirm(`"${cp.name}" 거래처를 목록에서 지울까요? 이미 연결된 행의 숫자는 그대로 남아요.`)) return;
+    await deactivateCounterparty(cp.id);
+    setCounterparties(prev => prev.filter(c => c.id !== cp.id));
   }
 
   // 빈 행 5개를 한 번에 만들고, 그 자리에서 적요/거래처/계정을 채워 넣는 방식.
@@ -307,7 +327,8 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>‹</button>
         <div className="text-sm font-bold text-black w-24 text-center">{label}</div>
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>›</button>
-        <button type="button" onClick={() => setAnchorForm(o => !o)} className={styles.btnSmallGhost + " ml-auto"}>통장 기준잔액 설정</button>
+        <button type="button" onClick={() => setCpPanelOpen(o => !o)} className={styles.btnSmallGhost + " ml-auto"}>거래처 관리</button>
+        <button type="button" onClick={() => setAnchorForm(o => !o)} className={styles.btnSmallGhost}>통장 기준잔액 설정</button>
       </div>
       {anchorForm && (
         <div className={styles.cardSm + " mb-3 flex items-center gap-2"}>
@@ -317,6 +338,47 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
           <input value={formatComma(anchorAmount)} onChange={e => setAnchorAmount(parseDigits(e.target.value))} className={styles.inputSm + " text-right w-32"} placeholder="금액" />
           <button type="button" onClick={handleSaveAnchor} className={styles.btnPrimary}>저장</button>
           <span className="text-xs text-gray-400">이후 모든 달의 기초/기말잔액이 이 기준으로 재계산돼요</span>
+        </div>
+      )}
+      {cpPanelOpen && (
+        <div className={styles.cardSm + " mb-3"}>
+          <div className={styles.sectionLabel}>거래처 관리 ({counterparties.length})</div>
+          {counterparties.length === 0 ? (
+            <div className="text-xs text-gray-400">아직 거래처가 없어요.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead>
+                <tr>
+                  <th className={styles.thLeft}>이름</th>
+                  <th className={styles.th}>예금주</th>
+                  <th className={styles.th}>은행</th>
+                  <th className={styles.th}>계좌번호</th>
+                  <th className={styles.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {counterparties.map(cp => (
+                  <tr key={cp.id} className={styles.tr}>
+                    <td className={styles.tdText}>
+                      <input defaultValue={cp.name} onBlur={e => saveCounterpartyMaster(cp, "name", e.target.value)} className={styles.gridInput} />
+                    </td>
+                    <td className={styles.tdText}>
+                      <input defaultValue={cp.account_holder ?? ""} onBlur={e => saveCounterpartyMaster(cp, "account_holder", e.target.value)} className={styles.gridInput} />
+                    </td>
+                    <td className={styles.tdText}>
+                      <input defaultValue={cp.bank_name ?? ""} onBlur={e => saveCounterpartyMaster(cp, "bank_name", e.target.value)} className={styles.gridInput} />
+                    </td>
+                    <td className={styles.tdText}>
+                      <input defaultValue={cp.account_number ?? ""} onBlur={e => saveCounterpartyMaster(cp, "account_number", e.target.value)} className={styles.gridInput} />
+                    </td>
+                    <td className={styles.tdCenter}>
+                      <button type="button" onClick={() => handleRemoveCounterparty(cp)} className="text-gray-400 hover:text-red-600">삭제</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
       {tableErr && (

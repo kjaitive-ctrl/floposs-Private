@@ -32,7 +32,8 @@ export default function CounterpartyCombobox({
     const chosen = hit ?? counterparties.find(c => c.name.toLowerCase() === term);
     if (chosen) { onPick(chosen.id, chosen.name); return; }
     const trimmed = value.trim();
-    if (!trimmed || busy) return;
+    if (!trimmed) { onPick("", ""); return; } // 지우고 나가면 실제로 연결 해제(저장)돼야 함
+    if (busy) return;
     setBusy(true);
     const created = await addCounterparty(tenantId, trimmed);
     setBusy(false);
