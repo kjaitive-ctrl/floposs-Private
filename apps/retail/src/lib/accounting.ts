@@ -170,12 +170,12 @@ export async function loadCashEntries(tenantId: string, fromIso: string, toIso: 
   return map;
 }
 
-// 있으면 갱신, 없으면 생성, 0/빈값이면 삭제.
+// 있으면 갱신, 없으면 생성, 0이면 삭제. 음수는 허용(반제/환입 전표 — DB 트리거가 방향을 뒤집어 처리).
 export async function setCashEntry(tenantId: string, lineItemId: string, txnDate: string, amount: number): Promise<boolean> {
   const { data: existing } = await supabase.from("cash_entries").select("id")
     .eq("line_item_id", lineItemId).eq("txn_date", txnDate).maybeSingle();
 
-  if (amount <= 0) {
+  if (amount === 0) {
     if (existing) await supabase.from("cash_entries").delete().eq("id", existing.id);
     return true;
   }

@@ -5,13 +5,17 @@ export function sanitizeFilename(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_");
 }
 
-// 1234 / "1234" / "01,234" → "1,234". null/빈값/잘못된 입력 → "".
+// 1234 / "1234" / "01,234" / -1234 → "1,234" / "-1,234". null/빈값/잘못된 입력 → "".
+// 앞에 "-" 가 있으면 부호 보존(반제/환입 등 음수 금액 표시용).
 export function formatComma(v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === "") return "";
-  const cleaned = String(v).replace(/[^0-9]/g, "");
+  const str = String(v).trim();
+  const neg = str.startsWith("-");
+  const cleaned = str.replace(/[^0-9]/g, "");
   if (cleaned === "") return "";
   const n = Number(cleaned);
-  return isNaN(n) ? "" : n.toLocaleString();
+  if (isNaN(n)) return "";
+  return (neg && n !== 0 ? "-" : "") + n.toLocaleString();
 }
 
 // 사용자 입력 정리 — 숫자만 추출 + 앞 0 제거 ("01,000" → "1000"). 빈값 → "".
@@ -19,6 +23,17 @@ export function parseDigits(v: string): string {
   const cleaned = v.replace(/[^0-9]/g, "");
   if (cleaned === "") return "";
   return String(Number(cleaned)); // "01000" → 1000 → "1000"
+}
+
+// parseDigits 의 음수 허용 버전 — 맨 앞 "-" 만 부호로 인정(반제/환입 전표용).
+// 타이핑 중 "-" 만 있는 상태("-")도 그대로 보존해야 이어서 숫자를 칠 수 있음.
+export function parseSignedDigits(v: string): string {
+  const neg = v.trim().startsWith("-");
+  const digits = v.replace(/[^0-9]/g, "");
+  if (digits === "") return neg ? "-" : "";
+  const n = Number(digits);
+  if (isNaN(n)) return "";
+  return (neg && n !== 0 ? "-" : "") + String(n);
 }
 
 // ─── 짧은 날짜 표기 ──────────────────────────────────
