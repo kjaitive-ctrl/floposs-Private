@@ -328,12 +328,16 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
 
   return (
     <div>
+      {/* 월 이동(자주 누름)과 관리 버튼(가끔 누름)을 줄 자체를 분리 — 연타하다 실수로 안 눌리게 */}
       <div className="flex items-center gap-3 mb-2">
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>‹</button>
         <div className="text-sm font-bold text-black w-24 text-center">{label}</div>
         <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>›</button>
-        <button type="button" onClick={() => setCpPanelOpen(o => !o)} className={styles.btnSmallGhost + " ml-auto"}>거래처 관리</button>
-        <button type="button" onClick={() => setAnchorForm(o => !o)} className={styles.btnSmallGhost}>통장 기준잔액 설정</button>
+      </div>
+      <div className="flex items-center gap-2 mb-3">
+        <button type="button" onClick={() => setCpPanelOpen(o => !o)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">거래처 관리</button>
+        <span className="text-xs text-gray-300">·</span>
+        <button type="button" onClick={() => setAnchorForm(o => !o)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">통장 기준잔액 설정</button>
       </div>
       {anchorForm && (
         <div className={styles.cardSm + " mb-3 flex items-center gap-2"}>
