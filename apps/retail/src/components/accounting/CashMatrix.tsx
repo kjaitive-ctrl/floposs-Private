@@ -179,7 +179,7 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     if (error) { setAddRowsErr(error); return; }
     if (created.length === 0) { setAddRowsErr("알 수 없는 이유로 생성되지 않았어요."); return; }
     setItems(prev => [...prev, ...created.map(c => ({ ...c, account: null, counterparty: null }))]);
-    setTimeout(() => document.getElementById(`cmcell-${created[0].id}-name`)?.focus(), 50);
+    setTimeout(() => document.getElementById(`cmcell-${created[0].id}-memo`)?.focus(), 50);
   }
 
   const rowTotal = (itemId: string) => days.reduce((s, d) => s + Number(cellValues[`${itemId}:${d}`] || 0), 0);
@@ -210,43 +210,57 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
       <tr key={item.id} className={styles.tr}>
         <td style={frozenStyle(0)} className="bg-white border-b border-gray-100 px-1">
           <input
-            id={`cmcell-${item.id}-name`}
+            id={`cmcell-${item.id}-memo`}
             defaultValue={item.memo ?? ""} placeholder="적요(거래 성격)"
-            onBlur={e => saveTextField(item, "memo", e.target.value)} className={styles.gridInput} />
+            onBlur={e => saveTextField(item, "memo", e.target.value)}
+            onKeyDown={e => handleNav(e, item.id, "memo")}
+            className={styles.gridInput} />
         </td>
         <td style={frozenStyle(1)} className="bg-white border-b border-gray-100 px-1">
           <CounterpartyCombobox
+            id={`cmcell-${item.id}-name`}
             tenantId={tenantId} counterparties={counterparties}
             value={item.counterparty?.name ?? ""}
             onTextChange={text => patchItemLocal(item.id, { counterparty: item.counterparty ? { ...item.counterparty, name: text } : { id: "", name: text, account_holder: null, bank_name: null, account_number: null, memo: null } })}
             onPick={(id, name) => saveCounterpartyForItem(item, id, name)}
             onCreated={cp => setCounterparties(prev => [...prev, cp])}
+            onKeyDownNav={e => handleNav(e, item.id, "name")}
           />
         </td>
         <td style={frozenStyle(2)} className="bg-white border-b border-gray-100 px-1">
-          <input defaultValue={item.counterparty?.account_holder ?? ""} placeholder="예금주" disabled={!item.counterparty_id}
-            onBlur={e => saveCounterpartyField(item, "account_holder", e.target.value)} className={styles.gridInput} />
+          <input id={`cmcell-${item.id}-holder`} defaultValue={item.counterparty?.account_holder ?? ""} placeholder="예금주" disabled={!item.counterparty_id}
+            onBlur={e => saveCounterpartyField(item, "account_holder", e.target.value)}
+            onKeyDown={e => handleNav(e, item.id, "holder")}
+            className={styles.gridInput} />
         </td>
         <td style={frozenStyle(3)} className="bg-white border-b border-gray-100 px-1">
-          <input defaultValue={item.counterparty?.bank_name ?? ""} placeholder="은행" disabled={!item.counterparty_id}
-            onBlur={e => saveCounterpartyField(item, "bank_name", e.target.value)} className={styles.gridInput} />
+          <input id={`cmcell-${item.id}-bank`} defaultValue={item.counterparty?.bank_name ?? ""} placeholder="은행" disabled={!item.counterparty_id}
+            onBlur={e => saveCounterpartyField(item, "bank_name", e.target.value)}
+            onKeyDown={e => handleNav(e, item.id, "bank")}
+            className={styles.gridInput} />
         </td>
         <td style={frozenStyle(4)} className="bg-white border-b border-gray-100 px-1">
-          <input defaultValue={item.counterparty?.account_number ?? ""} placeholder="계좌번호" disabled={!item.counterparty_id}
-            onBlur={e => saveCounterpartyField(item, "account_number", e.target.value)} className={styles.gridInput} />
+          <input id={`cmcell-${item.id}-account`} defaultValue={item.counterparty?.account_number ?? ""} placeholder="계좌번호" disabled={!item.counterparty_id}
+            onBlur={e => saveCounterpartyField(item, "account_number", e.target.value)}
+            onKeyDown={e => handleNav(e, item.id, "account")}
+            className={styles.gridInput} />
         </td>
         <td style={frozenStyle(5)} className="bg-white border-b border-gray-100 px-1">
           <AccountCombobox
+            id={`cmcell-${item.id}-acct`}
             tenantId={tenantId} accounts={accounts} value={item.account?.name ?? ""}
             defaultGubunForNew={item.direction === "in" ? "수익" : "비용"}
             onTextChange={text => patchItemLocal(item.id, { account: { code: item.account?.code ?? 0, name: text, gubun: item.account?.gubun ?? "비용" } })}
             onPick={(id, name) => saveAccountForItem(item, id, name)}
             onCreated={acc => setAccounts(prev => [...prev, acc])}
+            onKeyDownNav={e => handleNav(e, item.id, "acct")}
           />
         </td>
         <td style={frozenStyle(6)} className="bg-white border-b border-gray-100 px-1">
-          <input defaultValue={item.management_tag ?? ""} placeholder="관리항목"
-            onBlur={e => saveTextField(item, "management_tag", e.target.value)} className={styles.gridInput} />
+          <input id={`cmcell-${item.id}-mgmt`} defaultValue={item.management_tag ?? ""} placeholder="관리항목"
+            onBlur={e => saveTextField(item, "management_tag", e.target.value)}
+            onKeyDown={e => handleNav(e, item.id, "mgmt")}
+            className={styles.gridInput} />
         </td>
         <td style={frozenStyle(TOTAL_IDX)} className="bg-white border-b border-gray-100 text-right px-2 text-black font-medium">
           {formatComma(rowTotal(item.id))}
