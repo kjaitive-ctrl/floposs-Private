@@ -324,10 +324,10 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
               </tr>
             </thead>
             <tbody>
-              <tr className="bg-white">
+              <tr className="bg-gray-50 border-b-2 border-gray-300">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
-                  className="bg-white px-2 py-1 font-medium text-gray-600">기초잔액</td>
-                <td style={frozenStyle(TOTAL_IDX)} className="bg-white text-right px-2 font-bold text-gray-700">
+                  className="bg-gray-50 px-2 py-1 font-medium text-gray-600">기초잔액</td>
+                <td style={frozenStyle(TOTAL_IDX)} className="bg-gray-50 text-right px-2 font-bold text-black">
                   {openingBalance !== null ? formatComma(openingBalance) : "-"}
                 </td>
                 {days.map(d => (
@@ -337,28 +337,15 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
                 ))}
                 <td></td>
               </tr>
-              <tr className="bg-white border-b-2 border-gray-300">
-                <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
-                  className="bg-white px-2 py-1 font-medium text-gray-600">기말잔액</td>
-                <td style={frozenStyle(TOTAL_IDX)} className="bg-white text-right px-2 font-bold text-gray-700">
-                  {monthEndClosing !== null ? formatComma(monthEndClosing) : "-"}
-                </td>
-                {days.map(d => (
-                  <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-gray-500">
-                    {dailyClosing[d] !== undefined ? formatComma(dailyClosing[d]) : ""}
-                  </td>
-                ))}
-                <td></td>
-              </tr>
 
-              <tr className="bg-green-50/60">
+              <tr className="bg-gray-50">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX) + FROZEN[TOTAL_IDX].width, zIndex: 2 }} colSpan={FROZEN.length}
-                  className="bg-green-50 px-2 py-1 text-sm font-bold text-green-700">입금</td>
+                  className="bg-gray-50 px-2 py-1 text-sm font-bold text-green-700">입금</td>
                 <td colSpan={days.length + 1}></td>
               </tr>
               {inItems.map(renderItemRow)}
               {renderAddRowsButton("in")}
-              <tr className="border-t-2 border-gray-300 bg-gray-50">
+              <tr className="border-t border-gray-200 bg-gray-50">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
                   className="bg-gray-50 px-2 py-1 font-medium text-green-700">입금합계</td>
                 <td style={frozenStyle(TOTAL_IDX)} className="bg-gray-50 text-right px-2 font-bold text-green-700">{formatComma(grand("in"))}</td>
@@ -366,14 +353,14 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
                 <td></td>
               </tr>
 
-              <tr className="bg-blue-50/60">
+              <tr className="bg-gray-50 border-t-2 border-gray-300">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX) + FROZEN[TOTAL_IDX].width, zIndex: 2 }} colSpan={FROZEN.length}
-                  className="bg-blue-50 px-2 py-1 text-sm font-bold text-blue-700">출금</td>
+                  className="bg-gray-50 px-2 py-1 text-sm font-bold text-red-700">출금</td>
                 <td colSpan={days.length + 1}></td>
               </tr>
               {outItems.map(renderItemRow)}
               {renderAddRowsButton("out")}
-              <tr className="border-t-2 border-gray-300 bg-gray-50">
+              <tr className="border-t border-gray-200 bg-gray-50">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
                   className="bg-gray-50 px-2 py-1 font-medium text-red-700">출금합계</td>
                 <td style={frozenStyle(TOTAL_IDX)} className="bg-gray-50 text-right px-2 font-bold text-red-700">{formatComma(grand("out"))}</td>
@@ -381,16 +368,30 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
                 <td></td>
               </tr>
 
-              <tr className="bg-gray-100">
+              <tr className="bg-gray-50 border-t-2 border-gray-300">
                 <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
-                  className="bg-gray-100 px-2 py-1 font-bold text-black">순증감</td>
-                <td style={frozenStyle(TOTAL_IDX)} className={"bg-gray-100 text-right px-2 font-bold " + (grand("in") - grand("out") >= 0 ? "text-black" : "text-red-600")}>
+                  className="bg-gray-50 px-2 py-1 font-bold text-black">순증감</td>
+                <td style={frozenStyle(TOTAL_IDX)} className={"bg-gray-50 text-right px-2 font-bold " + (grand("in") - grand("out") >= 0 ? "text-black" : "text-red-600")}>
                   {formatComma(grand("in") - grand("out"))}
                 </td>
                 {days.map(d => {
                   const v = dayTotal(d, "in") - dayTotal(d, "out");
                   return <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className={"text-right px-1 " + (v >= 0 ? "text-black" : "text-red-600")}>{formatComma(v)}</td>;
                 })}
+                <td></td>
+              </tr>
+
+              <tr className="bg-gray-50 border-t-2 border-gray-300">
+                <td style={{ position: "sticky", left: 0, width: frozenLeft(TOTAL_IDX), zIndex: 2 }} colSpan={TOTAL_IDX}
+                  className="bg-gray-50 px-2 py-1 font-medium text-gray-600">기말잔액</td>
+                <td style={frozenStyle(TOTAL_IDX)} className="bg-gray-50 text-right px-2 font-bold text-black">
+                  {monthEndClosing !== null ? formatComma(monthEndClosing) : "-"}
+                </td>
+                {days.map(d => (
+                  <td key={d} style={{ width: DAY_W, minWidth: DAY_W }} className="text-right px-1 text-gray-500">
+                    {dailyClosing[d] !== undefined ? formatComma(dailyClosing[d]) : ""}
+                  </td>
+                ))}
                 <td></td>
               </tr>
             </tbody>
