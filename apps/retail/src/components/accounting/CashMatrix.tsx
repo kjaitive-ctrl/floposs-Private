@@ -16,7 +16,7 @@ import CounterpartyCombobox from "@/components/accounting/CounterpartyCombobox";
 import {
   type Account, type Counterparty, type CashLineItem,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
-  addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty, deactivateCounterparty,
+  addBlankLineItems, updateCashLineItem, deleteCashLineItem, updateCounterparty, deactivateCounterparty,
   loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta, checkAccountingReady,
 } from "@/lib/accounting";
 
@@ -171,9 +171,14 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
   }
 
   async function handleRemoveItem(item: CashLineItem) {
-    if (!confirm(`"${item.memo || item.counterparty?.name || "(이름 없음)"}" 행을 지울까요? (이미 입력된 거래는 그대로 남아요)`)) return;
-    await deactivateCashLineItem(item.id);
+    if (!confirm(`"${item.memo || item.counterparty?.name || "(이름 없음)"}" 행을 지울까요? 이미 입력된 숫자도 같이 지워져요.`)) return;
+    await deleteCashLineItem(item.id);
     setItems(prev => prev.filter(i => i.id !== item.id));
+    setCellValues(prev => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) if (k.startsWith(`${item.id}:`)) delete next[k];
+      return next;
+    });
   }
 
   function saveCounterpartyMaster(cp: Counterparty, field: keyof Omit<Counterparty, "id">, value: string) {
