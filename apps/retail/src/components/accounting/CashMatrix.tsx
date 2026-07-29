@@ -129,7 +129,11 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     scheduleAutosave(key);
   }
 
-  const navRows = useMemo(() => items.map(i => ({ _key: i.id })), [items]);
+  // 화면에 보이는 순서(입금 섹션 전체 → 출금 섹션 전체)와 반드시 일치해야 위/아래 화살표가 맞는 행으로 감.
+  const navRows = useMemo(() => [
+    ...items.filter(i => i.direction === "in"),
+    ...items.filter(i => i.direction === "out"),
+  ].map(i => ({ _key: i.id })), [items]);
   const rowsRefForNav = useRef(navRows);
   useEffect(() => { rowsRefForNav.current = navRows; }, [navRows]);
   const handleNav = useCellNavigation({ rowsRef: rowsRefForNav, cellIdPrefix: "cmcell" });

@@ -35,10 +35,14 @@ export function useCellNavigation<R extends NavRow>({ rowsRef, fallbackCol, cell
       const nextRow = rowsRef.current[nextIdx];
       const nextKey = nextRow._key;
       const sameCol = document.getElementById(`${cellIdPrefix}-${nextKey}-${col}`);
-      if (sameCol) { sameCol.focus(); return; }
+      if (sameCol) { sameCol.focus(); sameCol.scrollIntoView({ block: "nearest", inline: "nearest" }); return; }
       if (fallbackCol) {
         const fb = fallbackCol(nextRow, col);
-        if (fb) document.getElementById(`${cellIdPrefix}-${nextKey}-${fb}`)?.focus();
+        if (fb) {
+          const fbEl = document.getElementById(`${cellIdPrefix}-${nextKey}-${fb}`);
+          fbEl?.focus();
+          fbEl?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
       }
     },
     [rowsRef, fallbackCol, cellIdPrefix]
