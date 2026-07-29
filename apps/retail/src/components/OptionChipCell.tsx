@@ -184,10 +184,16 @@ export default function OptionChipCell({ productId, variants, axis, onChanged, r
       consumer_label_color?: string | null;
       consumer_label_size?: string | null;
       consumer_label_option3?: string | null;
+      sort_order: number;
     }[] = [];
 
-    function makeRow(pair: Pair, axisVal: { color: string | null; size: string | null; option3: string | null }) {
-      const base = { product_id: productId, ...axisVal };
+    // 새 옵션은 항상 맨 뒤로 — 기존 variants 의 최대 sort_order 다음부터 순번 부여.
+    // (미지정 시 DB DEFAULT 0 이 박혀 기존 값(마이그 033/034 로 이미 1 이상)보다 앞으로 튀는 버그였음)
+    const existingMax = variants.reduce((max, v) => Math.max(max, v.sort_order ?? 0), 0);
+    let nextSortOrder = existingMax + 1;
+
+    function makeRow(pair: Pair, axisVal: { color: string | null; size: string | null; option3: string | null }, sortOrder: number) {
+      const base = { product_id: productId, ...axisVal, sort_order: sortOrder };
       if (axis === "color")  return { ...base, consumer_label_color:   pair.consumer };
       if (axis === "size")   return { ...base, consumer_label_size:    pair.consumer };
       return                       { ...base, consumer_label_option3: pair.consumer };
@@ -196,33 +202,33 @@ export default function OptionChipCell({ productId, variants, axis, onChanged, r
     for (const pair of toAdd) {
       if (axis === "color") {
         if (sizes.length === 0 && option3s.length === 0) {
-          rows.push(makeRow(pair, { color: pair.supplier, size: null, option3: null }));
+          rows.push(makeRow(pair, { color: pair.supplier, size: null, option3: null }, nextSortOrder++));
         } else {
           const sArr = sizes.length ? sizes : [null as unknown as string];
           const oArr = option3s.length ? option3s : [null as unknown as string];
           for (const s of sArr) for (const o of oArr) {
-            rows.push(makeRow(pair, { color: pair.supplier, size: s || null, option3: o || null }));
+            rows.push(makeRow(pair, { color: pair.supplier, size: s || null, option3: o || null }, nextSortOrder++));
           }
         }
       } else if (axis === "size") {
         if (colors.length === 0 && option3s.length === 0) {
-          rows.push(makeRow(pair, { color: null, size: pair.supplier, option3: null }));
+          rows.push(makeRow(pair, { color: null, size: pair.supplier, option3: null }, nextSortOrder++));
         } else {
           const cArr = colors.length ? colors : [null as unknown as string];
           const oArr = option3s.length ? option3s : [null as unknown as string];
           for (const c of cArr) for (const o of oArr) {
-            rows.push(makeRow(pair, { color: c || null, size: pair.supplier, option3: o || null }));
+            rows.push(makeRow(pair, { color: c || null, size: pair.supplier, option3: o || null }, nextSortOrder++));
           }
         }
       } else {
         // option3
         if (colors.length === 0 && sizes.length === 0) {
-          rows.push(makeRow(pair, { color: null, size: null, option3: pair.supplier }));
+          rows.push(makeRow(pair, { color: null, size: null, option3: pair.supplier }, nextSortOrder++));
         } else {
           const cArr = colors.length ? colors : [null as unknown as string];
           const sArr = sizes.length ? sizes : [null as unknown as string];
           for (const c of cArr) for (const s of sArr) {
-            rows.push(makeRow(pair, { color: c || null, size: s || null, option3: pair.supplier }));
+            rows.push(makeRow(pair, { color: c || null, size: s || null, option3: pair.supplier }, nextSortOrder++));
           }
         }
       }
