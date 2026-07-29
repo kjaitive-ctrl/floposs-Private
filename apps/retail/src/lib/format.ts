@@ -12,7 +12,7 @@ export function formatComma(v: string | number | null | undefined): string {
   const str = String(v).trim();
   const neg = str.startsWith("-");
   const cleaned = str.replace(/[^0-9]/g, "");
-  if (cleaned === "") return "";
+  if (cleaned === "") return neg ? "-" : ""; // "-"만 친 상태 — 숫자 이어 칠 수 있게 지우지 않음
   const n = Number(cleaned);
   if (isNaN(n)) return "";
   return (neg && n !== 0 ? "-" : "") + n.toLocaleString();
