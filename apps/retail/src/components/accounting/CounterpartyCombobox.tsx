@@ -2,7 +2,10 @@
 
 // 거래처 입력 — 타이핑 후 매칭/생성(계정과목과 같은 결). 예금주/은행/계좌번호는
 // 거래처 레코드에 속함 — 여기선 이름만 다루고, 나머지는 행에서 별도로 편집.
-import { useState, type KeyboardEvent } from "react";
+// 드롭다운은 document.body 로 포탈 — AccountCombobox 와 동일한 이유(overflow-x-auto
+// 매트릭스 컨테이너 안이라 absolute 드롭다운이 잘림).
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { styles } from "@/common/styles";
 import { type Counterparty, addCounterparty } from "@/lib/accounting";
 
@@ -23,9 +26,31 @@ export default function CounterpartyCombobox({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const term = value.trim().toLowerCase();
   const hits = term ? counterparties.filter(c => c.name.toLowerCase().includes(term)) : counterparties;
+
+  function openDropdown() {
+    const el = inputRef.current;
+    if (el) {
+      const r = el.getBoundingClientRect();
+      setRect({ top: r.bottom + 2, left: r.left, width: Math.max(r.width, 208) });
+    }
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function close() { setOpen(false); }
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
 
   async function commit(hit?: Counterparty) {
     setOpen(false);
@@ -56,17 +81,21 @@ export default function CounterpartyCombobox({
   return (
     <div className="relative w-full">
       <input
+        ref={inputRef}
         id={id}
         value={value}
         placeholder="거래처 입력"
-        onChange={e => { onTextChange(e.target.value); setActive(0); setOpen(true); }}
-        onFocus={() => setOpen(true)}
+        onChange={e => { onTextChange(e.target.value); setActive(0); openDropdown(); }}
+        onFocus={openDropdown}
         onBlur={() => setTimeout(() => { setOpen(false); commit(); }, 150)}
         onKeyDown={handleKey}
         className={styles.gridInput}
       />
-      {open && (
-        <div className="absolute left-0 top-full z-30 mt-0.5 w-52 bg-white border border-gray-300 rounded-lg shadow-lg max-h-56 overflow-auto text-xs">
+      {open && rect && createPortal(
+        <div
+          style={{ position: "fixed", top: rect.top, left: rect.left, width: rect.width }}
+          className="z-50 bg-white border border-gray-300 rounded-lg shadow-lg max-h-56 overflow-auto text-xs"
+        >
           {hits.map((c, i) => (
             <button key={c.id} type="button" onMouseDown={e => { e.preventDefault(); commit(c); }}
               className={`w-full text-left px-3 py-1.5 border-b border-gray-100 ${i === active ? "bg-gray-100" : "hover:bg-gray-50"}`}>
@@ -79,7 +108,8 @@ export default function CounterpartyCombobox({
               + &quot;{value.trim()}&quot; 새 거래처
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
