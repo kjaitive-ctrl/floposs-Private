@@ -160,10 +160,10 @@ export async function updateCashLineItem(id: string, patch: Partial<AddLineItemI
   await supabase.from("cash_line_items").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
 }
 
-// 완전 삭제 — 이 행에 이미 입력된 cash_entries(그리고 거기서 자동생성된 전표)도
-// FK CASCADE 로 같이 지워짐(사장님 확인: 행 지울 때 숫자도 같이 지워져도 됨).
-export async function deleteCashLineItem(id: string): Promise<void> {
-  await supabase.from("cash_line_items").delete().eq("id", id);
+// 소프트 삭제 — 목록에서만 빠짐. 행은 월과 무관하게 영속(이월)이라 완전 삭제하면
+// 이 항목에 걸린 과거 달 cash_entries/전표까지 FK CASCADE 로 같이 사라짐.
+export async function deactivateCashLineItem(id: string): Promise<void> {
+  await supabase.from("cash_line_items").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
 }
 
 // ── 매트릭스 셀 (cash_entries, 통장 숫자 그대로) ──────────────────────
