@@ -12,7 +12,10 @@ export async function checkAccountingReady(): Promise<string | null> {
   return error ? error.message : null;
 }
 
-export const GUBUN_LIST = ["자산", "부채", "자본", "수익", "비용"] as const;
+// 9분류(유동/비유동 구분 등, 한국 전산회계 관행) — 마이그 230.
+export const GUBUN_LIST = [
+  "유동자산", "비유동자산", "유동부채", "비유동부채", "자본", "매출", "매출원가", "판관비", "영업외손익",
+] as const;
 export type Gubun = (typeof GUBUN_LIST)[number];
 
 export interface Account {
@@ -83,6 +86,20 @@ export async function addAccount(tenantId: string, name: string, gubun: Gubun): 
 
 export async function deactivateAccount(id: string): Promise<void> {
   await supabase.from("accounts").update({ is_active: false, updated_at: new Date().toISOString() }).eq("id", id);
+}
+
+export async function updateAccount(id: string, patch: Partial<{ name: string; gubun: Gubun }>): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("accounts").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) { console.error("updateAccount:", error); return { error: error.message }; }
+  return { error: null };
+}
+
+// 표준 계정과목(9분류) 시딩 — 세팅탭 "표준 계정과목 불러오기" 버튼. 이름 겹치면
+// 건너뛰므로(마이그 230, ON CONFLICT DO NOTHING) 몇 번을 눌러도 안전.
+export async function seedStandardAccounts(tenantId: string): Promise<{ added: number; error: string | null }> {
+  const { data, error } = await supabase.rpc("seed_standard_accounts", { p_tenant_id: tenantId });
+  if (error) { console.error("seedStandardAccounts:", error); return { added: 0, error: error.message }; }
+  return { added: (data as number) ?? 0, error: null };
 }
 
 // ── 거래처 ──────────────────────────────

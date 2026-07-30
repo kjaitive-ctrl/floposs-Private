@@ -148,7 +148,7 @@ export default function CashMatrix({ tenantId, anchor, onAnchorChange }: Props) 
 
   function saveAccountForItem(item: CashLineItem, accountId: string, accountName: string) {
     const acc = accounts.find(a => a.id === accountId);
-    patchItemLocal(item.id, { account_id: accountId, account: acc ? { code: acc.code, name: acc.name, gubun: acc.gubun } : { code: 0, name: accountName, gubun: "비용" } });
+    patchItemLocal(item.id, { account_id: accountId, account: acc ? { code: acc.code, name: acc.name, gubun: acc.gubun } : { code: 0, name: accountName, gubun: "판관비" } });
     updateCashLineItem(item.id, { account_id: accountId });
   }
 
@@ -281,8 +281,8 @@ export default function CashMatrix({ tenantId, anchor, onAnchorChange }: Props) 
           <AccountCombobox
             id={`cmcell-${item.id}-acct`}
             tenantId={tenantId} accounts={accounts} value={item.account?.name ?? ""}
-            defaultGubunForNew={item.direction === "in" ? "수익" : "비용"}
-            onTextChange={text => patchItemLocal(item.id, { account: { code: item.account?.code ?? 0, name: text, gubun: item.account?.gubun ?? "비용" } })}
+            defaultGubunForNew={item.direction === "in" ? "매출" : "판관비"}
+            onTextChange={text => patchItemLocal(item.id, { account: { code: item.account?.code ?? 0, name: text, gubun: item.account?.gubun ?? "판관비" } })}
             onPick={(id, name) => saveAccountForItem(item, id, name)}
             onCreated={acc => setAccounts(prev => [...prev, acc])}
             onKeyDownNav={e => handleNav(e, item.id, "acct")}

@@ -33,7 +33,6 @@ export default function JournalPanel({ tenantId, fromIso, toIso, label }: { tena
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
 
   const [drafting, setDrafting] = useState(false);
   const [draftDate, setDraftDate] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" }));
@@ -105,17 +104,12 @@ export default function JournalPanel({ tenantId, fromIso, toIso, label }: { tena
 
   return (
     <div className={styles.cardSm}>
-      <button type="button" onClick={() => setOpen(o => !o)} className="flex items-center gap-2 w-full text-left">
-        <span className={styles.sectionLabel + " mb-0"}>전표 ({label}, {entries.length}건)</span>
-        <span className="text-xs text-gray-400 ml-auto">{open ? "접기 ▲" : "펼치기 ▼"}</span>
-      </button>
+      <div className={styles.sectionLabel}>전표 ({label}, {entries.length}건)</div>
 
-      {open && (
-        <div className="mt-3">
-          {loading ? (
-            <div className="text-xs text-gray-400">불러오는 중…</div>
-          ) : (
-            <>
+      {loading ? (
+        <div className="text-xs text-gray-400">불러오는 중…</div>
+      ) : (
+        <>
               <table className="w-full text-xs mb-3">
                 <thead>
                   <tr>
@@ -183,7 +177,7 @@ export default function JournalPanel({ tenantId, fromIso, toIso, label }: { tena
                           <td className="px-1 py-1">
                             <AccountCombobox
                               tenantId={tenantId} accounts={accounts} value={l.account_name}
-                              defaultGubunForNew="비용"
+                              defaultGubunForNew="판관비"
                               onTextChange={text => patchLine(i, { account_name: text })}
                               onPick={(id, name) => patchLine(i, { account_id: id, account_name: name })}
                               onCreated={acc => setAccounts(prev => [...prev, acc])}
@@ -232,8 +226,6 @@ export default function JournalPanel({ tenantId, fromIso, toIso, label }: { tena
               )}
             </>
           )}
-        </div>
-      )}
     </div>
   );
 }
