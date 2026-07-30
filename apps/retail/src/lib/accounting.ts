@@ -32,6 +32,9 @@ export interface Counterparty {
   memo: string | null;
 }
 
+export const VAT_TYPES = ["과세", "영세", "면세"] as const;
+export type VatType = (typeof VAT_TYPES)[number];
+
 export interface CashLineItem {
   id: string;
   direction: "in" | "out";
@@ -39,9 +42,18 @@ export interface CashLineItem {
   counterparty_id: string | null;
   management_tag: string | null;
   memo: string | null;
+  vat_type: VatType | null;
   sort_order: number;
   account?: Pick<Account, "code" | "name" | "gubun"> | null;
   counterparty?: Counterparty | null;
+}
+
+// 매트릭스와 전표 화면이 같은 달을 공유하도록 앵커 계산을 한 곳에 둠.
+export function monthRange(anchor: Date): { fromIso: string; toIso: string; label: string; days: number[] } {
+  const y = anchor.getFullYear(), m = anchor.getMonth();
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const iso = (d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  return { fromIso: iso(1), toIso: iso(lastDay), label: `${y}년 ${m + 1}월`, days: Array.from({ length: lastDay }, (_, i) => i + 1) };
 }
 
 // ── 계정과목 ──────────────────────────────
@@ -108,7 +120,7 @@ export async function deactivateCounterparty(id: string): Promise<void> {
 }
 
 // ── 매트릭스 행 (cash_line_items) ──────────────────────────────
-const LINE_ITEM_COLS = "id, direction, account_id, counterparty_id, management_tag, memo, sort_order";
+const LINE_ITEM_COLS = "id, direction, account_id, counterparty_id, management_tag, memo, vat_type, sort_order";
 
 export async function loadCashLineItems(tenantId: string): Promise<CashLineItem[]> {
   const { data, error } = await supabase.from("cash_line_items")
@@ -129,6 +141,7 @@ export interface AddLineItemInput {
   counterparty_id: string | null;
   management_tag: string | null;
   memo: string;
+  vat_type: VatType | null;
 }
 
 export async function addCashLineItem(tenantId: string, input: AddLineItemInput): Promise<CashLineItem | null> {
@@ -225,4 +238,75 @@ export async function loadNetCashDelta(tenantId: string, fromIsoExclusive: strin
     const li = Array.isArray(r.line_item) ? r.line_item[0] : r.line_item;
     return s + (li?.direction === "in" ? r.amount : -r.amount);
   }, 0);
+}
+
+// ── 전표 (journal_entries/lines, 마이그 225/229) ──────────────────────
+// 입출금 매트릭스에서 자동생성된 것(source_cash_entry_id 있음, 읽기 위주) +
+// 현금 흐름 없는 계상을 위해 수동으로 만든 것(source_cash_entry_id 없음)이
+// 한 화면(같은 목록)에 같이 보임.
+export interface JournalLine {
+  id: string;
+  account_id: string;
+  counterparty_id: string | null;
+  debit_amount: number;
+  credit_amount: number;
+  sort_order: number;
+  account: Pick<Account, "code" | "name" | "gubun"> | null;
+  counterparty: Pick<Counterparty, "id" | "name"> | null;
+}
+
+export interface JournalEntry {
+  id: string;
+  entry_no: number;
+  entry_date: string;
+  memo: string | null;
+  is_finalized: boolean;
+  source_cash_entry_id: string | null;
+  lines: JournalLine[];
+}
+
+export async function loadJournalEntries(tenantId: string, fromIso: string, toIso: string): Promise<JournalEntry[]> {
+  const { data, error } = await supabase.from("journal_entries")
+    .select(`id, entry_no, entry_date, memo, is_finalized, source_cash_entry_id,
+      lines:journal_lines(id, account_id, counterparty_id, debit_amount, credit_amount, sort_order,
+        account:accounts(code, name, gubun), counterparty:counterparties(id, name))`)
+    .eq("tenant_id", tenantId).gte("entry_date", fromIso).lte("entry_date", toIso)
+    .order("entry_date").order("entry_no");
+  if (error) { console.error("loadJournalEntries:", error); return []; }
+  return (data ?? []).map(r => ({
+    ...r,
+    lines: (r.lines ?? [])
+      .map((l) => ({
+        ...l,
+        account: Array.isArray(l.account) ? l.account[0] ?? null : l.account,
+        counterparty: Array.isArray(l.counterparty) ? l.counterparty[0] ?? null : l.counterparty,
+      }))
+      .sort((a, b) => a.sort_order - b.sort_order),
+  })) as JournalEntry[];
+}
+
+export interface ManualJournalLineInput {
+  account_id: string;
+  counterparty_id: string | null;
+  debit_amount: number;
+  credit_amount: number;
+}
+
+// 서버(RPC)가 차변/대변 합계 일치를 검증 — 브라우저 직통이라 클라 검증만으론
+// 정합성이 보장 안 됨. 잔액 안 맞으면 RPC가 에러를 던짐.
+export async function createManualJournalEntry(
+  tenantId: string, entryDate: string, memo: string, lines: ManualJournalLineInput[],
+): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await supabase.rpc("create_manual_journal_entry", {
+    p_tenant_id: tenantId, p_entry_date: entryDate, p_memo: memo, p_lines: lines,
+  });
+  if (error) { console.error("createManualJournalEntry:", error); return { id: null, error: error.message }; }
+  return { id: data as string, error: null };
+}
+
+// 자동생성 전표(source_cash_entry_id 있음)는 이 경로로 못 지움 — 그건 입출금 셀 쪽에서 관리.
+export async function deleteManualJournalEntry(id: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("journal_entries").delete().eq("id", id).is("source_cash_entry_id", null);
+  if (error) { console.error("deleteManualJournalEntry:", error); return { error: error.message }; }
+  return { error: null };
 }

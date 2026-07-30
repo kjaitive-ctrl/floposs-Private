@@ -14,21 +14,16 @@ import { useCellNavigation } from "@/lib/useCellNavigation";
 import AccountCombobox from "@/components/accounting/AccountCombobox";
 import CounterpartyCombobox from "@/components/accounting/CounterpartyCombobox";
 import {
-  type Account, type Counterparty, type CashLineItem,
+  type Account, type Counterparty, type CashLineItem, type VatType, VAT_TYPES,
   loadAccounts, loadCounterparties, loadCashLineItems, loadCashEntries, setCashEntry,
   addBlankLineItems, updateCashLineItem, deactivateCashLineItem, updateCounterparty, deactivateCounterparty,
-  loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta, checkAccountingReady,
+  loadCashBalanceAnchor, setCashBalanceAnchor, loadNetCashDelta, checkAccountingReady, monthRange,
 } from "@/lib/accounting";
-
-function monthRange(anchor: Date): { fromIso: string; toIso: string; label: string; days: number[] } {
-  const y = anchor.getFullYear(), m = anchor.getMonth();
-  const lastDay = new Date(y, m + 1, 0).getDate();
-  const iso = (d: number) => `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  return { fromIso: iso(1), toIso: iso(lastDay), label: `${y}년 ${m + 1}월`, days: Array.from({ length: lastDay }, (_, i) => i + 1) };
-}
 
 // 관리(삭제 등 행 액션)를 맨 왼쪽에 — 날짜열까지 스크롤 안 해도 바로 지울 수 있게.
 // 적요(거래 성격)는 그다음 — 거래처보다 "무엇 때문인지"를 먼저 입력.
+// 부가세는 계정 바로 다음 — 이 행에서 나가는 전표가 3줄(공급가/세액)로
+// 쪼개질지를 정하는 태그라 계정과 붙어있는 게 자연스러움.
 const FROZEN = [
   { key: "action", label: "관리", width: 40 },
   { key: "memo", label: "적요", width: 130 },
@@ -37,6 +32,7 @@ const FROZEN = [
   { key: "bank", label: "은행", width: 80 },
   { key: "account", label: "계좌번호", width: 110 },
   { key: "acct", label: "계정", width: 110 },
+  { key: "vat", label: "부가세", width: 64 },
   { key: "mgmt", label: "관리항목", width: 90 },
   { key: "total", label: "소계", width: 90 },
 ] as const;
@@ -47,8 +43,13 @@ function frozenStyle(i: number): CSSProperties {
 }
 const TOTAL_IDX = FROZEN.length - 1;
 
-export default function CashMatrix({ tenantId }: { tenantId: string }) {
-  const [anchor, setAnchor] = useState(() => new Date());
+interface Props {
+  tenantId: string;
+  anchor: Date;
+  onAnchorChange: (updater: (a: Date) => Date) => void;
+}
+
+export default function CashMatrix({ tenantId, anchor, onAnchorChange }: Props) {
   const { fromIso, toIso, label, days } = monthRange(anchor);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [counterparties, setCounterparties] = useState<Counterparty[]>([]);
@@ -172,6 +173,12 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     updateCashLineItem(item.id, { [field]: value || null });
   }
 
+  function saveVatType(item: CashLineItem, value: string) {
+    const vat_type = (value || null) as VatType | null;
+    patchItemLocal(item.id, { vat_type });
+    updateCashLineItem(item.id, { vat_type });
+  }
+
   async function handleRemoveItem(item: CashLineItem) {
     if (!confirm(`"${item.memo || item.counterparty?.name || "(이름 없음)"}" 행을 목록에서 지울까요? 이미 입력된 지난 달 숫자는 그대로 남아요.`)) return;
     await deactivateCashLineItem(item.id);
@@ -282,6 +289,17 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
           />
         </td>
         <td style={frozenStyle(7)} className="bg-white border-b border-gray-100 px-1">
+          <select
+            id={`cmcell-${item.id}-vat`}
+            value={item.vat_type ?? ""}
+            onChange={e => saveVatType(item, e.target.value)}
+            className={styles.gridInput}
+          >
+            <option value="">-</option>
+            {VAT_TYPES.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        </td>
+        <td style={frozenStyle(8)} className="bg-white border-b border-gray-100 px-1">
           <input id={`cmcell-${item.id}-mgmt`} defaultValue={item.management_tag ?? ""} placeholder="관리항목"
             onBlur={e => saveTextField(item, "management_tag", e.target.value)}
             onKeyDown={e => handleNav(e, item.id, "mgmt")}
@@ -328,9 +346,9 @@ export default function CashMatrix({ tenantId }: { tenantId: string }) {
     <div>
       {/* 월 이동(자주 누름)과 관리 버튼(가끔 누름)을 줄 자체를 분리 — 연타하다 실수로 안 눌리게 */}
       <div className="flex items-center gap-3 mb-2">
-        <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>‹</button>
+        <button type="button" className={styles.btnSmallGhost} onClick={() => onAnchorChange(a => new Date(a.getFullYear(), a.getMonth() - 1, 1))}>‹</button>
         <div className="text-sm font-bold text-black w-24 text-center">{label}</div>
-        <button type="button" className={styles.btnSmallGhost} onClick={() => setAnchor(a => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>›</button>
+        <button type="button" className={styles.btnSmallGhost} onClick={() => onAnchorChange(a => new Date(a.getFullYear(), a.getMonth() + 1, 1))}>›</button>
       </div>
       <div className="flex items-center gap-2 mb-3">
         <button type="button" onClick={() => setCpPanelOpen(o => !o)} className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2">거래처 관리</button>
