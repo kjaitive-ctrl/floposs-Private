@@ -12,11 +12,13 @@ const TABS = [
   { key: "matrix", label: "입출금" },
   { key: "journal", label: "전표" },
   { key: "settings", label: "설정" },
+  { key: "vat", label: "부가세자료" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
 
 // 회계 탭 — 입출금 매트릭스 / 전표(자동+수동, 마이그 229) / 설정(계정과목,
-// 마이그 230)을 탭으로 분리. 매트릭스·전표는 같은 달(anchor)을 공유.
+// 마이그 230) / 부가세자료(거래처별 집계, 아직 빈 자리)로 분리.
+// 매트릭스·전표는 같은 달(anchor)을 공유.
 export default function AccountingPage() {
   const { tenant } = useTenant();
   const [anchor, setAnchor] = useState(() => new Date());
@@ -40,6 +42,7 @@ export default function AccountingPage() {
           {tab === "matrix" && <CashMatrix tenantId={tenant.id} anchor={anchor} onAnchorChange={setAnchor} />}
           {tab === "journal" && <JournalPanel tenantId={tenant.id} fromIso={fromIso} toIso={toIso} label={label} />}
           {tab === "settings" && <AccountSettingsPanel tenantId={tenant.id} />}
+          {tab === "vat" && <div className={styles.cardSm + " text-xs text-gray-400"}>준비 중이에요.</div>}
         </>
       )}
     </main>
