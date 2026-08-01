@@ -203,7 +203,9 @@ export async function loadCashEntries(tenantId: string, fromIso: string, toIso: 
     .eq("tenant_id", tenantId).gte("txn_date", fromIso).lte("txn_date", toIso);
   if (error) { console.error("loadCashEntries:", error); return new Map(); }
   const map = new Map<string, number>();
-  for (const r of data ?? []) map.set(`${r.line_item_id}:${r.txn_date}`, r.amount);
+  // 화면 셀 키는 "id:일자숫자"(예: "abc:1") 인데 txn_date 는 전체 날짜 문자열("2026-08-01")
+  // 이라 그대로 쓰면 절대 안 맞음 — 그래서 DB엔 저장됐는데 새로고침하면 화면에 안 보이던 버그.
+  for (const r of data ?? []) map.set(`${r.line_item_id}:${Number(r.txn_date.slice(-2))}`, r.amount);
   return map;
 }
 
