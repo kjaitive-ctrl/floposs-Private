@@ -20,7 +20,7 @@ function RoutinesInner() {
 
   return (
     <div className="flex gap-4 items-start">
-      <aside className="hidden xl:block w-64 shrink-0 sticky top-16">
+      <aside className="hidden xl:block w-[32rem] shrink-0 sticky top-16">
         <LongTermTasksPanel tenantId={tenant.id} />
       </aside>
       <div className="flex-1 min-w-0 max-w-6xl mx-auto">
@@ -41,7 +41,7 @@ function RoutinesInner() {
 
 export default function RoutinesPage() {
   return (
-    <main className="max-w-[1560px] mx-auto px-6 py-8">
+    <main className="max-w-[1800px] mx-auto px-6 py-8">
       <Suspense fallback={<div className="text-xs text-gray-400">…</div>}>
         <RoutinesInner />
       </Suspense>
