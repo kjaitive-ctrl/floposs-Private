@@ -76,6 +76,30 @@ export async function deleteObject(key: string): Promise<void> {
   await s3.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
 }
 
+// 서버에서 가공한 buffer 직접 업로드 (presigned 아님 — 텍스트 각인처럼 서버 내부에서 결과물을 만들 때만).
+export async function putObjectBuffer(
+  key: string, body: Buffer, contentType: string, cacheControl?: string,
+): Promise<void> {
+  await s3.send(new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+    ...(cacheControl ? { CacheControl: cacheControl } : {}),
+  }));
+}
+
+// 존재하면 buffer, 없으면 null. (텍스트 각인 시 "진짜 원본 백업본이 있는지" 체크용 — 404 를 에러로 안 취급)
+export async function tryGetObjectBuffer(key: string): Promise<Buffer | null> {
+  try {
+    return await getObjectBuffer(key);
+  } catch (e) {
+    const code = (e as { name?: string; Code?: string })?.name ?? (e as { Code?: string })?.Code;
+    if (code === "NoSuchKey" || code === "NotFound") return null;
+    throw e;
+  }
+}
+
 // 객체 바이트 그대로 가져오기 (서버 내부 가공용 — GIF 합성 등).
 export async function getObjectBuffer(key: string): Promise<Buffer> {
   const res = await s3.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));

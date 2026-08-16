@@ -33,7 +33,16 @@ type ImageRow = {
   sort_order: number;
   is_main: boolean;
   created_at: string;
+  stamp_label: string | null;
 };
+
+// 각인 텍스트 "아이보리(ivory)" → { base: "아이보리", annex: "ivory" } 로 역분해 (재각인 시 prefill 용)
+function parseStampLabel(label: string | null): { base: string; annex: string } {
+  if (!label) return { base: "", annex: "" };
+  const m = label.match(/^(.*?)\((.*)\)\s*$/);
+  if (m) return { base: m[1].trim(), annex: m[2].trim() };
+  return { base: label, annex: "" };
+}
 
 type FailEntry = { name: string; reason: string };
 
@@ -83,6 +92,13 @@ export default function ProductImagesModal({ productId, productName, onClose, on
   const [deleting, setDeleting] = useState(false);
   // URL 복사 직후 1.2초 동안 ✓ 피드백 표시 (Google Drive 식)
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // 색상 라벨 각인 — 상품 variant 의 색상 옵션 목록 + 패널 상태
+  const [colorOptions, setColorOptions] = useState<string[]>([]);
+  const [stampOpen, setStampOpen] = useState(false);
+  const [stampBase, setStampBase] = useState("");
+  const [stampAnnex, setStampAnnex] = useState("");
+  const [stamping, setStamping] = useState(false);
+  const [stampError, setStampError] = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingTypeRef = useRef<ImageType>("thumbnail");
@@ -91,7 +107,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
     setLoading(true);
     const { data } = await supabase
       .from("product_images")
-      .select("id, url, file_size, mime_type, image_type, sort_order, is_main, created_at")
+      .select("id, url, file_size, mime_type, image_type, sort_order, is_main, created_at, stamp_label")
       .eq("product_id", productId)
       .order("image_type", { ascending: true })
       .order("sort_order", { ascending: true })
@@ -102,6 +118,28 @@ export default function ProductImagesModal({ productId, productName, onClose, on
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { fetchImages(); }, [fetchImages]);
+
+  // 색상 각인 드롭다운용 — 상품(소비자) 표시명 기준 distinct 색상 옵션 목록
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("product_variants")
+        .select("color, consumer_label_color, sort_order")
+        .eq("product_id", productId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+      const seen = new Set<string>();
+      const labels: string[] = [];
+      for (const v of (data ?? []) as { color: string | null; consumer_label_color: string | null }[]) {
+        const label = (v.consumer_label_color ?? v.color ?? "").trim();
+        if (label && !seen.has(label)) {
+          seen.add(label);
+          labels.push(label);
+        }
+      }
+      setColorOptions(labels);
+    })();
+  }, [productId]);
 
   // PUT 진행률 — XMLHttpRequest 가 progress 이벤트 제공. fetch 는 미지원.
   function putWithProgress(url: string, file: File, onPct: (pct: number) => void): Promise<void> {
@@ -345,6 +383,46 @@ export default function ProductImagesModal({ productId, productName, onClose, on
     }
   }
 
+  // ── 색상 라벨 각인 (선택 1장 전용) ──
+  function openStampPanel() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
+    if (targets.length !== 1) return;
+    const { base, annex } = parseStampLabel(targets[0].stamp_label);
+    setStampBase(base && colorOptions.includes(base) ? base : (colorOptions[0] ?? ""));
+    setStampAnnex(annex);
+    setStampError(null);
+    setStampOpen(true);
+  }
+
+  function closeStampPanel() {
+    setStampOpen(false);
+    setStampError(null);
+  }
+
+  async function submitStamp() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
+    if (targets.length !== 1 || !stampBase) return;
+    const finalText = stampAnnex.trim() ? `${stampBase}(${stampAnnex.trim()})` : stampBase;
+    setStamping(true);
+    setStampError(null);
+    try {
+      const res = await fetch("/api/products/stamp-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_id: targets[0].id, text: finalText }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || `각인 실패 (${res.status})`);
+      setStampOpen(false);
+      await fetchImages();
+      onSaved();
+    } catch (e) {
+      setStampError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStamping(false);
+    }
+  }
+
   async function copyOneUrl(row: ImageRow) {
     try {
       await navigator.clipboard.writeText(row.url);
@@ -476,6 +554,14 @@ export default function ProductImagesModal({ productId, productName, onClose, on
               {deleting && <span className="text-[11px] text-gray-600">삭제 중...</span>}
             </div>
             <div className="flex gap-2">
+              {selectedCount === 1 && (
+                <button onClick={openStampPanel}
+                  disabled={downloading || deleting || colorOptions.length === 0}
+                  title={colorOptions.length === 0 ? "상품에 색상 옵션이 없습니다" : undefined}
+                  className="text-xs px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50">
+                  🏷 색상 각인
+                </button>
+              )}
               <button onClick={downloadSelected}
                 disabled={downloading || deleting}
                 className="text-xs px-3 py-1.5 bg-black text-white rounded hover:bg-gray-800 disabled:bg-gray-400">
@@ -525,6 +611,40 @@ export default function ProductImagesModal({ productId, productName, onClose, on
               )}
               {error && <div className="mt-1 text-red-600 max-w-[220px]">{error}</div>}
             </div>
+          </div>
+        )}
+
+        {stampOpen && (
+          <div className="px-6 py-3 border-b border-gray-100 bg-amber-50/50 flex items-end gap-3 flex-wrap">
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">색상 옵션</label>
+              <select value={stampBase} onChange={e => setStampBase(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white min-w-[110px]">
+                {colorOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] text-gray-500 mb-1">영문 보조 (선택)</label>
+              <input value={stampAnnex} onChange={e => setStampAnnex(e.target.value)}
+                placeholder="예: ivory"
+                className="text-xs border border-gray-300 rounded px-2 py-1.5 w-[120px]" />
+            </div>
+            <div className="text-xs text-gray-600 pb-1.5">
+              미리보기: <span className="font-bold text-black">
+                {stampAnnex.trim() ? `${stampBase}(${stampAnnex.trim()})` : stampBase}
+              </span>
+            </div>
+            <div className="flex gap-2 ml-auto pb-0.5">
+              <button onClick={closeStampPanel} disabled={stamping}
+                className="text-xs px-3 py-1.5 border border-gray-300 rounded text-gray-700 hover:bg-white disabled:opacity-50">
+                취소
+              </button>
+              <button onClick={submitStamp} disabled={stamping || !stampBase}
+                className="text-xs px-3 py-1.5 bg-black text-white rounded hover:bg-gray-800 disabled:bg-gray-400">
+                {stamping ? "각인 중..." : "각인"}
+              </button>
+            </div>
+            {stampError && <div className="w-full text-[11px] text-red-600">{stampError}</div>}
           </div>
         )}
 
@@ -587,9 +707,18 @@ export default function ProductImagesModal({ productId, productName, onClose, on
                             }`}>
                             <div className="relative aspect-square bg-gray-50">
                               {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={row.url} alt=""
+                              <img
+                                src={row.stamp_label ? `${row.url}?stamp=${encodeURIComponent(row.stamp_label)}` : row.url}
+                                alt=""
                                 className="w-full h-full object-cover pointer-events-none"
                                 loading="lazy" />
+                              {/* 🏷 각인됨 표시 좌하단 */}
+                              {row.stamp_label && (
+                                <div title={`각인: ${row.stamp_label}`}
+                                  className="absolute bottom-1 left-1 w-5 h-5 flex items-center justify-center rounded bg-black/70 text-[11px]">
+                                  🏷
+                                </div>
+                              )}
                               {/* 좌상단: 체크박스 (선택 시 항상, 호버 시 표시) */}
                               <div className={`absolute top-1 left-1 w-5 h-5 flex items-center justify-center rounded transition-opacity text-xs ${
                                 isSelected
