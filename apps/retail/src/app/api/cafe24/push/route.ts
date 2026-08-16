@@ -45,6 +45,7 @@ interface DbVariant {
   consumer_label_size: string | null;
   consumer_label_option3: string | null;
   is_active: boolean | null;
+  sort_order: number | null;
 }
 interface DbImage { url: string; sort_order: number | null; is_main: boolean | null; image_type: string | null }
 interface DbMeasurement { size: string; measurements: Record<string, string | number> }
@@ -95,12 +96,28 @@ function escapeHtml(s: string): string {
 const TD = `style="border:1px solid #e0e0e0;padding:6px 10px;text-align:center;font-size:12px;"`;
 const TH = `style="border:1px solid #e0e0e0;padding:6px 10px;text-align:center;font-size:12px;background:#f8f8f8;font-weight:600;"`;
 
-function buildSizeTable(measurements: DbMeasurement[], fieldKeys: string[]): string {
+function buildSizeTable(measurements: DbMeasurement[], fieldKeys: string[], variants: DbVariant[]): string {
   if (measurements.length === 0 || fieldKeys.length === 0) return "";
+
+  // 사이즈 정렬 = 옵션 등록 순서(product_variants.sort_order) 기준. 알파벳 정렬 시 M이 S보다
+  // 앞에 오는 등 실제 등록 순서와 어긋나는 문제가 있었음 — 같은 사이즈를 쓰는 variant 중 가장
+  // 앞선 sort_order를 그 사이즈의 순서로 사용.
+  const sizeOrder = new Map<string, number>();
+  for (const v of variants) {
+    if (!v.consumer_label_size) continue;
+    const order = v.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const prev = sizeOrder.get(v.consumer_label_size);
+    if (prev === undefined || order < prev) sizeOrder.set(v.consumer_label_size, order);
+  }
+
   // 값이 하나라도 있는 row만 포함
   const rows = measurements
     .filter(m => fieldKeys.some(k => m.measurements[k] != null && m.measurements[k] !== ""))
-    .sort((a, b) => a.size.localeCompare(b.size));
+    .sort((a, b) => {
+      const oa = sizeOrder.get(a.size) ?? Number.MAX_SAFE_INTEGER;
+      const ob = sizeOrder.get(b.size) ?? Number.MAX_SAFE_INTEGER;
+      return oa !== ob ? oa - ob : a.size.localeCompare(b.size);
+    });
   if (rows.length === 0) return "";
 
   const headers = ["사이즈", ...fieldKeys].map(k => `<th ${TH}>${escapeHtml(k)}</th>`).join("");
@@ -209,7 +226,7 @@ function buildDetailHtml(
   }
 
   // 5. 사이즈표 + 고정 안내문구
-  const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys);
+  const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys, p.product_variants ?? []);
   if (sizeTable) {
     lines.push(sizeTable);
     lines.push(`<div style="font-size:11px;color:#888;margin-top:4px;line-height:1.6;">
@@ -322,7 +339,7 @@ export async function POST(req: NextRequest) {
       wholesale_price, wholesale_price_current,
       country_of_origin, material_composition,
       comment_data, cafe24_product_no,
-      product_variants(id, consumer_label_color, consumer_label_size, consumer_label_option3, is_active),
+      product_variants(id, consumer_label_color, consumer_label_size, consumer_label_option3, is_active, sort_order),
       product_images(url, sort_order, is_main, image_type),
       product_measurements(size, measurements),
       product_shoots(model_id, worn_variant_id, models(name, height, weight))
