@@ -30,11 +30,10 @@ function escapeXml(s: string): string {
 }
 
 function buildLabelSvg(text: string, width: number, height: number, fontSize: number): string {
-  const strokeWidth = Math.max(2, Math.round(fontSize * 0.06));
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
   <text x="50%" y="${TOP_MARGIN_PX}" text-anchor="middle" dominant-baseline="hanging"
     font-family="Pretendard" font-weight="700" font-size="${fontSize}"
-    fill="#ffffff" stroke="#000000" stroke-width="${strokeWidth}" paint-order="stroke">${escapeXml(text)}</text>
+    fill="#000000">${escapeXml(text)}</text>
 </svg>`;
 }
 
