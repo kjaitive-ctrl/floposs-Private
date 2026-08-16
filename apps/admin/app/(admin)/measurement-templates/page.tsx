@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Modal } from "@floposs/ui";
 import { supabase } from "@/lib/supabase";
+import { sortByFieldOrder } from "./fieldOrder";
 
 // 측정 카테고리 관리 (super_admin 전용).
 //   - measurement_templates 에서 tenant_id IS NULL (시스템 공통)만 관리.
@@ -171,7 +172,7 @@ function TemplateModal({
   const [fields, setFields] = useState<FieldDraft[]>(() => {
     if (!existing) return [{ label: "총장", required: true }];
     const requiredSet = new Set(existing.required_keys);
-    return existing.field_keys.map(k => ({ label: k, required: requiredSet.has(k) }));
+    return sortByFieldOrder(existing.field_keys).map(k => ({ label: k, required: requiredSet.has(k) }));
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -180,23 +181,20 @@ function TemplateModal({
   // 활성 칩 라벨 집합 (chipPool 토글 판단용)
   const activeLabels = new Set(fields.map(f => f.label));
 
+  // 필드 순서는 항상 마스터 순서([[중앙 1곳 변경 = 모든 곳 자동 반영]] fieldOrder.ts) 자동 정렬.
+  // 카테고리마다 손으로 순서를 바꾸면 컬럼 위치가 서로 어긋나던 문제 (2026-08-16) — 수동 재배치 제거.
   function toggleChip(label: string) {
     if (activeLabels.has(label)) {
       setFields(fields.filter(f => f.label !== label));
     } else {
-      setFields([...fields, { label, required: false }]);
+      const next = [...fields, { label, required: false }];
+      const order = sortByFieldOrder(next.map(f => f.label));
+      setFields(order.map(l => next.find(f => f.label === l)!));
     }
     setError("");
   }
   function removeField(idx: number) {
     setFields(fields.filter((_, i) => i !== idx));
-  }
-  function moveField(idx: number, dir: -1 | 1) {
-    const next = [...fields];
-    const target = idx + dir;
-    if (target < 0 || target >= next.length) return;
-    [next[idx], next[target]] = [next[target], next[idx]];
-    setFields(next);
   }
   function toggleRequired(idx: number) {
     setFields(fields.map((f, i) => i === idx ? { ...f, required: !f.required } : f));
@@ -214,10 +212,11 @@ function TemplateModal({
     }
 
     setSaving(true);
+    const orderedLabels = sortByFieldOrder(fields.map(f => f.label));
     const payload = {
       category: name,
-      field_keys: fields.map(f => f.label),
-      required_keys: fields.filter(f => f.required).map(f => f.label),
+      field_keys: orderedLabels,
+      required_keys: orderedLabels.filter(l => fields.find(f => f.label === l)?.required),
       sort_order: sortOrder,
       is_active: isActive,
       updated_at: new Date().toISOString(),
@@ -318,7 +317,7 @@ function TemplateModal({
               새 필드 등록은 상단 [+ 새 측정 필드 (칩)] 버튼으로. 칩 비활성화해도 박제 데이터는 보존됩니다.
             </p>
 
-            <label className="block text-xs text-gray-600 mb-1.5">활성 필드 — 순서 / 필수 토글</label>
+            <label className="block text-xs text-gray-600 mb-1.5">활성 필드 — 순서는 자동 정렬, 필수만 토글</label>
             <ul className="space-y-1">
               {fields.length === 0 ? (
                 <li className="text-xs text-gray-400 text-center py-3 bg-gray-50 rounded">
@@ -337,10 +336,6 @@ function TemplateModal({
                     {f.required && <span className="text-red-500 mr-0.5">*</span>}
                     {f.label}
                   </span>
-                  <button onClick={() => moveField(idx, -1)} disabled={idx === 0}
-                    className="text-xs text-gray-500 hover:text-black disabled:opacity-30 px-1">↑</button>
-                  <button onClick={() => moveField(idx, 1)} disabled={idx === fields.length - 1}
-                    className="text-xs text-gray-500 hover:text-black disabled:opacity-30 px-1">↓</button>
                   <button onClick={() => removeField(idx)}
                     className="text-xs text-red-500 hover:text-red-700 px-1">×</button>
                 </li>
@@ -425,7 +420,7 @@ function ChipRegisterModal({
       .filter(t => !t.field_keys.includes(name))
       .map(t => ({
         id: t.id,
-        field_keys: [...t.field_keys, name],
+        field_keys: sortByFieldOrder([...t.field_keys, name]),
       }));
 
     let failed = 0;
