@@ -166,22 +166,39 @@ function buildDetailHtml(
     lines.push(`</div>`);
   }
 
-  // 3. 착용정보 (촬영 데이터 중 첫 번째)
-  const shoot = (p.product_shoots ?? [])[0];
-  if (shoot) {
-    const m = shoot.models;
-    const wornVariant = (p.product_variants ?? []).find(v => v.id === shoot.worn_variant_id);
-    const modelParts: string[] = [];
-    if (m?.name)   modelParts.push(m.name);
-    if (m?.height) modelParts.push(`${m.height}cm`);
-    if (m?.weight) modelParts.push(`${m.weight}kg`);
-    const wornParts = [wornVariant?.consumer_label_color, wornVariant?.consumer_label_size, wornVariant?.consumer_label_option3].filter(Boolean);
+  // 3. 착용정보 (촬영 데이터 전체 — 같은 모델이 옵션 여러 개 입고 촬영하는 경우가 흔함 → 모델별로 묶어서 전부 표기)
+  const shoots = p.product_shoots ?? [];
+  if (shoots.length > 0) {
+    type ModelGroup = { m: DbModel | null; wornLines: string[] };
+    const groups = new Map<string, ModelGroup>();
+    shoots.forEach((shoot, i) => {
+      const key = shoot.model_id ?? `__no-model-${i}`;
+      const wornVariant = (p.product_variants ?? []).find(v => v.id === shoot.worn_variant_id);
+      const wornLine = [wornVariant?.consumer_label_color, wornVariant?.consumer_label_size, wornVariant?.consumer_label_option3]
+        .filter(Boolean).join(" / ");
+      let group = groups.get(key);
+      if (!group) {
+        group = { m: shoot.models, wornLines: [] };
+        groups.set(key, group);
+      }
+      if (wornLine) group.wornLines.push(wornLine);
+    });
 
-    if (modelParts.length > 0 || wornParts.length > 0) {
+    const blocks = [...groups.values()].map(({ m, wornLines }) => {
+      const modelParts: string[] = [];
+      if (m?.name)   modelParts.push(m.name);
+      if (m?.height) modelParts.push(`${m.height}cm`);
+      if (m?.weight) modelParts.push(`${m.weight}kg`);
+      if (modelParts.length === 0 && wornLines.length === 0) return "";
+      const modelLine = modelParts.length > 0 ? `<p style="margin:6px 0 2px;">모델: ${escapeHtml(modelParts.join(" / "))}</p>` : "";
+      const wornLine = wornLines.length > 0 ? `<p style="margin:2px 0;">착용: ${escapeHtml(wornLines.join(", "))}</p>` : "";
+      return modelLine + wornLine;
+    }).filter(Boolean);
+
+    if (blocks.length > 0) {
       lines.push(`<div style="margin-bottom:24px;font-size:12px;color:#555;text-align:center;">`);
       lines.push(`<span ${INFO_LABEL}>착용정보</span>`);
-      if (modelParts.length > 0) lines.push(`<p style="margin:6px 0 2px;">모델: ${escapeHtml(modelParts.join(" / "))}</p>`);
-      if (wornParts.length > 0)  lines.push(`<p style="margin:2px 0;">착용: ${escapeHtml(wornParts.join(" / "))}</p>`);
+      lines.push(...blocks);
       lines.push(`</div>`);
     }
   }
