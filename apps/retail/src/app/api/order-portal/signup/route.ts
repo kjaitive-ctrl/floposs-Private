@@ -16,7 +16,7 @@ import {
 // 동작:
 //   1) dummy email Auth signUp
 //   2) tenants(tenant_type='retail') INSERT — 신규 필드 박제
-//   3) Free Beta 플랜 자동 박제 (가장 싼 active retail 플랜) + expires_at = now()+3개월
+//   3) Free Beta 플랜 자동 박제 (가장 싼 active retail 플랜) + expires_at = null (무제한, 2026-08-27~)
 //   4) users INSERT + app_metadata 박제
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown>;
@@ -89,9 +89,6 @@ export async function POST(req: NextRequest) {
     .limit(1)
     .maybeSingle();
 
-  const expiresAt = new Date();
-  expiresAt.setMonth(expiresAt.getMonth() + 3);
-
   // 3) tenants INSERT (tenant_type='retail')
   const { data: tenant, error: tenantError } = await supabaseAdmin
     .from("tenants")
@@ -111,9 +108,9 @@ export async function POST(req: NextRequest) {
       warehouse_phone: warehousePhone || null,
       store_name: storeName || null,
       store_url: storeUrl || null,
-      // 구독 자동 박제 (베타 플랜 있으면)
+      // 구독 자동 박제 (베타 플랜 있으면). Free Beta 마감기한 무제한 정책 (2026-08-27) → expires_at 항상 null.
       plan_id: betaPlan?.id ?? null,
-      subscription_expires_at: betaPlan ? expiresAt.toISOString() : null,
+      subscription_expires_at: null,
       is_active: true,
       status: "active",   // retail 자가가입 = 자동 활성 (승인 개념 없음, 진입 가드는 구독 만료만)
     })
