@@ -27,6 +27,14 @@ export function calcFee(sell: number, feeRatePercent: number, fixedFee: number):
   return Math.round(sell * (feeRatePercent / 100) + fixedFee);
 }
 
+// 부가세(원가, 마진 마이너스 항목). 사장 결정 2026-08-31.
+// 원화: 상시판매가에 VAT 이미 포함 → 역산 추출 = 상시판매가 − (상시판매가 / 1.1).
+// 외화(JPY/USD 등 해외채널, 예: 식스티퍼센트): 상시판매가에 VAT 미포함 → 판매가 × 10% 를 비용으로 가산.
+export function calcVat(sell: number, currency: PlatformCurrency): number {
+  if (currency === "KRW") return sell - sell / 1.1;
+  return sell * 0.1;
+}
+
 // 기준가(원화) → 플랫폼 표시가.
 // 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
 // 외화 플랫폼 (사장 결정 2026-07-20, 수정 2026-07-20): 먼저 순수 환율변환 후,

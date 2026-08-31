@@ -1,6 +1,6 @@
 "use client";
 import { formatComma } from "@/lib/format";
-import { formatPlatformPrice, calcFee, FIXED_FEE_KRW, type PlatformCurrency } from "@/lib/platformPricing";
+import { formatPlatformPrice, calcFee, calcVat, FIXED_FEE_KRW, type PlatformCurrency } from "@/lib/platformPricing";
 
 interface Props {
   productName: string;
@@ -13,7 +13,8 @@ interface Props {
 }
 
 // 수수료 = 상시판매가(해당통화) × 수수료% + 2,200원(고정, 해당통화로 환산)
-// 마진   = 상시판매가 − 수수료 − 도매가(해당통화로 환산)
+// 부가세 = 원화: 상시판매가 − (상시판매가/1.1) / 외화: 상시판매가 × 10% (calcVat)
+// 마진   = 상시판매가 − 수수료 − 도매가(해당통화로 환산) − 부가세
 export default function MarginCalcModal({ productName, sellPrice, wholesalePrice, feeRatePercent, currency, fxRate, onClose }: Props) {
   const needsFx = currency !== "KRW";
   const fxMissing = needsFx && !fxRate;
@@ -24,7 +25,8 @@ export default function MarginCalcModal({ productName, sellPrice, wholesalePrice
   const fixedFee = needsFx ? (fxRate ? FIXED_FEE_KRW / fxRate : 0) : FIXED_FEE_KRW;
 
   const fee = sell > 0 ? calcFee(sell, feeRatePercent, fixedFee) : 0;
-  const margin = sell - fee - cost;
+  const vat = sell > 0 ? calcVat(sell, currency) : 0;
+  const margin = sell - fee - cost - vat;
   const rateStr = sell > 0 && costRaw > 0 && !fxMissing ? (margin / sell * 100).toFixed(1) + "%" : null;
 
   const hasData = sell > 0 && costRaw > 0 && !fxMissing;
@@ -51,6 +53,12 @@ export default function MarginCalcModal({ productName, sellPrice, wholesalePrice
             <span className="text-gray-500">수수료 ({feeRatePercent}% + ₩{formatComma(FIXED_FEE_KRW)})</span>
             <span className={`font-medium ${fee >= 0 ? "text-rose-600" : "text-blue-600"}`}>
               {sell > 0 ? (fee >= 0 ? "−" : "+") + fmt(Math.abs(fee)) : "—"}
+            </span>
+          </div>
+          <div className="flex justify-between items-baseline">
+            <span className="text-gray-500">부가세{currency === "KRW" ? " (÷1.1)" : " (×10%)"}</span>
+            <span className="font-medium text-rose-600">
+              {sell > 0 ? "−" + fmt(vat) : "—"}
             </span>
           </div>
           <div className="flex justify-between items-baseline">

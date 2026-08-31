@@ -30,7 +30,7 @@ import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
 import {
   convertToPlatformPrice, formatPlatformPrice, feeContextFor, CAFE24_FEE_RATE,
-  calcFee, FIXED_FEE_KRW,
+  calcFee, calcVat, FIXED_FEE_KRW,
   type Platform, type FxRates,
 } from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
@@ -41,7 +41,8 @@ function marginRateColor(sellStr: string, costStr: string, feeRatePercent: numbe
   const cost = Number(costStr);
   if (!sell || !cost) return "text-gray-300 hover:text-gray-500";
   const fee = calcFee(sell, feeRatePercent, FIXED_FEE_KRW);
-  const rate = (sell - fee - cost) / sell * 100;
+  const vat = calcVat(sell, "KRW");
+  const rate = (sell - fee - cost - vat) / sell * 100;
   if (rate < 10)  return "text-red-500    hover:text-red-700";
   if (rate < 20)  return "text-orange-400 hover:text-orange-600";
   if (rate < 30)  return "text-yellow-400 hover:text-yellow-600";
