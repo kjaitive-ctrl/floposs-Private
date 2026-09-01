@@ -30,7 +30,7 @@ type ProductLite = {
   id: string;
   consumer_name: string | null;
   wholesale_name: string | null;
-  variants: Pick<Variant, "id" | "color" | "size" | "option3">[];
+  variants: Pick<Variant, "id" | "color" | "size" | "option3" | "consumer_label_color" | "consumer_label_size" | "consumer_label_option3">[];
 };
 
 type Props = {
@@ -42,8 +42,17 @@ type Props = {
   onSaved: () => void;
 };
 
-function variantLabel(v: { color?: string|null; size?: string|null; option3?: string|null }): string {
-  return [v.color, v.size, v.option3].filter(Boolean).join(" / ") || "기본";
+// 판매(소매) 옵션명 우선 — OptionChipCell 에서 rename 한 consumer_label_* 를 그대로 반영.
+// 라벨 미지정(rename 전) variant 는 도매 원본으로 fallback.
+function variantLabel(v: {
+  color?: string|null; size?: string|null; option3?: string|null;
+  consumer_label_color?: string|null; consumer_label_size?: string|null; consumer_label_option3?: string|null;
+}): string {
+  return [
+    v.consumer_label_color || v.color,
+    v.consumer_label_size || v.size,
+    v.consumer_label_option3 || v.option3,
+  ].filter(Boolean).join(" / ") || "기본";
 }
 
 export default function ShootModal({
@@ -74,7 +83,7 @@ export default function ShootModal({
       supabase.from("models").select("*").eq("tenant_id", tenantId)
         .eq("is_active", true).order("name"),
       supabase.from("products")
-        .select("id, consumer_name, wholesale_name, product_variants(id, color, size, option3)")
+        .select("id, consumer_name, wholesale_name, product_variants(id, color, size, option3, consumer_label_color, consumer_label_size, consumer_label_option3)")
         .eq("tenant_id", tenantId).neq("id", productId)
         .order("created_at", { ascending: false }),
       supabase.from("product_shoots").select("*")
