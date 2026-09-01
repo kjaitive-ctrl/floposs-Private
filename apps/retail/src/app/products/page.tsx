@@ -113,6 +113,9 @@ function ProductsPageInner() {
   const [thumbExportStatus, setThumbExportStatus] = useState("");
   // "60%" 플랫폼 업로드 엑셀 생성 진행 상태
   const [platform60Exporting, setPlatform60Exporting] = useState(false);
+  // 각인 이미지 상품별 폴더링 다운로드 진행 상태
+  const [stampExporting, setStampExporting] = useState(false);
+  const [stampExportStatus, setStampExportStatus] = useState("");
   // 메모 모달 — 메모(진행)=progress_memo 편집, 메모(샘플)=description 읽기 전용
   const [memoModal, setMemoModal] = useState<{ row: ProductRow; kind: "progress" | "sample" } | null>(null);
 
@@ -407,6 +410,97 @@ function ProductsPageInner() {
     }
   }
 
+  // URL → 다운로드 파일명 (ProductImagesModal 의 filenameFromUrl 과 동일 규칙: R2 key 끝부분).
+  function filenameFromUrl(url: string): string {
+    try {
+      const u = new URL(url);
+      const last = u.pathname.split("/").filter(Boolean).pop();
+      return last || "image.bin";
+    } catch {
+      return "image.bin";
+    }
+  }
+
+  // 선택 상품들의 각인(stamp_label 설정) 이미지만 모아 상품별 폴더로 ZIP 다운로드.
+  async function handleStampedImagesExport() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
+    if (targets.length === 0) return;
+    setStampExporting(true);
+    setStampExportStatus("각인 이미지 조회 중...");
+    try {
+      const { keyFromR2Url } = await import("@/lib/r2Client");
+      const { data: images, error } = await supabase
+        .from("product_images")
+        .select("product_id, url")
+        .in("product_id", targets.map(r => r.id))
+        .not("stamp_label", "is", null);
+      if (error) throw new Error(error.message);
+
+      const byProduct = new Map<string, string[]>();
+      (images ?? []).forEach(img => {
+        const list = byProduct.get(img.product_id) ?? [];
+        list.push(img.url);
+        byProduct.set(img.product_id, list);
+      });
+
+      const skipped = targets.filter(r => !byProduct.has(r.id)).map(safeFilename);
+      const withImages = targets.filter(r => byProduct.has(r.id));
+      if (withImages.length === 0) {
+        alert("선택한 상품 중 각인된 이미지가 없습니다.");
+        return;
+      }
+
+      // 폴더 경로(zip 내부) 포함 항목 구성. sign-get 은 한 번에 최대 200개.
+      type Item = { key: string; filename: string; zipPath: string };
+      const allItems: Item[] = [];
+      for (const row of withImages) {
+        const folder = safeFilename(row);
+        for (const url of byProduct.get(row.id)!) {
+          const key = keyFromR2Url(url);
+          if (!key) continue;
+          const fname = filenameFromUrl(url);
+          allItems.push({ key, filename: fname, zipPath: `${folder}/${fname}` });
+        }
+      }
+
+      const JSZipMod = (await import("jszip")).default;
+      const zip = new JSZipMod();
+      const CHUNK = 150;
+      for (let i = 0; i < allItems.length; i += CHUNK) {
+        const chunk = allItems.slice(i, i + CHUNK);
+        setStampExportStatus(`이미지 받는 중... ${Math.min(i + CHUNK, allItems.length)}/${allItems.length}`);
+        const res = await fetch("/api/r2/sign-get", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: chunk.map(it => ({ key: it.key, filename: it.filename })) }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `sign-get 실패 (${res.status})`);
+        }
+        const { urls } = await res.json() as { urls: string[] };
+        for (let j = 0; j < chunk.length; j++) {
+          const r = await fetch(urls[j]);
+          if (!r.ok) continue;
+          zip.file(chunk[j].zipPath, await r.arrayBuffer());
+        }
+      }
+
+      setStampExportStatus("ZIP 생성 중...");
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      triggerDownload(zipBlob, "각인이미지.zip");
+
+      if (skipped.length > 0) {
+        alert(`각인된 이미지가 없어 제외됨 (${skipped.length}개):\n${skipped.join(", ")}`);
+      }
+    } catch (e) {
+      alert(`각인 이미지 다운로드 실패: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setStampExporting(false);
+      setStampExportStatus("");
+    }
+  }
+
   // "60% 업로드" 버튼은 화면 위쪽 채널 토글(selectedPlatform)과 무관하게 항상 "식스티퍼센트"
   // 채널로 변환한다 — 토글을 안 눌러도 되게. 판매채널 관리에 이름에 "식스티" 또는 "60%"
   // 들어간 채널이 등록되어 있어야 함.
@@ -547,6 +641,15 @@ function ProductsPageInner() {
                 disabled={thumbExporting}
                 className={styles.btnSmall + " py-1 !border-emerald-400 !text-emerald-700 hover:!bg-emerald-50 disabled:opacity-50"}>
                 {thumbExporting ? (thumbExportStatus || "생성 중...") : `썸네일 추출 ${selectedIds.size}개`}
+              </button>
+            )}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleStampedImagesExport}
+                disabled={stampExporting}
+                title="선택 상품의 각인(라벨 합성)된 이미지만 상품별 폴더로 ZIP 다운로드"
+                className={styles.btnSmall + " py-1 !border-amber-400 !text-amber-700 hover:!bg-amber-50 disabled:opacity-50"}>
+                {stampExporting ? (stampExportStatus || "생성 중...") : `각인 이미지 ${selectedIds.size}개`}
               </button>
             )}
             <button onClick={async () => {
