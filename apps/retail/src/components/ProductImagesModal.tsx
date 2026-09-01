@@ -414,6 +414,8 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || `각인 실패 (${res.status})`);
       setStampOpen(false);
+      // 각인 완료 후 선택 해제 — 마우스로 일일이 풀고 다음 이미지 재선택할 필요 없게.
+      setSelectedIds(new Set());
       await fetchImages();
       onSaved();
     } catch (e) {
