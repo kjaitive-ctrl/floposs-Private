@@ -376,6 +376,9 @@ export async function POST(req: NextRequest) {
         results.push({ id: p.id, ok: false, error: "이미지 없음 — 전송 차단" });
         continue;
       }
+      // 상세페이지 본문(섹션4 "상세 이미지")에는 썸네일용 이미지가 섞이면 안 됨 —
+      // 썸네일은 대표이미지 슬롯 전용(하단 별도 로직), 본문엔 detail/etc 타입만.
+      const detailImages = images.filter(img => img.image_type !== "thumbnail");
       const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
       const sizeValues  = uniq(activeVariants.map(v => v.consumer_label_size));
@@ -462,11 +465,11 @@ export async function POST(req: NextRequest) {
       // 결과를 꽂아 상세페이지 이미지 순서를 보존. 이미지 1장 실패해도(allSettled) 나머지 성공한
       // 이미지만으로 상세페이지는 반드시 생성.
       if (cafe24ProductNo) {
-        const cdnUrlsByIndex: (string | null)[] = new Array(images.length).fill(null);
+        const cdnUrlsByIndex: (string | null)[] = new Array(detailImages.length).fill(null);
         const failReasons: string[] = [];
 
-        for (let i = 0; i < images.length; i += IMAGE_UPLOAD_CONCURRENCY) {
-          const batch = images.slice(i, i + IMAGE_UPLOAD_CONCURRENCY);
+        for (let i = 0; i < detailImages.length; i += IMAGE_UPLOAD_CONCURRENCY) {
+          const batch = detailImages.slice(i, i + IMAGE_UPLOAD_CONCURRENCY);
           const settled = await Promise.allSettled(batch.map(async (img, offset) => {
             const imgName = img.url.split("/").pop() ?? "image.jpg";
             const buf = await fetchImageBuffer(img.url);
@@ -487,7 +490,7 @@ export async function POST(req: NextRequest) {
 
         const cdnUrls = cdnUrlsByIndex.filter((u): u is string => !!u);
         if (failReasons.length > 0) {
-          const msg = `이미지 ${failReasons.length}/${images.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
+          const msg = `이미지 ${failReasons.length}/${detailImages.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
           imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
         }
 
