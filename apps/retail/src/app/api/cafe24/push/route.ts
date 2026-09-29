@@ -78,6 +78,14 @@ function uniq(arr: (string | null | undefined)[]): string[] {
   return [...new Set(arr.filter((v): v is string => !!v))];
 }
 
+// 중첩 select(product_variants)는 순서 보장 X → uniq 전에 등록 순서(sort_order)로 정렬해야
+// 상세 Size 줄/카페24 옵션이 "L | S | M" 처럼 섞이지 않음 (사이즈표 buildSizeTable 과 동일 기준).
+function sortedActiveVariants(p: DbProduct): DbVariant[] {
+  return (p.product_variants ?? [])
+    .filter(v => v.is_active !== false)
+    .sort((a, b) => (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER));
+}
+
 function materialText(raw: unknown): string {
   if (!raw) return "";
   if (typeof raw === "string") return raw;
@@ -164,7 +172,7 @@ function buildDetailHtml(
   companyName: string,  // tenants.company_name — "제조사" 표기용
 ): string {
   const lines: string[] = [];
-  const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
+  const activeVariants = sortedActiveVariants(p);
 
   // 1. 멘트
   if (p.comment_data?.trim()) {
@@ -379,7 +387,7 @@ export async function POST(req: NextRequest) {
       // 상세페이지 본문(섹션4 "상세 이미지")에는 썸네일용 이미지가 섞이면 안 됨 —
       // 썸네일은 대표이미지 슬롯 전용(하단 별도 로직), 본문엔 detail/etc 타입만.
       const detailImages = images.filter(img => img.image_type !== "thumbnail");
-      const activeVariants = (p.product_variants ?? []).filter(v => v.is_active !== false);
+      const activeVariants = sortedActiveVariants(p);
       const colorValues = uniq(activeVariants.map(v => v.consumer_label_color));
       const sizeValues  = uniq(activeVariants.map(v => v.consumer_label_size));
       const opt3Values  = uniq(activeVariants.map(v => v.consumer_label_option3));
