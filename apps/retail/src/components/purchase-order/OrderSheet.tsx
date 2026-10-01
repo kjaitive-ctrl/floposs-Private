@@ -118,16 +118,16 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               className={styles.gridInput} />
           )}
         </td>
-        <td className="px-1 py-1 w-24">
-          <input value={formatComma(item.unit_price ?? "")} placeholder="0"
-            onChange={e => patchLocal(item.id, { unit_price: Number(parseDigits(e.target.value) || "0") })}
-            onBlur={() => updateOrderItem(item.id, { unit_price: item.unit_price ?? 0 })}
-            className={styles.gridInput + " text-right"} />
-        </td>
         <td className="px-1 py-1 w-20">
           <input value={formatComma(item.quantity ?? "")} placeholder="0"
             onChange={e => patchLocal(item.id, { quantity: Number(parseDigits(e.target.value) || "0") })}
             onBlur={() => updateOrderItem(item.id, { quantity: item.quantity ?? 0 })}
+            className={styles.gridInput + " text-right"} />
+        </td>
+        <td className="px-1 py-1 w-24">
+          <input value={formatComma(item.unit_price ?? "")} placeholder="0"
+            onChange={e => patchLocal(item.id, { unit_price: Number(parseDigits(e.target.value) || "0") })}
+            onBlur={() => updateOrderItem(item.id, { unit_price: item.unit_price ?? 0 })}
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(subtotal)}</td>
@@ -150,8 +150,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 <th className={styles.thLeft}>도매상품명</th>
                 <th className={styles.thLeft}>거래처</th>
                 <th className={styles.th}>옵션</th>
-                <th className={styles.th}>단가</th>
                 <th className={styles.th}>수량</th>
+                <th className={styles.th}>단가</th>
                 <th className={styles.th}>소계</th>
               </tr>
             </thead>
