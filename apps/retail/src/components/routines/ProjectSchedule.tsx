@@ -5,8 +5,12 @@
 // 같은 날 여러 일정은 레인(lane)으로 쌓임(구글캘린더 월간뷰 방식, 주 경계에서 줄바꿈).
 // 프로젝트 추가/수정/순서/삭제는 상단 프로젝트 바에서 인라인으로(장기과제 패널과 같은 감각).
 // 프로젝트 삭제 = is_active=false(소프트) — 그 프로젝트 일정은 숨겨질 뿐 보존, 복원 가능.
-// project_id 없는 일정 = (미분류) 행. 일정 등록/수정은 칸·막대 클릭 → 모달.
-import { useCallback, useEffect, useState } from "react";
+// project_id 없는 일정 = (미분류) 행.
+// 등록/수정 = 상단 고정 등록줄(모달 없음). 칸 클릭 → 등록줄에 프로젝트·날짜 채움,
+// 막대 클릭 → 등록줄이 수정 모드. 마우스 드래그: 빈 칸 끌기=기간 선택, 막대 끌기=이동(다른
+// 프로젝트 행에 놓으면 프로젝트도 이동), 막대 양 끝 손잡이=시작/종료일 조절. 놓는 즉시 저장.
+// 터치는 드래그 없이 탭만(스크롤 충돌) — 등록줄 ‹ › 로 하루씩 이동.
+import { useCallback, useEffect, useRef, useState } from "react";
 import { styles } from "@/common/styles";
 import {
   isoDate, loadEvents, addEvent, deleteEvent, toggleEventDone, updateEvent,
@@ -29,11 +33,23 @@ const COLOR_KEYS = Object.keys(PROJECT_COLORS);
 const UNASSIGNED_CHIP = "bg-gray-200 text-gray-700";
 const DONE_CHIP = "bg-gray-100 text-gray-400";
 const UNASSIGNED = "__unassigned__";
+const DRAG_THRESHOLD_PX = 4;
 
 function colorOf(key: string) { return PROJECT_COLORS[key] ?? PROJECT_COLORS.sky; }
 function fmtMD(iso: string): string {
   const [, mo, da] = iso.split("-");
   return `${Number(mo)}/${Number(da)}`;
+}
+function isoToUtc(iso: string): number {
+  const [yy, mm, dd] = iso.split("-").map(Number);
+  return Date.UTC(yy, mm - 1, dd);
+}
+function dayDiff(fromIso: string, toIso: string): number {
+  return Math.round((isoToUtc(toIso) - isoToUtc(fromIso)) / 86400000);
+}
+function addDays(iso: string, n: number): string {
+  const d = new Date(isoToUtc(iso) + n * 86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 type DaySlot = { d: number; iso: string; inMonth: boolean };
@@ -76,15 +92,29 @@ function layoutWeek(week: DaySlot[], events: ScheduleEvent[]): { maxLanes: numbe
   return { maxLanes, cols };
 }
 
-// 등록/수정 모달 상태
-type EventDraft = {
-  id: string | null; // null = 신규
+// 등록줄 상태. id=null → 신규 등록 모드, id 있음 → 수정 모드
+type Form = {
+  id: string | null;
   projectId: string; // UNASSIGNED = 미분류
   title: string;
   assignee: string;
   start: string;
   end: string;
   isDone: boolean;
+};
+
+// 드래그 상태. select=빈 칸 끌어 기간 선택, move=막대 이동, resize-*=막대 끝 조절
+type Drag = {
+  kind: "select" | "move" | "resize-start" | "resize-end";
+  ev: ScheduleEvent | null;
+  anchorRow: string;
+  anchorIso: string;
+  curRow: string;
+  curIso: string;
+  x0: number;
+  y0: number;
+  moved: boolean;
+  mouse: boolean; // 터치/펜은 드래그 X (탭만)
 };
 
 const GRID_COLS = { gridTemplateColumns: "7.5rem repeat(7, minmax(5.5rem, 1fr))" };
@@ -101,7 +131,12 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   const [newProject, setNewProject] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
-  const [draft, setDraft] = useState<EventDraft | null>(null);
+  const [form, setForm] = useState<Form>({
+    id: null, projectId: UNASSIGNED, title: "", assignee: "", start: todayIso, end: todayIso, isDone: false,
+  });
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   // 달력 칸: 그 달 1일이 속한 주의 일요일 ~ 말일이 속한 주의 토요일 (앞뒤 달 날짜 포함)
   const first = new Date(y, m, 1);
@@ -124,24 +159,55 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     const [act, arc] = await Promise.all([loadProjects(tenantId, true), loadProjects(tenantId, false)]);
     setProjects(act);
     setArchived(arc);
+    return act;
   }, [tenantId]);
   useEffect(() => { reloadEvents(); }, [reloadEvents]);
-  useEffect(() => { reloadProjects(); }, [reloadProjects]);
+  useEffect(() => {
+    // 첫 로드 시 등록줄 프로젝트 기본값 = 첫 프로젝트
+    reloadProjects().then((act) => {
+      if (act.length > 0) setForm((f) => (f.id === null && f.projectId === UNASSIGNED ? { ...f, projectId: act[0].id } : f));
+    });
+  }, [reloadProjects]);
+
+  const activeIds = new Set(projects.map((p) => p.id));
+  const formProjectValid = form.projectId === UNASSIGNED || activeIds.has(form.projectId);
 
   function prevMonth() { if (m === 0) { setY(y - 1); setM(11); } else setM(m - 1); }
   function nextMonth() { if (m === 11) { setY(y + 1); setM(0); } else setM(m + 1); }
   function goToday() { setY(today.getFullYear()); setM(today.getMonth()); }
 
+  // ── 드래그 미리보기: 끄는 중인 일정은 예상 위치로 그림 ──
+  function dragResult(dr: Drag): ScheduleEvent | null {
+    if (!dr.ev || !dr.moved) return null;
+    const e = dr.ev;
+    if (dr.kind === "move") {
+      const delta = dayDiff(dr.anchorIso, dr.curIso);
+      return {
+        ...e,
+        event_date: addDays(e.event_date, delta),
+        end_date: addDays(e.end_date, delta),
+        project_id: dr.curRow === UNASSIGNED ? null : dr.curRow,
+      };
+    }
+    if (dr.kind === "resize-end") return { ...e, end_date: dr.curIso < e.event_date ? e.event_date : dr.curIso };
+    if (dr.kind === "resize-start") return { ...e, event_date: dr.curIso > e.end_date ? e.end_date : dr.curIso };
+    return null;
+  }
+  const preview = drag ? dragResult(drag) : null;
+  const shown = preview ? events.map((e) => (e.id === preview.id ? preview : e)) : events;
+  const selRange = drag && drag.kind === "select"
+    ? { row: drag.anchorRow, from: drag.anchorIso < drag.curIso ? drag.anchorIso : drag.curIso, to: drag.anchorIso < drag.curIso ? drag.curIso : drag.anchorIso }
+    : null;
+
   // ── 행 구성: 활성 프로젝트 전부 + (미분류: 이 화면 범위에 미분류 일정 있을 때만) ──
   // 삭제(보관)된 프로젝트의 일정은 숨김(데이터는 보존).
-  const activeIds = new Set(projects.map((p) => p.id));
-  const unassignedEvents = events.filter((e) => !e.project_id);
+  const unassignedEvents = shown.filter((e) => !e.project_id);
   const rows: { key: string; label: string; dot: string; events: ScheduleEvent[] }[] = [
     ...projects.map((p) => ({
       key: p.id, label: p.name, dot: colorOf(p.color).dot,
-      events: events.filter((e) => e.project_id === p.id),
+      events: shown.filter((e) => e.project_id === p.id),
     })),
-    ...(unassignedEvents.length > 0
+    ...(unassignedEvents.length > 0 || drag?.kind === "move"
       ? [{ key: UNASSIGNED, label: "(미분류)", dot: "bg-gray-300", events: unassignedEvents }]
       : []),
   ];
@@ -151,6 +217,136 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     if (e.project_id && activeIds.has(e.project_id)) return colorOf(projectColor.get(e.project_id)!).chip;
     return UNASSIGNED_CHIP;
   }
+
+  // ── 등록줄 ──
+  function fillNew(rowKey: string, start: string, end: string) {
+    setForm((f) => ({
+      id: null, projectId: rowKey, start, end, isDone: false,
+      // 수정 모드였다면 내용 비움, 신규 입력 중이었다면 쓰던 제목/담당 유지
+      title: f.id ? "" : f.title, assignee: f.id ? "" : f.assignee,
+    }));
+    setTimeout(() => titleRef.current?.focus(), 0);
+  }
+  function loadEdit(e: ScheduleEvent) {
+    setForm({
+      id: e.id,
+      projectId: e.project_id && activeIds.has(e.project_id) ? e.project_id : UNASSIGNED,
+      title: e.title, assignee: e.assignee ?? "", start: e.event_date, end: e.end_date, isDone: e.is_done,
+    });
+    setTimeout(() => titleRef.current?.focus(), 0);
+  }
+  function resetForm() {
+    setForm((f) => ({ ...f, id: null, title: "", assignee: "", isDone: false }));
+  }
+  async function submitForm(f: Form = form) {
+    if (!f.title.trim()) return;
+    const projectId = f.projectId === UNASSIGNED ? null : f.projectId;
+    const end = f.end >= f.start ? f.end : f.start;
+    if (f.id === null) {
+      setForm({ ...f, title: "" }); // 프로젝트·날짜·담당 유지 → 연속 입력
+      await addEvent(tenantId, f.start, f.title, f.assignee || null, null, end, projectId);
+    } else {
+      const patch = { title: f.title.trim(), assignee: f.assignee || null, event_date: f.start, end_date: end, project_id: projectId };
+      setEvents((prev) => prev.map((x) => (x.id === f.id ? { ...x, ...patch } : x))); // optimistic
+      resetForm();
+      await updateEvent(f.id, patch);
+    }
+    reloadEvents();
+  }
+  // ‹ › 하루씩 이동. 수정 모드면 즉시 저장(드래그와 같은 감각)
+  async function nudge(n: number) {
+    const f = { ...form, start: addDays(form.start, n), end: addDays(form.end, n) };
+    setForm(f);
+    if (f.id && f.title.trim()) {
+      const projectId = f.projectId === UNASSIGNED ? null : f.projectId;
+      const patch = { title: f.title.trim(), assignee: f.assignee || null, event_date: f.start, end_date: f.end, project_id: projectId };
+      setEvents((prev) => prev.map((x) => (x.id === f.id ? { ...x, ...patch } : x))); // optimistic
+      await updateEvent(f.id, patch);
+    }
+  }
+  async function toggleFormDone() {
+    if (!form.id) return;
+    const id = form.id;
+    const isDone = !form.isDone;
+    setForm({ ...form, isDone });
+    setEvents((prev) => prev.map((x) => (x.id === id ? { ...x, is_done: isDone } : x))); // optimistic
+    await toggleEventDone(id, isDone);
+  }
+  async function removeFormEvent() {
+    if (!form.id || !confirm("이 일정을 삭제할까요?")) return;
+    const id = form.id;
+    resetForm();
+    setEvents((prev) => prev.filter((x) => x.id !== id)); // optimistic
+    await deleteEvent(id);
+  }
+
+  // ── 드래그(포인터) ──
+  function beginDrag(ev: React.PointerEvent, kind: Drag["kind"], rowKey: string, iso: string, target: ScheduleEvent | null) {
+    if (ev.button !== 0) return;
+    ev.stopPropagation();
+    if (ev.pointerType === "mouse") ev.preventDefault(); // 텍스트 선택 방지
+    const dr: Drag = {
+      kind, ev: target, anchorRow: rowKey, anchorIso: iso, curRow: rowKey, curIso: iso,
+      x0: ev.clientX, y0: ev.clientY, moved: false, mouse: ev.pointerType === "mouse",
+    };
+    dragRef.current = dr;
+    setDrag(dr);
+  }
+
+  useEffect(() => {
+    if (!drag) return;
+    function onMove(pe: PointerEvent) {
+      const dr = dragRef.current;
+      if (!dr) return;
+      const far = Math.abs(pe.clientX - dr.x0) + Math.abs(pe.clientY - dr.y0) > DRAG_THRESHOLD_PX;
+      if (!dr.mouse) {
+        if (far) { dragRef.current = null; setDrag(null); } // 터치 = 스크롤로 간주, 취소
+        return;
+      }
+      const cell = (document.elementFromPoint(pe.clientX, pe.clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-iso]");
+      const next: Drag = { ...dr, moved: dr.moved || far };
+      if (cell) {
+        next.curIso = cell.dataset.iso!;
+        // 이동만 다른 행으로 넘어감. 기간 선택/끝 조절은 시작 행 고정
+        if (dr.kind === "move") next.curRow = cell.dataset.row!;
+      }
+      if (next.curIso !== dr.curIso || next.curRow !== dr.curRow || next.moved !== dr.moved) {
+        dragRef.current = next;
+        setDrag(next);
+      }
+    }
+    async function onUp() {
+      const dr = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (!dr) return;
+      if (dr.kind === "select") {
+        const [s, e] = dr.anchorIso < dr.curIso ? [dr.anchorIso, dr.curIso] : [dr.curIso, dr.anchorIso];
+        fillNew(dr.anchorRow, s, dr.moved ? e : s);
+        return;
+      }
+      if (!dr.ev) return;
+      if (!dr.moved) { loadEdit(dr.ev); return; } // 클릭 = 수정 모드
+      const r = dragResult(dr);
+      if (!r) return;
+      const patch = { event_date: r.event_date, end_date: r.end_date, project_id: r.project_id };
+      setEvents((prev) => prev.map((x) => (x.id === r.id ? { ...x, ...patch } : x))); // optimistic
+      // 등록줄에 같은 일정이 수정 중이면 날짜/프로젝트 동기화
+      setForm((f) => (f.id === r.id
+        ? { ...f, start: r.event_date, end: r.end_date, projectId: r.project_id ?? UNASSIGNED }
+        : f));
+      await updateEvent(r.id, patch);
+    }
+    function onCancel() { dragRef.current = null; setDrag(null); }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+    };
+  }, [drag !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 프로젝트 인라인 관리 ──
   async function createProject() {
@@ -192,6 +388,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   async function removeProject(p: ScheduleProject) {
     if (!confirm(`'${p.name}' 프로젝트를 삭제할까요?\n등록된 일정은 지워지지 않고 '삭제된 프로젝트'에서 복원할 수 있습니다.`)) return;
     setProjects((prev) => prev.filter((x) => x.id !== p.id)); // optimistic
+    if (form.projectId === p.id) setForm((f) => ({ ...f, projectId: UNASSIGNED }));
     await updateProject(p.id, { is_active: false });
     reloadProjects();
   }
@@ -202,95 +399,102 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     reloadProjects();
   }
 
-  // ── 일정 등록/수정 모달 ──
-  function openAdd(rowKey: string, iso: string) {
-    setDraft({ id: null, projectId: rowKey, title: "", assignee: "", start: iso, end: iso, isDone: false });
-  }
-  function openEdit(e: ScheduleEvent) {
-    setDraft({
-      id: e.id,
-      projectId: e.project_id && activeIds.has(e.project_id) ? e.project_id : UNASSIGNED,
-      title: e.title, assignee: e.assignee ?? "", start: e.event_date, end: e.end_date, isDone: e.is_done,
-    });
-  }
-  async function saveDraft() {
-    if (!draft || !draft.title.trim()) return;
-    const projectId = draft.projectId === UNASSIGNED ? null : draft.projectId;
-    const end = draft.end >= draft.start ? draft.end : draft.start;
-    const d = draft;
-    setDraft(null);
-    if (d.id === null) {
-      await addEvent(tenantId, d.start, d.title, d.assignee || null, null, end, projectId);
-    } else {
-      await updateEvent(d.id, { title: d.title.trim(), assignee: d.assignee || null, event_date: d.start, end_date: end, project_id: projectId });
-    }
-    reloadEvents();
-  }
-  async function toggleDraftDone() {
-    if (!draft?.id) return;
-    const isDone = !draft.isDone;
-    setDraft({ ...draft, isDone });
-    setEvents((prev) => prev.map((x) => (x.id === draft.id ? { ...x, is_done: isDone } : x))); // optimistic
-    await toggleEventDone(draft.id, isDone);
-  }
-  async function removeDraft() {
-    if (!draft?.id || !confirm("이 일정을 삭제할까요?")) return;
-    const id = draft.id;
-    setDraft(null);
-    setEvents((prev) => prev.filter((x) => x.id !== id)); // optimistic
-    await deleteEvent(id);
-  }
+  const editing = form.id !== null;
+  const smallInput = `${styles.inputMd} px-2 py-1.5 text-sm`;
 
   return (
     <div className="space-y-3">
-      {/* 프로젝트 바 — 인라인 추가/수정/순서/색/삭제 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-1">프로젝트</span>
-          {projects.map((p, i) => renamingId === p.id ? (
-            <span key={p.id} className="flex items-center gap-1">
-              <input value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
+      {/* 프로젝트 바 + 등록줄 — 스크롤해도 상단 고정 */}
+      <div className="sticky top-12 z-20 bg-white border border-gray-200 rounded-xl shadow-sm">
+        <div className="p-3 pb-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-1">프로젝트</span>
+            {projects.map((p, i) => renamingId === p.id ? (
+              <input key={p.id} value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenamingId(null); }}
                 onBlur={saveRename}
                 className={`${styles.inputMd} w-32 px-2 py-1 text-xs`} />
-            </span>
-          ) : (
-            <span key={p.id} className="group flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-full text-xs">
-              <button onClick={() => cycleColor(p)} title="색 바꾸기"
-                className={`w-3 h-3 rounded-full shrink-0 ${colorOf(p.color).dot}`} />
-              <button onClick={() => startRename(p)} title="이름 수정" className="text-black">{p.name}</button>
-              <span className="hidden group-hover:flex items-center gap-1 ml-0.5">
-                <button onClick={() => move(i, -1)} disabled={i === 0} title="앞으로"
-                  className="text-gray-300 hover:text-black disabled:invisible">‹</button>
-                <button onClick={() => move(i, 1)} disabled={i === projects.length - 1} title="뒤로"
-                  className="text-gray-300 hover:text-black disabled:invisible">›</button>
-                <button onClick={() => removeProject(p)} title="삭제" className="text-gray-300 hover:text-rose-500">✕</button>
-              </span>
-            </span>
-          ))}
-          <span className="flex items-center gap-1">
-            <input value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="+ 프로젝트 추가"
-              onKeyDown={(e) => { if (e.key === "Enter") createProject(); }}
-              className={`${styles.inputMd} w-36 px-2 py-1 text-xs`} />
-            {newProject.trim() && <button onClick={createProject} className={`${styles.btnSmall} shrink-0`}>추가</button>}
-          </span>
-          {archived.length > 0 && (
-            <button onClick={() => setShowArchived(!showArchived)} className="ml-auto text-xs text-gray-400 hover:text-black">
-              삭제된 프로젝트 ({archived.length}) {showArchived ? "▴" : "▾"}
-            </button>
-          )}
-        </div>
-        {showArchived && archived.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-100">
-            {archived.map((p) => (
-              <span key={p.id} className="flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-dashed border-gray-300 rounded-full text-xs text-gray-400">
-                <span className={`w-3 h-3 rounded-full shrink-0 opacity-40 ${colorOf(p.color).dot}`} />
-                {p.name}
-                <button onClick={() => restoreProject(p)} className="ml-1 text-gray-400 hover:text-black">복원</button>
+            ) : (
+              <span key={p.id} className="group flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-full text-xs">
+                <button onClick={() => cycleColor(p)} title="색 바꾸기"
+                  className={`w-3 h-3 rounded-full shrink-0 ${colorOf(p.color).dot}`} />
+                <button onClick={() => startRename(p)} title="이름 수정" className="text-black">{p.name}</button>
+                <span className="hidden group-hover:flex items-center gap-1 ml-0.5">
+                  <button onClick={() => move(i, -1)} disabled={i === 0} title="앞으로"
+                    className="text-gray-300 hover:text-black disabled:invisible">‹</button>
+                  <button onClick={() => move(i, 1)} disabled={i === projects.length - 1} title="뒤로"
+                    className="text-gray-300 hover:text-black disabled:invisible">›</button>
+                  <button onClick={() => removeProject(p)} title="삭제" className="text-gray-300 hover:text-rose-500">✕</button>
+                </span>
               </span>
             ))}
+            <span className="flex items-center gap-1">
+              <input value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="+ 프로젝트 추가"
+                onKeyDown={(e) => { if (e.key === "Enter") createProject(); }}
+                className={`${styles.inputMd} w-36 px-2 py-1 text-xs`} />
+              {newProject.trim() && <button onClick={createProject} className={`${styles.btnSmall} shrink-0`}>추가</button>}
+            </span>
+            {archived.length > 0 && (
+              <button onClick={() => setShowArchived(!showArchived)} className="ml-auto text-xs text-gray-400 hover:text-black">
+                삭제된 프로젝트 ({archived.length}) {showArchived ? "▴" : "▾"}
+              </button>
+            )}
           </div>
-        )}
+          {showArchived && archived.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-100">
+              {archived.map((p) => (
+                <span key={p.id} className="flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-dashed border-gray-300 rounded-full text-xs text-gray-400">
+                  <span className={`w-3 h-3 rounded-full shrink-0 opacity-40 ${colorOf(p.color).dot}`} />
+                  {p.name}
+                  <button onClick={() => restoreProject(p)} className="ml-1 text-gray-400 hover:text-black">복원</button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 등록줄 (신규/수정 겸용) */}
+        <div className={"flex flex-wrap items-center gap-1.5 px-3 py-2 border-t rounded-b-xl " +
+          (editing ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100")}>
+          {editing && <span className="text-xs font-bold text-amber-700 shrink-0">수정중 ▸</span>}
+          <select value={formProjectValid ? form.projectId : UNASSIGNED}
+            onChange={(e) => setForm({ ...form, projectId: e.target.value })}
+            className={`${smallInput} w-auto max-w-[9rem]`}>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value={UNASSIGNED}>(미분류)</option>
+          </select>
+          <input ref={titleRef} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+            placeholder="일정 제목 (Enter)"
+            onKeyDown={(e) => { if (e.key === "Enter") submitForm(); if (e.key === "Escape" && editing) resetForm(); }}
+            className={`${smallInput} flex-1 min-w-[10rem] w-auto`} />
+          <input value={form.assignee} onChange={(e) => setForm({ ...form, assignee: e.target.value })}
+            placeholder="담당" onKeyDown={(e) => { if (e.key === "Enter") submitForm(); }}
+            className={`${smallInput} w-16`} />
+          <div className="flex items-center gap-0.5">
+            <button onClick={() => nudge(-1)} title="하루 앞으로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">‹</button>
+            <input type="date" value={form.start}
+              onChange={(e) => setForm({ ...form, start: e.target.value, end: form.end < e.target.value ? e.target.value : form.end })}
+              className={`${smallInput} w-[8.5rem]`} />
+            <span className="text-xs text-gray-400">~</span>
+            <input type="date" value={form.end} min={form.start}
+              onChange={(e) => setForm({ ...form, end: e.target.value })}
+              className={`${smallInput} w-[8.5rem]`} />
+            <button onClick={() => nudge(1)} title="하루 뒤로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">›</button>
+          </div>
+          <button onClick={() => submitForm()} disabled={!form.title.trim()} className={`${styles.btnPrimary} py-1.5`}>
+            {editing ? "저장" : "추가"}
+          </button>
+          {editing && (
+            <>
+              <button onClick={toggleFormDone}
+                className={"text-xs " + (form.isDone ? "text-emerald-600 hover:text-emerald-700" : "text-gray-400 hover:text-emerald-600")}>
+                {form.isDone ? "✓ 완료됨" : "완료"}
+              </button>
+              <button onClick={removeFormEvent} className="text-xs text-gray-400 hover:text-rose-500">삭제</button>
+              <button onClick={resetForm} className="text-xs text-gray-400 hover:text-black">취소</button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* 달력 — 주 블록 × 프로젝트 행 */}
@@ -302,7 +506,8 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
           <button onClick={goToday} className={`${styles.btnSmallGhost} absolute right-0`}>오늘</button>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className={"overflow-x-auto " + (drag?.moved ? "select-none" : "")}
+          style={drag?.moved ? { cursor: drag.kind === "move" ? "grabbing" : drag.kind === "select" ? "cell" : "ew-resize" } : undefined}>
           <div className="min-w-[46rem] space-y-3">
             {weeks.map((week, wi) => (
               <div key={wi} className="border border-gray-100 rounded-lg overflow-hidden">
@@ -339,21 +544,39 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                       {cols.map((col, ci) => {
                         const inMonth = week[ci].inMonth;
                         const isToday = col.iso === todayIso;
+                        const inSel = selRange && selRange.row === row.key && col.iso >= selRange.from && col.iso <= selRange.to;
+                        const isFormTarget = !editing && form.projectId === row.key && col.iso >= form.start && col.iso <= form.end;
                         return (
-                          <div key={col.iso} onClick={() => openAdd(row.key, col.iso)}
+                          <div key={col.iso} data-iso={col.iso} data-row={row.key}
+                            onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
                             className={"min-h-[30px] py-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
-                              (isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") + (inMonth ? "" : "opacity-50")}>
+                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
+                              (inMonth ? "" : "opacity-50")}>
                             {col.lanes.map((seg, li) => {
                               if (!seg) return <div key={li} className="h-[18px]" />;
+                              const e = seg.e;
                               const round = (seg.isStart ? "rounded-l ml-1 " : "") + (seg.isEnd ? "rounded-r mr-1" : "");
                               const showLabel = seg.isStart || ci === 0;
-                              const tip = seg.e.title + (seg.e.assignee ? ` · ${seg.e.assignee}` : "") +
-                                (seg.e.event_date !== seg.e.end_date ? ` (${fmtMD(seg.e.event_date)}~${fmtMD(seg.e.end_date)})` : "");
+                              const isDragging = drag?.moved && drag.ev?.id === e.id;
+                              const isEditing = form.id === e.id;
+                              const tip = e.title + (e.assignee ? ` · ${e.assignee}` : "") +
+                                (e.event_date !== e.end_date ? ` (${fmtMD(e.event_date)}~${fmtMD(e.end_date)})` : "");
                               return (
                                 <div key={li} title={tip}
-                                  onClick={(ev) => { ev.stopPropagation(); openEdit(seg.e); }}
-                                  className={`h-[18px] leading-[18px] text-[11px] px-1 truncate cursor-pointer hover:brightness-95 ${chipClass(seg.e)} ${round} ${seg.e.is_done ? "line-through" : ""}`}>
-                                  {showLabel ? seg.e.title : " "}
+                                  onPointerDown={(ev) => beginDrag(ev, "move", row.key, col.iso, e)}
+                                  className={`group/bar relative h-[18px] leading-[18px] text-[11px] px-1 truncate cursor-grab ${chipClass(e)} ${round} ` +
+                                    (e.is_done ? "line-through " : "") +
+                                    (isDragging ? "opacity-70 shadow " : "hover:brightness-95 ") +
+                                    (isEditing ? "ring-2 ring-amber-400 " : "")}>
+                                  {showLabel ? e.title : " "}
+                                  {seg.isStart && (
+                                    <span onPointerDown={(ev) => beginDrag(ev, "resize-start", row.key, col.iso, e)}
+                                      className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-l" />
+                                  )}
+                                  {seg.isEnd && (
+                                    <span onPointerDown={(ev) => beginDrag(ev, "resize-end", row.key, col.iso, e)}
+                                      className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-r" />
+                                  )}
                                 </div>
                               );
                             })}
@@ -367,66 +590,10 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
             ))}
           </div>
         </div>
-      </div>
-
-      {/* 일정 등록/수정 모달 */}
-      {draft && (
-        <div className={styles.modalOverlay} onClick={() => setDraft(null)}>
-          <div className={`${styles.modalContent} max-w-md`} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <div className="text-base font-bold text-black">{draft.id ? "일정 수정" : "일정 추가"}</div>
-            </div>
-            <div className={styles.modalBody}>
-              <div>
-                <label className={styles.modalLabel}>프로젝트</label>
-                <select value={draft.projectId} onChange={(e) => setDraft({ ...draft, projectId: e.target.value })}
-                  className={styles.modalInput}>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  <option value={UNASSIGNED}>(미분류)</option>
-                </select>
-              </div>
-              <div>
-                <label className={styles.modalLabel}>제목 *</label>
-                <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }} className={styles.modalInput} />
-              </div>
-              <div>
-                <label className={styles.modalLabel}>담당</label>
-                <input value={draft.assignee} onChange={(e) => setDraft({ ...draft, assignee: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }} className={`${styles.modalInput} w-32`} />
-              </div>
-              <div>
-                <label className={styles.modalLabel}>기간 (하루 일정이면 같은 날짜)</label>
-                <div className="flex items-center gap-1">
-                  <input type="date" value={draft.start}
-                    onChange={(e) => setDraft({ ...draft, start: e.target.value, end: draft.end < e.target.value ? e.target.value : draft.end })}
-                    className={`${styles.modalInput} min-w-0 flex-1`} />
-                  <span className="text-xs text-gray-400 shrink-0">~</span>
-                  <input type="date" value={draft.end} min={draft.start}
-                    onChange={(e) => setDraft({ ...draft, end: e.target.value })}
-                    className={`${styles.modalInput} min-w-0 flex-1`} />
-                </div>
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              {draft.id && (
-                <>
-                  <button onClick={removeDraft} className="text-xs text-gray-400 hover:text-rose-500 mr-1">삭제</button>
-                  <button onClick={toggleDraftDone}
-                    className={"text-xs " + (draft.isDone ? "text-emerald-600 hover:text-emerald-700" : "text-gray-400 hover:text-emerald-600")}>
-                    {draft.isDone ? "✓ 완료됨" : "완료 표시"}
-                  </button>
-                </>
-              )}
-              <span className="flex-1" />
-              <button onClick={() => setDraft(null)} className={styles.btnSecondary}>취소</button>
-              <button onClick={saveDraft} disabled={!draft.title.trim()} className={styles.btnPrimary}>
-                {draft.id ? "저장" : "추가"}
-              </button>
-            </div>
-          </div>
+        <div className="mt-2 text-[11px] text-gray-400">
+          칸 클릭=날짜 지정 · 칸 끌기=기간 지정 · 일정 클릭=수정 · 일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
         </div>
-      )}
+      </div>
     </div>
   );
 }
