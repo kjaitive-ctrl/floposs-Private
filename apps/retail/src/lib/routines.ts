@@ -36,6 +36,18 @@ export interface ScheduleEvent {
   title: string;
   memo: string | null;
   is_done: boolean; // 마이그 217
+  project_id: string | null; // 마이그 234. null = 미분류
+}
+// 일정 프로젝트(행) — 마이그 234. 삭제 = is_active=false(소프트, 일정 보존)
+export interface ScheduleProject {
+  id: string;
+  name: string;
+  color: string; // PROJECT_COLORS 키
+  sort_order: number;
+  start_date: string | null;
+  end_date: string | null;
+  memo: string | null;
+  is_active: boolean;
 }
 
 // ── 루틴 ──────────────────────────────
@@ -106,17 +118,17 @@ export async function unsetCheck(routineId: string, dateIso: string): Promise<vo
 export async function loadEvents(tenantId: string, fromIso: string, toIso: string): Promise<ScheduleEvent[]> {
   const { data } = await supabase
     .from("schedule_events")
-    .select("id, assignee, event_date, end_date, title, memo, is_done")
+    .select("id, assignee, event_date, end_date, title, memo, is_done, project_id")
     .eq("tenant_id", tenantId)
     .lte("event_date", toIso)
     .gte("end_date", fromIso)
     .order("event_date");
   return (data ?? []) as ScheduleEvent[];
 }
-export async function addEvent(tenantId: string, dateIso: string, title: string, assignee: string | null, memo: string | null, endDateIso?: string): Promise<string | null> {
+export async function addEvent(tenantId: string, dateIso: string, title: string, assignee: string | null, memo: string | null, endDateIso?: string, projectId?: string | null): Promise<string | null> {
   const { data, error } = await supabase
     .from("schedule_events")
-    .insert({ tenant_id: tenantId, event_date: dateIso, end_date: endDateIso && endDateIso >= dateIso ? endDateIso : dateIso, title: title.trim(), assignee: assignee || null, memo: memo || null })
+    .insert({ tenant_id: tenantId, event_date: dateIso, end_date: endDateIso && endDateIso >= dateIso ? endDateIso : dateIso, title: title.trim(), assignee: assignee || null, memo: memo || null, project_id: projectId ?? null })
     .select("id")
     .single();
   if (error) { console.error("addEvent:", error); return null; }
@@ -130,7 +142,35 @@ export async function toggleEventDone(id: string, isDone: boolean): Promise<void
 }
 export async function updateEvent(
   id: string,
-  patch: Partial<Pick<ScheduleEvent, "title" | "assignee" | "event_date" | "end_date">>
+  patch: Partial<Pick<ScheduleEvent, "title" | "assignee" | "event_date" | "end_date" | "project_id">>
 ): Promise<void> {
   await supabase.from("schedule_events").update(patch).eq("id", id);
+}
+
+// ── 일정 프로젝트 ──────────────────────
+// active=true → 사용 중, false → 삭제(보관)된 프로젝트
+export async function loadProjects(tenantId: string, active = true): Promise<ScheduleProject[]> {
+  const { data } = await supabase
+    .from("schedule_projects")
+    .select("id, name, color, sort_order, start_date, end_date, memo, is_active")
+    .eq("tenant_id", tenantId)
+    .eq("is_active", active)
+    .order("sort_order")
+    .order("created_at");
+  return (data ?? []) as ScheduleProject[];
+}
+export async function addProject(tenantId: string, name: string, color: string, sortOrder: number): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("schedule_projects")
+    .insert({ tenant_id: tenantId, name: name.trim(), color, sort_order: sortOrder })
+    .select("id")
+    .single();
+  if (error) { console.error("addProject:", error); return null; }
+  return data.id;
+}
+export async function updateProject(
+  id: string,
+  patch: Partial<Pick<ScheduleProject, "name" | "color" | "sort_order" | "start_date" | "end_date" | "memo" | "is_active">>
+): Promise<void> {
+  await supabase.from("schedule_projects").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
 }

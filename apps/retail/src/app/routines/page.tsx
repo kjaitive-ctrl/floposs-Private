@@ -4,10 +4,11 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTenant } from "@/lib/TenantContext";
 import RoutineSetup from "@/components/routines/RoutineSetup";
-import ScheduleCalendar from "@/components/routines/ScheduleCalendar";
+import ProjectSchedule from "@/components/routines/ProjectSchedule";
 import LongTermTasksPanel from "@/components/routines/LongTermTasksPanel";
 
 // 업무루틴 + 일정 세팅(메인). 기본 탭=일정. ?tab=routine 으로 업무루틴 탭 직행. 마이그 208.
+// 일정 = 주 블록 × 프로젝트 행(ProjectSchedule, 마이그 234).
 // 좌측 여백 = 장기과제(날짜 미정 할일) 패널. xl 이상 화면에서만 노출(마이그 232).
 function RoutinesInner() {
   const { tenant } = useTenant();
@@ -33,7 +34,7 @@ function RoutinesInner() {
             </button>
           ))}
         </div>
-        {tab === "routine" ? <RoutineSetup tenantId={tenant.id} /> : <ScheduleCalendar tenantId={tenant.id} />}
+        {tab === "routine" ? <RoutineSetup tenantId={tenant.id} /> : <ProjectSchedule tenantId={tenant.id} />}
       </div>
     </div>
   );
