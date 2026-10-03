@@ -17,6 +17,7 @@ import {
   loadProjects, addProject, updateProject,
   type ScheduleEvent, type ScheduleProject,
 } from "@/lib/routines";
+import { loadHolidays, shortHolidayName, type HolidayMap } from "@/lib/holidays";
 
 const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
 const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
@@ -162,6 +163,13 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     return act;
   }, [tenantId]);
   useEffect(() => { reloadEvents(); }, [reloadEvents]);
+  // 공휴일(대체공휴일 포함) — 날짜 헤더 빨간색+이름 표시용. 달력 범위가 연말/연초에 걸치면 두 해 모두
+  const [holidays, setHolidays] = useState<HolidayMap>({});
+  const gridStartYear = gridStart.getFullYear();
+  const gridEndYear = gridEnd.getFullYear();
+  useEffect(() => {
+    loadHolidays([gridStartYear, gridEndYear]).then(setHolidays);
+  }, [gridStartYear, gridEndYear]);
   useEffect(() => {
     // 첫 로드 시 등록줄 프로젝트 기본값 = 첫 프로젝트
     reloadProjects().then((act) => {
@@ -516,15 +524,17 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                   <div className="sticky left-0 bg-gray-50 z-10" />
                   {week.map((slot, ci) => {
                     const isToday = slot.iso === todayIso;
-                    const dowColor = ci === 0 ? "text-rose-400" : ci === 6 ? "text-blue-400" : "text-gray-400";
+                    const holiday = holidays[slot.iso];
+                    const dowColor = ci === 0 || holiday ? "text-rose-400" : ci === 6 ? "text-blue-400" : "text-gray-400";
                     return (
-                      <div key={slot.iso}
-                        className={"flex items-center gap-1 px-1.5 py-1 text-xs " + (slot.inMonth ? "" : "opacity-40")}>
+                      <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
+                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (slot.inMonth ? "" : "opacity-40")}>
                         <span className={dowColor}>{CAL_DOW[ci]}</span>
-                        <span className={"w-5 h-5 flex items-center justify-center rounded-full " +
-                          (isToday ? "bg-black text-white font-bold" : "text-gray-700")}>
+                        <span className={"w-5 h-5 shrink-0 flex items-center justify-center rounded-full " +
+                          (isToday ? "bg-black text-white font-bold" : holiday ? "text-rose-500" : "text-gray-700")}>
                           {slot.d}
                         </span>
+                        {holiday && <span className="text-[10px] text-rose-500 truncate">{shortHolidayName(holiday)}</span>}
                       </div>
                     );
                   })}

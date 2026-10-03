@@ -13,6 +13,7 @@
     "@aws-sdk/client-s3": "^3.1055.0",
     "@aws-sdk/s3-request-presigner": "^3.1055.0",
     "@floposs/ui": "*",
+    "@hyunbinseo/holidays-kr": "^5.2027.2",
     "@resvg/resvg-js": "^2.6.2",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.104.0",
