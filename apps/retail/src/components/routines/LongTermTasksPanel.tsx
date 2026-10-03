@@ -1,7 +1,7 @@
 "use client";
 
 // 장기과제 — 날짜 미정 할일 목록. 업무루틴 페이지 좌측 여백에 배치(마이그 232).
-// 나중에 날짜가 정해지면 일정(ScheduleCalendar)으로 옮겨 적는 전 단계 메모함.
+// 나중에 날짜가 정해지면 일정(ProjectSchedule)으로 옮겨 적는 전 단계 메모함.
 import { useCallback, useEffect, useState } from "react";
 import { styles } from "@/common/styles";
 import {
