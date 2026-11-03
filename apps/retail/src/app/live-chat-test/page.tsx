@@ -19,7 +19,27 @@ type Chat = {
   author: string;
   text: string;
   at: string;
-  isOwner: boolean;
+  avatar: string;
+  role: "owner" | "mod" | "member" | "";
+  verified: boolean;
+  superChat: string;  // 슈퍼챗 금액 표시문자열 ("₩10,000"), 아니면 ""
+};
+
+type YtMessage = {
+  id: string;
+  snippet: { displayMessage?: string; publishedAt: string; superChatDetails?: { amountDisplayString?: string } };
+  authorDetails?: {
+    displayName?: string; profileImageUrl?: string;
+    isChatOwner?: boolean; isChatModerator?: boolean; isChatSponsor?: boolean; isVerified?: boolean;
+  };
+};
+
+// 유튜브 채팅창과 같은 역할별 색: 주인=노란 배경, 매니저=파랑+렌치, 멤버=초록
+const ROLE_NAME_CLASS: Record<Chat["role"], string> = {
+  owner: "bg-yellow-300 text-black px-1 rounded",
+  mod: "text-blue-600",
+  member: "text-emerald-600",
+  "": "text-gray-700",
 };
 
 type Draft = {
@@ -140,14 +160,20 @@ export default function LiveChatTestPage() {
         }
         pageToken = j.nextPageToken ?? pageToken;
         const fresh: Chat[] = (j.items ?? [])
-          .filter((m: { snippet?: { displayMessage?: string } }) => m.snippet?.displayMessage)
-          .map((m: { id: string; snippet: { displayMessage: string; publishedAt: string }; authorDetails?: { displayName?: string; isChatOwner?: boolean } }) => ({
-            id: m.id,
-            author: m.authorDetails?.displayName ?? "",
-            text: m.snippet.displayMessage,
-            at: m.snippet.publishedAt,
-            isOwner: Boolean(m.authorDetails?.isChatOwner),
-          }));
+          .filter((m: YtMessage) => m.snippet?.displayMessage)
+          .map((m: YtMessage) => {
+            const a = m.authorDetails ?? {};
+            return {
+              id: m.id,
+              author: a.displayName ?? "",
+              text: m.snippet.displayMessage ?? "",
+              at: m.snippet.publishedAt,
+              avatar: a.profileImageUrl ?? "",
+              role: a.isChatOwner ? "owner" : a.isChatModerator ? "mod" : a.isChatSponsor ? "member" : "",
+              verified: Boolean(a.isVerified),
+              superChat: m.snippet.superChatDetails?.amountDisplayString ?? "",
+            };
+          });
         if (fresh.length) {
           setChats(prev => {
             const seen = new Set(prev.map(c => c.id));
@@ -228,10 +254,20 @@ export default function LiveChatTestPage() {
               return (
                 <li key={c.id}>
                   <button type="button" onClick={() => pick(c)}
-                    className={"w-full text-left px-2 py-1.5 flex gap-2 items-baseline hover:bg-primary-soft " +
+                    className={"w-full text-left px-2 py-1.5 flex gap-2 items-start hover:bg-primary-soft " +
+                      (c.superChat ? "bg-amber-50 " : "") +
                       (isPicked ? "bg-primary-soft-hover " : "") + (isUsed ? "opacity-40" : "")}>
-                    <span className="text-[11px] text-gray-400 shrink-0">{fmtTime(c.at)}</span>
-                    <span className={"shrink-0 font-medium " + (c.isOwner ? "text-primary" : "text-gray-700")}>{c.author}</span>
+                    <span className="text-[11px] text-gray-400 shrink-0 pt-0.5">{fmtTime(c.at)}</span>
+                    {c.avatar
+                      ? <img src={c.avatar} alt="" referrerPolicy="no-referrer" className="w-5 h-5 rounded-full shrink-0" />
+                      : <span className="w-5 h-5 rounded-full bg-gray-200 shrink-0" />}
+                    <span className={"shrink-0 font-medium " + ROLE_NAME_CLASS[c.role]}>
+                      {c.author}
+                      {c.verified && <span className="ml-0.5 text-gray-500">✓</span>}
+                      {c.role === "mod" && <span className="ml-0.5">🔧</span>}
+                      {c.role === "member" && <span className="ml-1 text-[10px] px-1 rounded bg-emerald-100 text-emerald-700">멤버</span>}
+                    </span>
+                    {c.superChat && <span className="shrink-0 text-[11px] font-semibold px-1.5 rounded bg-amber-400 text-black">{c.superChat}</span>}
                     <span className="text-black break-all">{c.text}</span>
                     {isUsed && <span className="ml-auto shrink-0 text-[11px] text-emerald-700">주문 넘김</span>}
                   </button>
