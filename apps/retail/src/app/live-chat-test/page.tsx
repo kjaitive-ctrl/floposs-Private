@@ -5,12 +5,13 @@ import { styles } from "@/common/styles";
 
 // 라이브채팅 주문 (TEST) — 유튜브 라이브 채팅을 받아와서 클릭하면 주문칸에 채우는 시험 화면.
 // 별도 서비스로 개발 예정이라 retail 안에 임시로 둠. DB 저장 없음(새로고침하면 사라짐).
-// 공식 YouTube Data API v3 를 브라우저에서 직통 호출 (키는 Google Cloud 에서 HTTP 리퍼러 제한).
+// 공식 YouTube Data API v3 를 브라우저에서 직통 호출. 키 = Vercel env NEXT_PUBLIC_YOUTUBE_API_KEY
+//   (Google Cloud livecommerce 프로젝트, retail.floposs.com 리퍼러 제한이라 공개돼도 됨).
 //   videos.list → activeLiveChatId → liveChatMessages.list 를 pollingIntervalMillis 간격으로 반복.
 // 할당량: liveChatMessages.list 1회 ≈ 5단위(추정), 하루 기본 10,000단위 → 화면에 호출 수 표시해 실측.
 
 const API = "https://www.googleapis.com/youtube/v3";
-const KEY_STORAGE = "live-chat-test:youtube-key";
+const API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY ?? "";
 const UNITS_PER_POLL = 5;
 
 type Chat = {
@@ -69,7 +70,6 @@ function fmtTime(iso: string) {
 }
 
 export default function LiveChatTestPage() {
-  const [apiKey, setApiKey] = useState("");
   const [link, setLink] = useState("");
   const [title, setTitle] = useState("");
   const [running, setRunning] = useState(false);
@@ -91,13 +91,6 @@ export default function LiveChatTestPage() {
 
   useEffect(() => () => stop(), []);
 
-  // 입력칸이 비어 있으면 이 브라우저에 저장된 키 → env 순으로 사용
-  function resolveKey() {
-    if (apiKey.trim()) return apiKey.trim();
-    try { return localStorage.getItem(KEY_STORAGE) || process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || ""; }
-    catch { return process.env.NEXT_PUBLIC_YOUTUBE_API_KEY || ""; }
-  }
-
   function stop() {
     runId.current++;
     if (timer.current) clearTimeout(timer.current);
@@ -109,13 +102,11 @@ export default function LiveChatTestPage() {
     setError("");
     const videoId = parseVideoId(link);
     if (!videoId) return setError("영상 링크를 알아볼 수 없어요. youtube.com/watch?v=… 또는 youtube.com/live/… 형태로 넣어주세요.");
-    const rawKey = resolveKey();
-    if (!rawKey) return setError("YouTube API 키를 넣어주세요.");
-    try { localStorage.setItem(KEY_STORAGE, rawKey); } catch {}
+    if (!API_KEY) return setError("YouTube API 키가 설정되지 않았어요. (Vercel env NEXT_PUBLIC_YOUTUBE_API_KEY)");
 
     stop();
     const myRun = runId.current;
-    const key = encodeURIComponent(rawKey);
+    const key = encodeURIComponent(API_KEY);
 
     const vr = await fetch(`${API}/videos?part=liveStreamingDetails,snippet&id=${videoId}&key=${key}`);
     const vj = await vr.json();
@@ -208,9 +199,6 @@ export default function LiveChatTestPage() {
             : <button className={styles.btnPrimary} onClick={start}>실행</button>}
         </div>
         <div className="flex flex-wrap gap-3 items-center text-xs text-gray-600">
-          <label className="flex items-center gap-1">API 키
-            <input type="password" className={styles.inputSm + " w-72 text-xs"} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIza… (한 번 넣으면 이 브라우저에 기억)" />
-          </label>
           <label className="flex items-center gap-1">최소 간격
             <select className={styles.inputSm + " text-xs"} value={minSec} onChange={e => setMinSec(Number(e.target.value))}>
               {[2, 3, 5, 10, 15].map(s => <option key={s} value={s}>{s}초</option>)}
