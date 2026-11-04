@@ -1,6 +1,6 @@
 "use client";
 
-// 일정 — 월 달력(일~토 주 단위 줄바꿈) × 프로젝트 행. 마이그 208/213/217/234.
+// 일정 — 월 달력(월~일 주 단위 줄바꿈) × 프로젝트 행. 마이그 208/213/217/234.
 // 각 주 블록 = [날짜 헤더] + [프로젝트별 행]. 행 안에서는 기간 일정이 이어진 막대(band)로,
 // 같은 날 여러 일정은 레인(lane)으로 쌓임(구글캘린더 월간뷰 방식, 주 경계에서 줄바꿈).
 // 프로젝트 추가/수정/순서/삭제는 상단 프로젝트 바에서 인라인으로(장기과제 패널과 같은 감각).
@@ -19,8 +19,10 @@ import {
 } from "@/lib/routines";
 import { loadHolidays, shortHolidayName, type HolidayMap } from "@/lib/holidays";
 
-const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
-const OFF_DOWS = [0, 2, 6]; // 휴무일(일·화·토) — 날짜 헤더+칸 전체 bg-gray-200 로 구분
+const CAL_DOW = ["월", "화", "수", "목", "금", "토", "일"];
+const SAT = 5;
+const SUN = 6;
+const OFF_DOWS = [1, SAT, SUN]; // 휴무일(화·토·일, CAL_DOW 인덱스) — 날짜 헤더+칸 전체 bg-gray-200 로 구분
 const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   sky:     { chip: "bg-sky-100 text-sky-800",         dot: "bg-sky-400" },
   amber:   { chip: "bg-amber-100 text-amber-800",     dot: "bg-amber-400" },
@@ -140,17 +142,17 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   const dragRef = useRef<Drag | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
-  // 달력 칸: 그 달 1일이 속한 주의 일요일 ~ 말일이 속한 주의 토요일 (앞뒤 달 날짜 포함)
+  // 달력 칸: 그 달 1일이 속한 주의 월요일 ~ 말일이 속한 주의 일요일 (앞뒤 달 날짜 포함)
   const first = new Date(y, m, 1);
   const last = new Date(y, m + 1, 0);
-  const gridStart = new Date(y, m, 1 - first.getDay());
-  const gridEnd = new Date(y, m, last.getDate() + (6 - last.getDay()));
+  const gridStart = new Date(y, m, 1 - (first.getDay() + 6) % 7);
+  const gridEnd = new Date(y, m, last.getDate() + (6 - (last.getDay() + 6) % 7));
   const gridStartIso = isoDate(gridStart);
   const gridEndIso = isoDate(gridEnd);
 
   const weeks: DaySlot[][] = [];
   for (let d = new Date(gridStart); d <= gridEnd; d.setDate(d.getDate() + 1)) {
-    if (d.getDay() === 0) weeks.push([]);
+    if (d.getDay() === 1) weeks.push([]);
     weeks[weeks.length - 1].push({ d: d.getDate(), iso: isoDate(d), inMonth: d.getMonth() === m });
   }
 
@@ -526,7 +528,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                   {week.map((slot, ci) => {
                     const isToday = slot.iso === todayIso;
                     const holiday = holidays[slot.iso];
-                    const dowColor = ci === 0 || holiday ? "text-rose-400" : ci === 6 ? "text-blue-400" : OFF_DOWS.includes(ci) ? "text-gray-500" : "text-gray-400";
+                    const dowColor = ci === SUN || holiday ? "text-rose-400" : ci === SAT ? "text-blue-400" : OFF_DOWS.includes(ci) ? "text-gray-500" : "text-gray-400";
                     return (
                       <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
                         className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (OFF_DOWS.includes(ci) ? "bg-gray-200 " : "") + (slot.inMonth ? "" : "opacity-40")}>
