@@ -3,7 +3,7 @@
 // 일정 — 월 달력(월~일 주 단위 줄바꿈) × 프로젝트 행. 마이그 208/213/217/234/235.
 // 각 주 블록 = [날짜 헤더] + [프로젝트별 행]. 행 안에서는 기간 일정이 이어진 막대(band)로,
 // 같은 날 여러 일정은 레인(lane)으로 쌓임(구글캘린더 월간뷰 방식, 주 경계에서 줄바꿈).
-// 프로젝트 추가/수정/순서/삭제는 상단 프로젝트 바에서 인라인으로(장기과제 패널과 같은 감각).
+// 프로젝트 추가/수정/순서/삭제는 우측 패널(좁은 화면은 상단) 프로젝트 바에서 인라인으로(장기과제 패널과 같은 감각).
 // 프로젝트 삭제 = is_active=false(소프트) — 그 프로젝트 일정은 숨겨질 뿐 보존, 복원 가능.
 // project_id 없는 일정 = (미분류) 행.
 // 등록/수정 = 상단 고정 등록줄(모달 없음). 칸 클릭 → 등록줄에 프로젝트·날짜 채움,
@@ -13,7 +13,7 @@
 // 기간으로 신규 등록 = 하루짜리 일정 N건(날짜별 완료 체크). 옛 기간 막대는 수정 모드 [날짜별로 나누기].
 // 휴무일 = 날짜 헤더 체크박스로 그 날만 지정 → 헤더+칸 전체 음영(OFF_BG).
 // 지난 주는 기본 접힘(지난 달을 볼 때는 전부 펼침). 칸 맨 아래 빈 줄 = 꽉 찬 칸에서도 클릭/끌기 시작 가능.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { styles } from "@/common/styles";
 import {
   isoDate, loadEvents, addDailyEvents, deleteEvent, toggleEventDone, updateEvent,
@@ -131,7 +131,7 @@ type Drag = {
 
 const GRID_COLS = { gridTemplateColumns: "7.5rem repeat(7, minmax(5.5rem, 1fr))" };
 
-export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
+export default function ProjectSchedule({ tenantId, side }: { tenantId: string; side?: ReactNode }) {
   const today = new Date();
   const todayIso = isoDate(today);
   const [y, setY] = useState(today.getFullYear());
@@ -491,221 +491,232 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   const editing = form.id !== null;
   const smallInput = `${styles.inputMd} px-2 py-1.5 text-sm`;
 
-  return (
-    <div className="space-y-3">
-      {ask && (
-        <div className="fixed left-1/2 top-24 -translate-x-1/2 z-50 w-max max-w-[90vw] bg-white border border-gray-300 rounded-xl shadow-lg p-4">
-          <div className="text-sm text-black whitespace-pre-line">{ask.message}</div>
-          <div className="flex justify-end gap-1.5 mt-3">
-            <button onClick={() => answer(false)} className={styles.btnSmallGhost}>취소</button>
-            <button onClick={() => answer(true)} className={`${styles.btnPrimary} py-1.5`}>확인</button>
-          </div>
+  const projectBar = (
+    <div className="p-3 pb-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-1">프로젝트</span>
+        {projects.map((p, i) => renamingId === p.id ? (
+          <input key={p.id} value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenamingId(null); }}
+            onBlur={saveRename}
+            className={`${styles.inputMd} w-32 px-2 py-1 text-xs`} />
+        ) : (
+          <span key={p.id} className="group flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-full text-xs">
+            <button onClick={() => cycleColor(p)} title="색 바꾸기"
+              className={`w-3 h-3 rounded-full shrink-0 ${colorOf(p.color).dot}`} />
+            <button onClick={() => startRename(p)} title="이름 수정" className="text-black">{p.name}</button>
+            <span className="hidden group-hover:flex items-center gap-1 ml-0.5">
+              <button onClick={() => move(i, -1)} disabled={i === 0} title="앞으로"
+                className="text-gray-300 hover:text-black disabled:invisible">‹</button>
+              <button onClick={() => move(i, 1)} disabled={i === projects.length - 1} title="뒤로"
+                className="text-gray-300 hover:text-black disabled:invisible">›</button>
+              <button onClick={() => removeProject(p)} title="삭제" className="text-gray-300 hover:text-rose-500">✕</button>
+            </span>
+          </span>
+        ))}
+        <span className="flex items-center gap-1">
+          <input value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="+ 프로젝트 추가"
+            onKeyDown={(e) => { if (e.key === "Enter") createProject(); }}
+            className={`${styles.inputMd} w-36 px-2 py-1 text-xs`} />
+          {newProject.trim() && <button onClick={createProject} className={`${styles.btnSmall} shrink-0`}>추가</button>}
+        </span>
+        {archived.length > 0 && (
+          <button onClick={() => setShowArchived(!showArchived)} className="ml-auto text-xs text-gray-400 hover:text-black">
+            삭제된 프로젝트 ({archived.length}) {showArchived ? "▴" : "▾"}
+          </button>
+        )}
+      </div>
+      {showArchived && archived.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-100">
+          {archived.map((p) => (
+            <span key={p.id} className="flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-dashed border-gray-300 rounded-full text-xs text-gray-400">
+              <span className={`w-3 h-3 rounded-full shrink-0 opacity-40 ${colorOf(p.color).dot}`} />
+              {p.name}
+              <button onClick={() => restoreProject(p)} className="ml-1 text-gray-400 hover:text-black">복원</button>
+            </span>
+          ))}
         </div>
       )}
-      {/* 프로젝트 바 + 등록줄 — 스크롤해도 상단 고정 */}
-      <div className="sticky top-12 z-20 bg-white border border-gray-200 rounded-xl shadow-sm">
-        <div className="p-3 pb-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider mr-1">프로젝트</span>
-            {projects.map((p, i) => renamingId === p.id ? (
-              <input key={p.id} value={renameText} onChange={(e) => setRenameText(e.target.value)} autoFocus
-                onKeyDown={(e) => { if (e.key === "Enter") saveRename(); if (e.key === "Escape") setRenamingId(null); }}
-                onBlur={saveRename}
-                className={`${styles.inputMd} w-32 px-2 py-1 text-xs`} />
-            ) : (
-              <span key={p.id} className="group flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-gray-200 rounded-full text-xs">
-                <button onClick={() => cycleColor(p)} title="색 바꾸기"
-                  className={`w-3 h-3 rounded-full shrink-0 ${colorOf(p.color).dot}`} />
-                <button onClick={() => startRename(p)} title="이름 수정" className="text-black">{p.name}</button>
-                <span className="hidden group-hover:flex items-center gap-1 ml-0.5">
-                  <button onClick={() => move(i, -1)} disabled={i === 0} title="앞으로"
-                    className="text-gray-300 hover:text-black disabled:invisible">‹</button>
-                  <button onClick={() => move(i, 1)} disabled={i === projects.length - 1} title="뒤로"
-                    className="text-gray-300 hover:text-black disabled:invisible">›</button>
-                  <button onClick={() => removeProject(p)} title="삭제" className="text-gray-300 hover:text-rose-500">✕</button>
-                </span>
-              </span>
-            ))}
-            <span className="flex items-center gap-1">
-              <input value={newProject} onChange={(e) => setNewProject(e.target.value)} placeholder="+ 프로젝트 추가"
-                onKeyDown={(e) => { if (e.key === "Enter") createProject(); }}
-                className={`${styles.inputMd} w-36 px-2 py-1 text-xs`} />
-              {newProject.trim() && <button onClick={createProject} className={`${styles.btnSmall} shrink-0`}>추가</button>}
-            </span>
-            {archived.length > 0 && (
-              <button onClick={() => setShowArchived(!showArchived)} className="ml-auto text-xs text-gray-400 hover:text-black">
-                삭제된 프로젝트 ({archived.length}) {showArchived ? "▴" : "▾"}
-              </button>
-            )}
-          </div>
-          {showArchived && archived.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-100">
-              {archived.map((p) => (
-                <span key={p.id} className="flex items-center gap-1 pl-1.5 pr-2 py-1 bg-gray-50 border border-dashed border-gray-300 rounded-full text-xs text-gray-400">
-                  <span className={`w-3 h-3 rounded-full shrink-0 opacity-40 ${colorOf(p.color).dot}`} />
-                  {p.name}
-                  <button onClick={() => restoreProject(p)} className="ml-1 text-gray-400 hover:text-black">복원</button>
-                </span>
-              ))}
+    </div>
+  );
+
+  return (
+    <div className="flex gap-4 items-start">
+      <div className="flex-1 min-w-0 max-w-6xl mx-auto space-y-3">
+        {ask && (
+          <div className="fixed left-1/2 top-24 -translate-x-1/2 z-50 w-max max-w-[90vw] bg-white border border-gray-300 rounded-xl shadow-lg p-4">
+            <div className="text-sm text-black whitespace-pre-line">{ask.message}</div>
+            <div className="flex justify-end gap-1.5 mt-3">
+              <button onClick={() => answer(false)} className={styles.btnSmallGhost}>취소</button>
+              <button onClick={() => answer(true)} className={`${styles.btnPrimary} py-1.5`}>확인</button>
             </div>
-          )}
-        </div>
-
-        {/* 등록줄 (신규/수정 겸용) */}
-        <div className={"flex flex-wrap items-center gap-1.5 px-3 py-2 border-t rounded-b-xl " +
-          (editing ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100")}>
-          {editing && <span className="text-xs font-bold text-amber-700 shrink-0">수정중 ▸</span>}
-          <select value={formProjectValid ? form.projectId : UNASSIGNED}
-            onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-            className={`${smallInput} w-auto max-w-[9rem]`}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            <option value={UNASSIGNED}>(미분류)</option>
-          </select>
-          <input ref={titleRef} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="일정 제목 (Enter)"
-            onKeyDown={(e) => { if (e.key === "Enter") submitForm(); if (e.key === "Escape" && editing) resetForm(); }}
-            className={`${smallInput} flex-1 min-w-[10rem] w-auto`} />
-          <div className="flex items-center gap-0.5">
-            <button onClick={() => nudge(-1)} title="하루 앞으로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">‹</button>
-            <input type="date" value={form.start}
-              onChange={(e) => setForm({ ...form, start: e.target.value, end: form.end < e.target.value ? e.target.value : form.end })}
-              className={`${smallInput} w-[8.5rem]`} />
-            <span className="text-xs text-gray-400">~</span>
-            <input type="date" value={form.end} min={form.start}
-              onChange={(e) => setForm({ ...form, end: e.target.value })}
-              className={`${smallInput} w-[8.5rem]`} />
-            <button onClick={() => nudge(1)} title="하루 뒤로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">›</button>
           </div>
-          <button onClick={() => submitForm()} disabled={!form.title.trim()} className={`${styles.btnPrimary} py-1.5`}>
-            {editing ? "저장" : "추가"}
-          </button>
-          {editing && (
-            <>
-              <button onClick={toggleFormDone}
-                className={"text-xs " + (form.isDone ? "text-emerald-600 hover:text-emerald-700" : "text-gray-400 hover:text-emerald-600")}>
-                {form.isDone ? "✓ 완료됨" : "완료"}
-              </button>
-              {formSaved && formSaved.event_date !== formSaved.end_date && (
-                <button onClick={splitFormEvent} className="text-xs text-gray-400 hover:text-black">날짜별로 나누기</button>
-              )}
-              <button onClick={removeFormEvent} className="text-xs text-gray-400 hover:text-rose-500">삭제</button>
-              <button onClick={resetForm} className="text-xs text-gray-400 hover:text-black">취소</button>
-            </>
-          )}
-        </div>
-      </div>
+        )}
+        {/* 등록줄 — 스크롤해도 상단 고정 */}
+        <div className="sticky top-12 z-20 bg-white border border-gray-200 rounded-xl shadow-sm">
+          {/* 좁은 화면(우측 패널 숨김)에서만 여기에 프로젝트 바 */}
+          <div className="xl:hidden">{projectBar}</div>
 
-      {/* 달력 — 주 블록 × 프로젝트 행 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <div className="flex items-center justify-center gap-2 mb-3 relative">
-          <button onClick={prevMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">‹</button>
-          <span className="text-lg font-bold text-black">{y}년 {m + 1}월</span>
-          <button onClick={nextMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">›</button>
-          <button onClick={goToday} className={`${styles.btnSmallGhost} absolute right-0`}>오늘</button>
-        </div>
-
-        <div className={"overflow-x-auto " + (drag?.moved ? "select-none" : "")}
-          style={drag?.moved ? { cursor: drag.kind === "move" ? "grabbing" : drag.kind === "select" ? "cell" : "ew-resize" } : undefined}>
-          <div className="min-w-[46rem] space-y-3">
-            {pastWeekCount > 0 && !allPast && (
-              <button onClick={() => setShowPastWeeks(!showPastWeeks)}
-                className="w-full py-1.5 text-xs text-gray-500 hover:text-black bg-gray-50 border border-gray-100 rounded-lg">
-                지난 주 {pastWeekCount}개 {showPastWeeks ? "접기 ▴" : "펼치기 ▾"}
-              </button>
+          {/* 등록줄 (신규/수정 겸용) */}
+          <div className={"flex flex-wrap items-center gap-1.5 px-3 py-2 border-t xl:border-t-0 rounded-b-xl xl:rounded-xl " +
+            (editing ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-100")}>
+            {editing && <span className="text-xs font-bold text-amber-700 shrink-0">수정중 ▸</span>}
+            <select value={formProjectValid ? form.projectId : UNASSIGNED}
+              onChange={(e) => setForm({ ...form, projectId: e.target.value })}
+              className={`${smallInput} w-auto max-w-[9rem]`}>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              <option value={UNASSIGNED}>(미분류)</option>
+            </select>
+            <input ref={titleRef} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+              placeholder="일정 제목 (Enter)"
+              onKeyDown={(e) => { if (e.key === "Enter") submitForm(); if (e.key === "Escape" && editing) resetForm(); }}
+              className={`${smallInput} flex-1 min-w-[10rem] w-auto`} />
+            <div className="flex items-center gap-0.5">
+              <button onClick={() => nudge(-1)} title="하루 앞으로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">‹</button>
+              <input type="date" value={form.start}
+                onChange={(e) => setForm({ ...form, start: e.target.value, end: form.end < e.target.value ? e.target.value : form.end })}
+                className={`${smallInput} w-[8.5rem]`} />
+              <span className="text-xs text-gray-400">~</span>
+              <input type="date" value={form.end} min={form.start}
+                onChange={(e) => setForm({ ...form, end: e.target.value })}
+                className={`${smallInput} w-[8.5rem]`} />
+              <button onClick={() => nudge(1)} title="하루 뒤로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">›</button>
+            </div>
+            <button onClick={() => submitForm()} disabled={!form.title.trim()} className={`${styles.btnPrimary} py-1.5`}>
+              {editing ? "저장" : "추가"}
+            </button>
+            {editing && (
+              <>
+                <button onClick={toggleFormDone}
+                  className={"text-xs " + (form.isDone ? "text-emerald-600 hover:text-emerald-700" : "text-gray-400 hover:text-emerald-600")}>
+                  {form.isDone ? "✓ 완료됨" : "완료"}
+                </button>
+                {formSaved && formSaved.event_date !== formSaved.end_date && (
+                  <button onClick={splitFormEvent} className="text-xs text-gray-400 hover:text-black">날짜별로 나누기</button>
+                )}
+                <button onClick={removeFormEvent} className="text-xs text-gray-400 hover:text-rose-500">삭제</button>
+                <button onClick={resetForm} className="text-xs text-gray-400 hover:text-black">취소</button>
+              </>
             )}
-            {visibleWeeks.map((week) => (
-              <div key={week[0].iso} className="border border-gray-100 rounded-lg overflow-hidden">
-                {/* 주 날짜 헤더 */}
-                <div className="grid bg-gray-50 border-b border-gray-100" style={GRID_COLS}>
-                  <div className="sticky left-0 bg-gray-50 z-10" />
-                  {week.map((slot, ci) => {
-                    const isToday = slot.iso === todayIso;
-                    const holiday = holidays[slot.iso];
-                    const isOff = offDays.has(slot.iso);
-                    const dowColor = isOff ? "text-gray-700" : ci === SUN || holiday ? "text-rose-400" : ci === SAT ? "text-blue-400" : "text-gray-400";
+          </div>
+        </div>
+
+        {/* 달력 — 주 블록 × 프로젝트 행 */}
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <div className="flex items-center justify-center gap-2 mb-3 relative">
+            <button onClick={prevMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">‹</button>
+            <span className="text-lg font-bold text-black">{y}년 {m + 1}월</span>
+            <button onClick={nextMonth} className="text-gray-400 hover:text-black text-2xl px-3 py-1 leading-none">›</button>
+            <button onClick={goToday} className={`${styles.btnSmallGhost} absolute right-0`}>오늘</button>
+          </div>
+
+          <div className={"overflow-x-auto " + (drag?.moved ? "select-none" : "")}
+            style={drag?.moved ? { cursor: drag.kind === "move" ? "grabbing" : drag.kind === "select" ? "cell" : "ew-resize" } : undefined}>
+            <div className="min-w-[46rem] space-y-3">
+              {pastWeekCount > 0 && !allPast && (
+                <button onClick={() => setShowPastWeeks(!showPastWeeks)}
+                  className="w-full py-1.5 text-xs text-gray-500 hover:text-black bg-gray-50 border border-gray-100 rounded-lg">
+                  지난 주 {pastWeekCount}개 {showPastWeeks ? "접기 ▴" : "펼치기 ▾"}
+                </button>
+              )}
+              {visibleWeeks.map((week) => (
+                <div key={week[0].iso} className="border border-gray-100 rounded-lg overflow-hidden">
+                  {/* 주 날짜 헤더 */}
+                  <div className="grid bg-gray-50 border-b border-gray-100" style={GRID_COLS}>
+                    <div className="sticky left-0 bg-gray-50 z-10" />
+                    {week.map((slot, ci) => {
+                      const isToday = slot.iso === todayIso;
+                      const holiday = holidays[slot.iso];
+                      const isOff = offDays.has(slot.iso);
+                      const dowColor = isOff ? "text-gray-700" : ci === SUN || holiday ? "text-rose-400" : ci === SAT ? "text-blue-400" : "text-gray-400";
+                      return (
+                        <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
+                          className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (isOff ? `${OFF_BG} ` : "") + (slot.inMonth ? "" : "opacity-40")}>
+                          <span className={dowColor}>{CAL_DOW[ci]}</span>
+                          <span className={"w-5 h-5 shrink-0 flex items-center justify-center rounded-full " +
+                            (isToday ? "bg-black text-white font-bold" : holiday ? "text-rose-500" : "text-gray-700")}>
+                            {slot.d}
+                          </span>
+                          {holiday && <span className="text-[10px] text-rose-500 truncate">{shortHolidayName(holiday)}</span>}
+                          <input type="checkbox" checked={isOff} title="휴무일"
+                            onChange={(e) => toggleOffDay(slot.iso, e.target.checked)}
+                            className="ml-auto w-3.5 h-3.5 shrink-0 cursor-pointer accent-gray-700" />
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 프로젝트 행 */}
+                  {rows.length === 0 ? (
+                    <div className="text-xs text-gray-300 py-3 text-center">위에서 프로젝트를 추가하세요</div>
+                  ) : rows.map((row) => {
+                    const { cols } = layoutWeek(week, row.events);
                     return (
-                      <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
-                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (isOff ? `${OFF_BG} ` : "") + (slot.inMonth ? "" : "opacity-40")}>
-                        <span className={dowColor}>{CAL_DOW[ci]}</span>
-                        <span className={"w-5 h-5 shrink-0 flex items-center justify-center rounded-full " +
-                          (isToday ? "bg-black text-white font-bold" : holiday ? "text-rose-500" : "text-gray-700")}>
-                          {slot.d}
-                        </span>
-                        {holiday && <span className="text-[10px] text-rose-500 truncate">{shortHolidayName(holiday)}</span>}
-                        <input type="checkbox" checked={isOff} title="휴무일"
-                          onChange={(e) => toggleOffDay(slot.iso, e.target.checked)}
-                          className="ml-auto w-3.5 h-3.5 shrink-0 cursor-pointer accent-gray-700" />
+                      <div key={row.key} className="grid border-b border-gray-50 last:border-b-0" style={GRID_COLS}>
+                        <div className="sticky left-0 bg-white z-10 flex items-start gap-1.5 px-2 py-1.5 text-xs border-r border-gray-100">
+                          <span className={`mt-[3px] w-2 h-2 rounded-full shrink-0 ${row.dot}`} />
+                          <span className="text-gray-700 truncate" title={row.label}>{row.label}</span>
+                        </div>
+                        {cols.map((col, ci) => {
+                          const inMonth = week[ci].inMonth;
+                          const isToday = col.iso === todayIso;
+                          const inSel = selRange && selRange.row === row.key && col.iso >= selRange.from && col.iso <= selRange.to;
+                          const isFormTarget = !editing && form.projectId === row.key && col.iso >= form.start && col.iso <= form.end;
+                          return (
+                            <div key={col.iso} data-iso={col.iso} data-row={row.key}
+                              onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
+                              className={"group/cell min-h-[30px] pt-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
+                                (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : offDays.has(col.iso) ? `${OFF_BG} ` : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
+                                (inMonth ? "" : "opacity-50")}>
+                              {col.lanes.map((seg, li) => {
+                                if (!seg) return <div key={li} className="h-[18px]" />;
+                                const e = seg.e;
+                                const round = (seg.isStart ? "rounded-l ml-1 " : "") + (seg.isEnd ? "rounded-r mr-1" : "");
+                                const showLabel = seg.isStart || ci === 0;
+                                const isDragging = drag?.moved && drag.ev?.id === e.id;
+                                const isEditing = form.id === e.id;
+                                const tip = e.title +
+                                  (e.event_date !== e.end_date ? ` (${fmtMD(e.event_date)}~${fmtMD(e.end_date)})` : "");
+                                return (
+                                  <div key={li} title={tip}
+                                    onPointerDown={(ev) => beginDrag(ev, "move", row.key, col.iso, e)}
+                                    className={`group/bar relative h-[18px] leading-[18px] text-[11px] px-1 truncate cursor-grab ${chipClass(e)} ${round} ` +
+                                      (e.is_done ? "line-through " : "") +
+                                      (isDragging ? "opacity-70 shadow " : "hover:brightness-95 ") +
+                                      (isEditing ? "ring-2 ring-amber-400 " : "")}>
+                                    {showLabel ? e.title : " "}
+                                    {seg.isStart && (
+                                      <span onPointerDown={(ev) => beginDrag(ev, "resize-start", row.key, col.iso, e)}
+                                        className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-l" />
+                                    )}
+                                    {seg.isEnd && (
+                                      <span onPointerDown={(ev) => beginDrag(ev, "resize-end", row.key, col.iso, e)}
+                                        className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-r" />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {/* 등록용 빈 줄 — 막대가 꽉 차도 여기서 클릭/끌기 */}
+                              <div className="flex-1 min-h-[18px] flex items-center justify-center text-xs leading-none text-transparent group-hover/cell:text-gray-500">+</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}
                 </div>
-
-                {/* 프로젝트 행 */}
-                {rows.length === 0 ? (
-                  <div className="text-xs text-gray-300 py-3 text-center">위에서 프로젝트를 추가하세요</div>
-                ) : rows.map((row) => {
-                  const { cols } = layoutWeek(week, row.events);
-                  return (
-                    <div key={row.key} className="grid border-b border-gray-50 last:border-b-0" style={GRID_COLS}>
-                      <div className="sticky left-0 bg-white z-10 flex items-start gap-1.5 px-2 py-1.5 text-xs border-r border-gray-100">
-                        <span className={`mt-[3px] w-2 h-2 rounded-full shrink-0 ${row.dot}`} />
-                        <span className="text-gray-700 truncate" title={row.label}>{row.label}</span>
-                      </div>
-                      {cols.map((col, ci) => {
-                        const inMonth = week[ci].inMonth;
-                        const isToday = col.iso === todayIso;
-                        const inSel = selRange && selRange.row === row.key && col.iso >= selRange.from && col.iso <= selRange.to;
-                        const isFormTarget = !editing && form.projectId === row.key && col.iso >= form.start && col.iso <= form.end;
-                        return (
-                          <div key={col.iso} data-iso={col.iso} data-row={row.key}
-                            onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
-                            className={"group/cell min-h-[30px] pt-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
-                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : offDays.has(col.iso) ? `${OFF_BG} ` : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
-                              (inMonth ? "" : "opacity-50")}>
-                            {col.lanes.map((seg, li) => {
-                              if (!seg) return <div key={li} className="h-[18px]" />;
-                              const e = seg.e;
-                              const round = (seg.isStart ? "rounded-l ml-1 " : "") + (seg.isEnd ? "rounded-r mr-1" : "");
-                              const showLabel = seg.isStart || ci === 0;
-                              const isDragging = drag?.moved && drag.ev?.id === e.id;
-                              const isEditing = form.id === e.id;
-                              const tip = e.title +
-                                (e.event_date !== e.end_date ? ` (${fmtMD(e.event_date)}~${fmtMD(e.end_date)})` : "");
-                              return (
-                                <div key={li} title={tip}
-                                  onPointerDown={(ev) => beginDrag(ev, "move", row.key, col.iso, e)}
-                                  className={`group/bar relative h-[18px] leading-[18px] text-[11px] px-1 truncate cursor-grab ${chipClass(e)} ${round} ` +
-                                    (e.is_done ? "line-through " : "") +
-                                    (isDragging ? "opacity-70 shadow " : "hover:brightness-95 ") +
-                                    (isEditing ? "ring-2 ring-amber-400 " : "")}>
-                                  {showLabel ? e.title : " "}
-                                  {seg.isStart && (
-                                    <span onPointerDown={(ev) => beginDrag(ev, "resize-start", row.key, col.iso, e)}
-                                      className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-l" />
-                                  )}
-                                  {seg.isEnd && (
-                                    <span onPointerDown={(ev) => beginDrag(ev, "resize-end", row.key, col.iso, e)}
-                                      className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize opacity-0 group-hover/bar:opacity-100 bg-black/20 rounded-r" />
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {/* 등록용 빈 줄 — 막대가 꽉 차도 여기서 클릭/끌기 */}
-                            <div className="flex-1 min-h-[18px] flex items-center justify-center text-xs leading-none text-transparent group-hover/cell:text-gray-500">+</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 text-[11px] text-gray-400">
+            날짜 옆 체크=휴무일 · 칸 클릭=날짜 지정 · 칸 끌기=기간 지정(하루씩 따로 등록) · 일정 클릭=선택·수정(Delete=삭제, Esc=해제) ·일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
           </div>
         </div>
-        <div className="mt-2 text-[11px] text-gray-400">
-          날짜 옆 체크=휴무일 · 칸 클릭=날짜 지정 · 칸 끌기=기간 지정(하루씩 따로 등록) · 일정 클릭=선택·수정(Delete=삭제, Esc=해제) ·일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
-        </div>
       </div>
+      <aside className="hidden xl:block w-[32rem] shrink-0 sticky top-16 space-y-3">
+        <div className="bg-white border border-gray-200 rounded-xl">{projectBar}</div>
+        {side}
+      </aside>
     </div>
   );
 }
