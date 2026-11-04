@@ -20,6 +20,7 @@ import {
 import { loadHolidays, shortHolidayName, type HolidayMap } from "@/lib/holidays";
 
 const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
+const OFF_DOWS = [0, 2, 6]; // 휴무일(일·화·토) — 칸 배경을 날짜 헤더(bg-gray-50)와 같게
 const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   sky:     { chip: "bg-sky-100 text-sky-800",         dot: "bg-sky-400" },
   amber:   { chip: "bg-amber-100 text-amber-800",     dot: "bg-amber-400" },
@@ -560,7 +561,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                           <div key={col.iso} data-iso={col.iso} data-row={row.key}
                             onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
                             className={"min-h-[30px] py-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
-                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
+                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : OFF_DOWS.includes(ci) ? "bg-gray-50 hover:bg-gray-100 " : "hover:bg-gray-50 ") +
                               (inMonth ? "" : "opacity-50")}>
                             {col.lanes.map((seg, li) => {
                               if (!seg) return <div key={li} className="h-[18px]" />;
