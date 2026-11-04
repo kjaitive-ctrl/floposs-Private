@@ -264,17 +264,17 @@ export default function ProjectSchedule({ tenantId, side }: { tenantId: string; 
     ? { row: drag.anchorRow, from: drag.anchorIso < drag.curIso ? drag.anchorIso : drag.curIso, to: drag.anchorIso < drag.curIso ? drag.curIso : drag.anchorIso }
     : null;
 
-  // ── 행 구성: 활성 프로젝트 전부 + (미분류: 이 화면 범위에 미분류 일정 있을 때만) ──
+  // ── 행 구성: (미분류: 이 화면 범위에 미분류 일정 있을 때만, 맨 위) + 활성 프로젝트 전부 ──
   // 삭제(보관)된 프로젝트의 일정은 숨김(데이터는 보존).
   const unassignedEvents = shown.filter((e) => !e.project_id);
   const rows: { key: string; label: string; dot: string; events: ScheduleEvent[] }[] = [
+    ...(unassignedEvents.length > 0 || drag?.kind === "move"
+      ? [{ key: UNASSIGNED, label: "(미분류)", dot: "bg-gray-300", events: unassignedEvents }]
+      : []),
     ...projects.map((p) => ({
       key: p.id, label: p.name, dot: colorOf(p.color).dot,
       events: shown.filter((e) => e.project_id === p.id),
     })),
-    ...(unassignedEvents.length > 0 || drag?.kind === "move"
-      ? [{ key: UNASSIGNED, label: "(미분류)", dot: "bg-gray-300", events: unassignedEvents }]
-      : []),
   ];
   const projectColor = new Map(projects.map((p) => [p.id, p.color]));
   function chipClass(e: ScheduleEvent): string {
