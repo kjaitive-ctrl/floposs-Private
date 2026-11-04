@@ -20,7 +20,7 @@ import {
 import { loadHolidays, shortHolidayName, type HolidayMap } from "@/lib/holidays";
 
 const CAL_DOW = ["일", "월", "화", "수", "목", "금", "토"];
-const OFF_DOWS = [0, 2, 6]; // 휴무일(일·화·토) — 칸 배경을 날짜 헤더(bg-gray-50)와 같게
+const OFF_DOWS = [0, 2, 6]; // 휴무일(일·화·토) — 날짜 헤더+칸 전체 bg-gray-200 로 구분
 const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   sky:     { chip: "bg-sky-100 text-sky-800",         dot: "bg-sky-400" },
   amber:   { chip: "bg-amber-100 text-amber-800",     dot: "bg-amber-400" },
@@ -32,7 +32,7 @@ const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   fuchsia: { chip: "bg-fuchsia-100 text-fuchsia-800", dot: "bg-fuchsia-400" },
 };
 const COLOR_KEYS = Object.keys(PROJECT_COLORS);
-const UNASSIGNED_CHIP = "bg-gray-200 text-gray-700";
+const UNASSIGNED_CHIP = "bg-gray-300 text-gray-700";
 const DONE_CHIP = "bg-gray-100 text-gray-400";
 const UNASSIGNED = "__unassigned__";
 const DRAG_THRESHOLD_PX = 4;
@@ -526,10 +526,10 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                   {week.map((slot, ci) => {
                     const isToday = slot.iso === todayIso;
                     const holiday = holidays[slot.iso];
-                    const dowColor = ci === 0 || holiday ? "text-rose-400" : ci === 6 ? "text-blue-400" : "text-gray-400";
+                    const dowColor = ci === 0 || holiday ? "text-rose-400" : ci === 6 ? "text-blue-400" : OFF_DOWS.includes(ci) ? "text-gray-500" : "text-gray-400";
                     return (
                       <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
-                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (slot.inMonth ? "" : "opacity-40")}>
+                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (OFF_DOWS.includes(ci) ? "bg-gray-200 " : "") + (slot.inMonth ? "" : "opacity-40")}>
                         <span className={dowColor}>{CAL_DOW[ci]}</span>
                         <span className={"w-5 h-5 shrink-0 flex items-center justify-center rounded-full " +
                           (isToday ? "bg-black text-white font-bold" : holiday ? "text-rose-500" : "text-gray-700")}>
@@ -561,7 +561,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                           <div key={col.iso} data-iso={col.iso} data-row={row.key}
                             onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
                             className={"min-h-[30px] py-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
-                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : OFF_DOWS.includes(ci) ? "bg-gray-50 hover:bg-gray-100 " : "hover:bg-gray-50 ") +
+                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : OFF_DOWS.includes(ci) ? "bg-gray-200 hover:bg-gray-300 " : "hover:bg-gray-50 ") +
                               (inMonth ? "" : "opacity-50")}>
                             {col.lanes.map((seg, li) => {
                               if (!seg) return <div key={li} className="h-[18px]" />;
