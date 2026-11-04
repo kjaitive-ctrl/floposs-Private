@@ -150,6 +150,28 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   const dragRef = useRef<Drag | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
+  // 확인 팝업 — 브라우저 confirm 은 화면이 어두워져서 자체 팝업(배경 그대로). Enter=확인, Esc=취소
+  const [ask, setAsk] = useState<{ message: string; resolve: (ok: boolean) => void } | null>(null);
+  function askConfirm(message: string) {
+    return new Promise<boolean>((resolve) => setAsk({ message, resolve }));
+  }
+  function answer(ok: boolean) {
+    ask?.resolve(ok);
+    setAsk(null);
+  }
+  useEffect(() => {
+    if (!ask) return;
+    function onKey(ke: KeyboardEvent) {
+      if (ke.key !== "Enter" && ke.key !== "Escape" && ke.key !== "Delete") return;
+      ke.preventDefault();
+      ke.stopPropagation(); // 등록줄 Enter·선택 일정 Delete/Esc 로 넘어가지 않게
+      if (ke.key === "Enter") answer(true);
+      if (ke.key === "Escape") answer(false);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [ask]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 달력 칸: 그 달 1일이 속한 주의 월요일 ~ 말일이 속한 주의 일요일 (앞뒤 달 날짜 포함)
   const first = new Date(y, m, 1);
   const last = new Date(y, m + 1, 0);
@@ -288,7 +310,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     const end = f.end >= f.start ? f.end : f.start;
     if (f.id === null) {
       const dates = daysInRange(f.start, end);
-      if (dates.length > LONG_RANGE_DAYS && !confirm(`${dates.length}일치 일정이 하루씩 등록됩니다. 계속할까요?`)) return;
+      if (dates.length > LONG_RANGE_DAYS && !(await askConfirm(`${dates.length}일치 일정이 하루씩 등록됩니다. 계속할까요?`))) return;
       setForm({ ...f, title: "" }); // 프로젝트·날짜 유지 → 연속 입력
       await addDailyEvents(tenantId, dates, f.title, null, null, projectId);
     } else {
@@ -319,7 +341,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     await toggleEventDone(id, isDone);
   }
   async function removeFormEvent() {
-    if (!form.id || !confirm("이 일정을 삭제할까요?")) return;
+    if (!form.id || !(await askConfirm(`'${form.title}' 일정을 삭제할까요?`))) return;
     const id = form.id;
     resetForm();
     setEvents((prev) => prev.filter((x) => x.id !== id)); // optimistic
@@ -341,7 +363,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     if (!formSaved) return;
     const e = formSaved;
     const dates = daysInRange(e.event_date, e.end_date);
-    if (!confirm(`'${e.title}' 일정을 ${dates.length}일로 나눌까요?`)) return;
+    if (!(await askConfirm(`'${e.title}' 일정을 ${dates.length}일로 나눌까요?`))) return;
     resetForm();
     if (await addDailyEvents(tenantId, dates, e.title, e.assignee, e.memo, e.project_id, e.is_done)) await deleteEvent(e.id);
     reloadEvents();
@@ -453,7 +475,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     await Promise.all(changed.map(({ p, i }) => updateProject(p.id, { sort_order: i })));
   }
   async function removeProject(p: ScheduleProject) {
-    if (!confirm(`'${p.name}' 프로젝트를 삭제할까요?\n등록된 일정은 지워지지 않고 '삭제된 프로젝트'에서 복원할 수 있습니다.`)) return;
+    if (!(await askConfirm(`'${p.name}' 프로젝트를 삭제할까요?\n등록된 일정은 지워지지 않고 '삭제된 프로젝트'에서 복원할 수 있습니다.`))) return;
     setProjects((prev) => prev.filter((x) => x.id !== p.id)); // optimistic
     if (form.projectId === p.id) setForm((f) => ({ ...f, projectId: UNASSIGNED }));
     await updateProject(p.id, { is_active: false });
@@ -471,6 +493,15 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-3">
+      {ask && (
+        <div className="fixed left-1/2 top-24 -translate-x-1/2 z-50 w-max max-w-[90vw] bg-white border border-gray-300 rounded-xl shadow-lg p-4">
+          <div className="text-sm text-black whitespace-pre-line">{ask.message}</div>
+          <div className="flex justify-end gap-1.5 mt-3">
+            <button onClick={() => answer(false)} className={styles.btnSmallGhost}>취소</button>
+            <button onClick={() => answer(true)} className={`${styles.btnPrimary} py-1.5`}>확인</button>
+          </div>
+        </div>
+      )}
       {/* 프로젝트 바 + 등록줄 — 스크롤해도 상단 고정 */}
       <div className="sticky top-12 z-20 bg-white border border-gray-200 rounded-xl shadow-sm">
         <div className="p-3 pb-2">
