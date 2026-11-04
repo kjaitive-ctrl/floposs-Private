@@ -12,6 +12,7 @@
 // 터치는 드래그 없이 탭만(스크롤 충돌) — 등록줄 ‹ › 로 하루씩 이동.
 // 기간으로 신규 등록 = 하루짜리 일정 N건(날짜별 완료 체크). 옛 기간 막대는 수정 모드 [날짜별로 나누기].
 // 휴무일 = 날짜 헤더 체크박스로 그 날만 지정 → 헤더+칸 전체 음영(OFF_BG).
+// 지난 주는 기본 접힘(지난 달을 볼 때는 전부 펼침). 칸 맨 아래 빈 줄 = 꽉 찬 칸에서도 클릭/끌기 시작 가능.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { styles } from "@/common/styles";
 import {
@@ -162,6 +163,11 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     if (d.getDay() === 1) weeks.push([]);
     weeks[weeks.length - 1].push({ d: d.getDate(), iso: isoDate(d), inMonth: d.getMonth() === m });
   }
+
+  const [showPastWeeks, setShowPastWeeks] = useState(false);
+  const pastWeekCount = weeks.filter((w) => w[w.length - 1].iso < todayIso).length;
+  const allPast = pastWeekCount === weeks.length;
+  const visibleWeeks = showPastWeeks || allPast ? weeks : weeks.slice(pastWeekCount);
 
   const reloadEvents = useCallback(async () => {
     setEvents(await loadEvents(tenantId, gridStartIso, gridEndIso));
@@ -562,8 +568,14 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
         <div className={"overflow-x-auto " + (drag?.moved ? "select-none" : "")}
           style={drag?.moved ? { cursor: drag.kind === "move" ? "grabbing" : drag.kind === "select" ? "cell" : "ew-resize" } : undefined}>
           <div className="min-w-[46rem] space-y-3">
-            {weeks.map((week, wi) => (
-              <div key={wi} className="border border-gray-100 rounded-lg overflow-hidden">
+            {pastWeekCount > 0 && !allPast && (
+              <button onClick={() => setShowPastWeeks(!showPastWeeks)}
+                className="w-full py-1.5 text-xs text-gray-500 hover:text-black bg-gray-50 border border-gray-100 rounded-lg">
+                지난 주 {pastWeekCount}개 {showPastWeeks ? "접기 ▴" : "펼치기 ▾"}
+              </button>
+            )}
+            {visibleWeeks.map((week) => (
+              <div key={week[0].iso} className="border border-gray-100 rounded-lg overflow-hidden">
                 {/* 주 날짜 헤더 */}
                 <div className="grid bg-gray-50 border-b border-gray-100" style={GRID_COLS}>
                   <div className="sticky left-0 bg-gray-50 z-10" />
@@ -608,7 +620,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                         return (
                           <div key={col.iso} data-iso={col.iso} data-row={row.key}
                             onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
-                            className={"min-h-[30px] py-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
+                            className={"group/cell min-h-[30px] pt-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
                               (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : offDays.has(col.iso) ? `${OFF_BG} ` : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
                               (inMonth ? "" : "opacity-50")}>
                             {col.lanes.map((seg, li) => {
@@ -639,6 +651,8 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                                 </div>
                               );
                             })}
+                            {/* 등록용 빈 줄 — 막대가 꽉 차도 여기서 클릭/끌기 */}
+                            <div className="flex-1 min-h-[18px] flex items-center justify-center text-xs leading-none text-transparent group-hover/cell:text-gray-500">+</div>
                           </div>
                         );
                       })}
