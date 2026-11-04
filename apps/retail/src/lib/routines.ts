@@ -37,6 +37,7 @@ export interface ScheduleEvent {
   memo: string | null;
   is_done: boolean; // 마이그 217
   project_id: string | null; // 마이그 234. null = 미분류
+  created_at: string;
 }
 // 일정 프로젝트(행) — 마이그 234. 삭제 = is_active=false(소프트, 일정 보존)
 export interface ScheduleProject {
@@ -118,7 +119,7 @@ export async function unsetCheck(routineId: string, dateIso: string): Promise<vo
 export async function loadEvents(tenantId: string, fromIso: string, toIso: string): Promise<ScheduleEvent[]> {
   const { data } = await supabase
     .from("schedule_events")
-    .select("id, assignee, event_date, end_date, title, memo, is_done, project_id")
+    .select("id, assignee, event_date, end_date, title, memo, is_done, project_id, created_at")
     .eq("tenant_id", tenantId)
     .lte("event_date", toIso)
     .gte("end_date", fromIso)

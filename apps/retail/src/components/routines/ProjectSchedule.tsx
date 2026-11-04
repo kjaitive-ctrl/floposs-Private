@@ -80,7 +80,8 @@ function layoutWeek(week: DaySlot[], events: ScheduleEvent[]): { maxLanes: numbe
       cs: e.event_date > firstIso ? e.event_date : firstIso,
       ce: e.end_date < lastIso ? e.end_date : lastIso,
     }))
-    .sort((a, b) => a.cs.localeCompare(b.cs) || b.ce.localeCompare(a.ce) || a.e.id.localeCompare(b.e.id));
+    // 같은 날 시작 = 등록순(위→아래)
+    .sort((a, b) => a.cs.localeCompare(b.cs) || Date.parse(a.e.created_at) - Date.parse(b.e.created_at) || a.e.id.localeCompare(b.e.id));
 
   const laneEnds: string[] = [];
   const placed: { e: ScheduleEvent; cs: string; ce: string; lane: number }[] = [];
