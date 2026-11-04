@@ -277,7 +277,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
       projectId: e.project_id && activeIds.has(e.project_id) ? e.project_id : UNASSIGNED,
       title: e.title, start: e.event_date, end: e.end_date, isDone: e.is_done,
     });
-    setTimeout(() => titleRef.current?.focus(), 0);
+    (document.activeElement as HTMLElement | null)?.blur(); // 입력칸에 커서가 남으면 Delete 가 글자 지우기로 감
   }
   function resetForm() {
     setForm((f) => ({ ...f, id: null, title: "", isDone: false }));
@@ -325,6 +325,17 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     setEvents((prev) => prev.filter((x) => x.id !== id)); // optimistic
     await deleteEvent(id);
   }
+  // 선택한 일정: Delete=삭제, Esc=선택 해제. 입력칸에 커서가 있으면 글자 편집이 우선
+  useEffect(() => {
+    if (!form.id) return;
+    function onKey(ke: KeyboardEvent) {
+      if ((ke.target as HTMLElement).closest("input, textarea, select")) return;
+      if (ke.key === "Delete") removeFormEvent();
+      if (ke.key === "Escape") resetForm();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [form.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // 옛 기간 막대 → 하루짜리 N건. 새 건 등록 성공 후에만 원본 삭제(실패해도 일정 유실 없음)
   async function splitFormEvent() {
     if (!formSaved) return;
@@ -661,7 +672,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
           </div>
         </div>
         <div className="mt-2 text-[11px] text-gray-400">
-          날짜 옆 체크=휴무일 · 칸 클릭=날짜 지정 · 칸 끌기=기간 지정(하루씩 따로 등록) · 일정 클릭=수정 · 일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
+          날짜 옆 체크=휴무일 · 칸 클릭=날짜 지정 · 칸 끌기=기간 지정(하루씩 따로 등록) · 일정 클릭=선택·수정(Delete=삭제, Esc=해제) ·일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
         </div>
       </div>
     </div>
