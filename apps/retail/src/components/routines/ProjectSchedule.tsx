@@ -109,7 +109,6 @@ type Form = {
   id: string | null;
   projectId: string; // UNASSIGNED = 미분류
   title: string;
-  assignee: string;
   start: string;
   end: string;
   isDone: boolean;
@@ -144,7 +143,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [form, setForm] = useState<Form>({
-    id: null, projectId: UNASSIGNED, title: "", assignee: "", start: todayIso, end: todayIso, isDone: false,
+    id: null, projectId: UNASSIGNED, title: "", start: todayIso, end: todayIso, isDone: false,
   });
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -266,8 +265,8 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   function fillNew(rowKey: string, start: string, end: string) {
     setForm((f) => ({
       id: null, projectId: rowKey, start, end, isDone: false,
-      // 수정 모드였다면 내용 비움, 신규 입력 중이었다면 쓰던 제목/담당 유지
-      title: f.id ? "" : f.title, assignee: f.id ? "" : f.assignee,
+      // 수정 모드였다면 내용 비움, 신규 입력 중이었다면 쓰던 제목 유지
+      title: f.id ? "" : f.title,
     }));
     setTimeout(() => titleRef.current?.focus(), 0);
   }
@@ -275,12 +274,12 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     setForm({
       id: e.id,
       projectId: e.project_id && activeIds.has(e.project_id) ? e.project_id : UNASSIGNED,
-      title: e.title, assignee: e.assignee ?? "", start: e.event_date, end: e.end_date, isDone: e.is_done,
+      title: e.title, start: e.event_date, end: e.end_date, isDone: e.is_done,
     });
     setTimeout(() => titleRef.current?.focus(), 0);
   }
   function resetForm() {
-    setForm((f) => ({ ...f, id: null, title: "", assignee: "", isDone: false }));
+    setForm((f) => ({ ...f, id: null, title: "", isDone: false }));
   }
   async function submitForm(f: Form = form) {
     if (!f.title.trim()) return;
@@ -289,10 +288,10 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     if (f.id === null) {
       const dates = daysInRange(f.start, end);
       if (dates.length > LONG_RANGE_DAYS && !confirm(`${dates.length}일치 일정이 하루씩 등록됩니다. 계속할까요?`)) return;
-      setForm({ ...f, title: "" }); // 프로젝트·날짜·담당 유지 → 연속 입력
-      await addDailyEvents(tenantId, dates, f.title, f.assignee || null, null, projectId);
+      setForm({ ...f, title: "" }); // 프로젝트·날짜 유지 → 연속 입력
+      await addDailyEvents(tenantId, dates, f.title, null, null, projectId);
     } else {
-      const patch = { title: f.title.trim(), assignee: f.assignee || null, event_date: f.start, end_date: end, project_id: projectId };
+      const patch = { title: f.title.trim(), event_date: f.start, end_date: end, project_id: projectId };
       setEvents((prev) => prev.map((x) => (x.id === f.id ? { ...x, ...patch } : x))); // optimistic
       resetForm();
       await updateEvent(f.id, patch);
@@ -305,7 +304,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     setForm(f);
     if (f.id && f.title.trim()) {
       const projectId = f.projectId === UNASSIGNED ? null : f.projectId;
-      const patch = { title: f.title.trim(), assignee: f.assignee || null, event_date: f.start, end_date: f.end, project_id: projectId };
+      const patch = { title: f.title.trim(), event_date: f.start, end_date: f.end, project_id: projectId };
       setEvents((prev) => prev.map((x) => (x.id === f.id ? { ...x, ...patch } : x))); // optimistic
       await updateEvent(f.id, patch);
     }
@@ -523,9 +522,6 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
             placeholder="일정 제목 (Enter)"
             onKeyDown={(e) => { if (e.key === "Enter") submitForm(); if (e.key === "Escape" && editing) resetForm(); }}
             className={`${smallInput} flex-1 min-w-[10rem] w-auto`} />
-          <input value={form.assignee} onChange={(e) => setForm({ ...form, assignee: e.target.value })}
-            placeholder="담당" onKeyDown={(e) => { if (e.key === "Enter") submitForm(); }}
-            className={`${smallInput} w-16`} />
           <div className="flex items-center gap-0.5">
             <button onClick={() => nudge(-1)} title="하루 앞으로" className="px-1.5 text-gray-400 hover:text-black text-lg leading-none">‹</button>
             <input type="date" value={form.start}
@@ -630,7 +626,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                               const showLabel = seg.isStart || ci === 0;
                               const isDragging = drag?.moved && drag.ev?.id === e.id;
                               const isEditing = form.id === e.id;
-                              const tip = e.title + (e.assignee ? ` · ${e.assignee}` : "") +
+                              const tip = e.title +
                                 (e.event_date !== e.end_date ? ` (${fmtMD(e.event_date)}~${fmtMD(e.end_date)})` : "");
                               return (
                                 <div key={li} title={tip}

@@ -9,7 +9,7 @@ const LINKS: { href: string; label: string }[] = [
   { href: "/samples", label: "샘플" },
   { href: "/products", label: "내 상품" },
   { href: "/product-status", label: "상품현황" },
-  { href: "/routines", label: "업무루틴" },
+  { href: "/routines", label: "일정" },
   { href: "/accounting", label: "회계" },
   { href: "/purchase-order", label: "주문" },
   // 라이브채팅 (TEST) — 유튜브 라이브 채팅→주문 시험. 별도 서비스로 개발 예정, 그때 삭제.

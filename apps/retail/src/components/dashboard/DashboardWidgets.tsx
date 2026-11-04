@@ -1,12 +1,9 @@
 "use client";
 
-// 대시보드 위젯 모음 (모듈화). 날씨(Open-Meteo 11일) · 오늘 할일(업무루틴 2주) · 다가오는 일정.
-import { useCallback, useEffect, useState } from "react";
+// 대시보드 위젯 모음 (모듈화). 날씨(Open-Meteo 11일) · 다가오는 일정.
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  isoDate, cycleDayOf, loadRoutines, loadChecks, setCheck, unsetCheck,
-  loadEvents, type Routine, type ScheduleEvent,
-} from "@/lib/routines";
+import { isoDate, loadEvents, type ScheduleEvent } from "@/lib/routines";
 
 const DOW = ["일", "월", "화", "수", "목", "금", "토"];
 
@@ -66,66 +63,6 @@ export function WeatherWidget() {
   );
 }
 
-// ── 오늘 할일 (업무루틴 2주 사이클) ──
-export function TodayTasksWidget({ tenantId }: { tenantId: string }) {
-  const [tasks, setTasks] = useState<Routine[]>([]);
-  const [done, setDone] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const todayIso = isoDate(new Date());
-  const cd = cycleDayOf(new Date());
-
-  const reload = useCallback(async () => {
-    const rs = await loadRoutines(tenantId);
-    const todays = rs.filter((r) => r.cycle_days.includes(cd));
-    setTasks(todays);
-    setDone(await loadChecks(todays.map((t) => t.id), todayIso));
-    setLoading(false);
-  }, [tenantId, cd, todayIso]);
-  useEffect(() => { reload(); }, [reload]);
-
-  async function toggle(r: Routine) {
-    const isDone = done.has(r.id);
-    setDone((prev) => { const n = new Set(prev); if (isDone) n.delete(r.id); else n.add(r.id); return n; });
-    if (isDone) await unsetCheck(r.id, todayIso);
-    else await setCheck(r.id, todayIso, r.assignee);
-  }
-
-  const remaining = tasks.filter((t) => !done.has(t.id)).length;
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
-        <span className="text-sm font-bold text-black">오늘 할일</span>
-        {!loading && <span className="text-xs text-gray-400">남은 {remaining} / {tasks.length}</span>}
-        <Link href="/routines?tab=routine" className="ml-auto text-xs text-gray-500 hover:text-black border border-gray-200 rounded px-2 py-0.5">세팅</Link>
-      </div>
-      {loading ? <div className="text-xs text-gray-400 px-4 py-6 text-center">불러오는 중…</div>
-        : tasks.length === 0 ? (
-          <div className="text-xs text-gray-400 px-4 py-6 text-center">
-            오늘 할일이 없어요. <Link href="/routines?tab=routine" className="text-primary hover:underline">업무루틴 세팅</Link>
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-50">
-            {tasks.map((r) => {
-              const isDone = done.has(r.id);
-              return (
-                <li key={r.id} className="flex items-center gap-2.5 px-4 py-2">
-                  <button type="button" onClick={() => toggle(r)}
-                    className={"w-5 h-5 rounded-md border flex items-center justify-center shrink-0 " + (isDone ? "bg-emerald-500 border-emerald-500 text-white" : "border-gray-300 hover:border-gray-400")}>
-                    {isDone && "✓"}
-                  </button>
-                  <span className={"text-sm flex-1 " + (isDone ? "text-gray-300 line-through" : "text-black")}>
-                    {r.title}{r.assignee && <span className="text-[11px] text-gray-400"> · {r.assignee}</span>}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-    </div>
-  );
-}
-
 // ── 다가오는 일정 (오늘~+14일) ──
 export function UpcomingScheduleWidget({ tenantId }: { tenantId: string }) {
   const [events, setEvents] = useState<ScheduleEvent[]>([]);
@@ -146,7 +83,7 @@ export function UpcomingScheduleWidget({ tenantId }: { tenantId: string }) {
       <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
         <span className="text-sm font-bold text-black">다가오는 일정</span>
         <span className="text-xs text-gray-400">2주</span>
-        <Link href="/routines?tab=schedule" className="ml-auto text-xs text-gray-500 hover:text-black border border-gray-200 rounded px-2 py-0.5">달력</Link>
+        <Link href="/routines" className="ml-auto text-xs text-gray-500 hover:text-black border border-gray-200 rounded px-2 py-0.5">달력</Link>
       </div>
       {loading ? <div className="text-xs text-gray-400 px-4 py-6 text-center">불러오는 중…</div>
         : events.length === 0 ? <div className="text-xs text-gray-400 px-4 py-6 text-center">예정된 일정이 없어요.</div>
@@ -161,7 +98,7 @@ export function UpcomingScheduleWidget({ tenantId }: { tenantId: string }) {
                   <span className="w-20 text-gray-500 text-xs whitespace-nowrap">
                     {`${dt.getMonth() + 1}/${dt.getDate()}`}({DOW[dt.getDay()]}){endDt && `~${endDt.getMonth() + 1}/${endDt.getDate()}`}
                   </span>
-                  <span className="text-black flex-1">{e.title}{e.assignee && <span className="text-[11px] text-gray-400"> · {e.assignee}</span>}</span>
+                  <span className="text-black flex-1">{e.title}</span>
                 </li>
               );
             })}
