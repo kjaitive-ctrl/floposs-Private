@@ -1,6 +1,6 @@
 "use client";
 
-// 일정 — 월 달력(월~일 주 단위 줄바꿈) × 프로젝트 행. 마이그 208/213/217/234.
+// 일정 — 월 달력(월~일 주 단위 줄바꿈) × 프로젝트 행. 마이그 208/213/217/234/235.
 // 각 주 블록 = [날짜 헤더] + [프로젝트별 행]. 행 안에서는 기간 일정이 이어진 막대(band)로,
 // 같은 날 여러 일정은 레인(lane)으로 쌓임(구글캘린더 월간뷰 방식, 주 경계에서 줄바꿈).
 // 프로젝트 추가/수정/순서/삭제는 상단 프로젝트 바에서 인라인으로(장기과제 패널과 같은 감각).
@@ -10,10 +10,13 @@
 // 막대 클릭 → 등록줄이 수정 모드. 마우스 드래그: 빈 칸 끌기=기간 선택, 막대 끌기=이동(다른
 // 프로젝트 행에 놓으면 프로젝트도 이동), 막대 양 끝 손잡이=시작/종료일 조절. 놓는 즉시 저장.
 // 터치는 드래그 없이 탭만(스크롤 충돌) — 등록줄 ‹ › 로 하루씩 이동.
+// 기간으로 신규 등록 = 하루짜리 일정 N건(날짜별 완료 체크). 옛 기간 막대는 수정 모드 [날짜별로 나누기].
+// 휴무일 = 날짜 헤더 체크박스로 그 날만 지정 → 헤더+칸 전체 음영(OFF_BG).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { styles } from "@/common/styles";
 import {
-  isoDate, loadEvents, addEvent, deleteEvent, toggleEventDone, updateEvent,
+  isoDate, loadEvents, addDailyEvents, deleteEvent, toggleEventDone, updateEvent,
+  loadOffDays, setOffDay,
   loadProjects, addProject, updateProject,
   type ScheduleEvent, type ScheduleProject,
 } from "@/lib/routines";
@@ -22,7 +25,7 @@ import { loadHolidays, shortHolidayName, type HolidayMap } from "@/lib/holidays"
 const CAL_DOW = ["월", "화", "수", "목", "금", "토", "일"];
 const SAT = 5;
 const SUN = 6;
-const OFF_DOWS = [1, SAT, SUN]; // 휴무일(화·토·일, CAL_DOW 인덱스) — 날짜 헤더+칸 전체 bg-gray-200 로 구분
+const OFF_BG = "bg-gray-300";
 const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   sky:     { chip: "bg-sky-100 text-sky-800",         dot: "bg-sky-400" },
   amber:   { chip: "bg-amber-100 text-amber-800",     dot: "bg-amber-400" },
@@ -34,10 +37,11 @@ const PROJECT_COLORS: Record<string, { chip: string; dot: string }> = {
   fuchsia: { chip: "bg-fuchsia-100 text-fuchsia-800", dot: "bg-fuchsia-400" },
 };
 const COLOR_KEYS = Object.keys(PROJECT_COLORS);
-const UNASSIGNED_CHIP = "bg-gray-300 text-gray-700";
+const UNASSIGNED_CHIP = "bg-gray-200 text-gray-700";
 const DONE_CHIP = "bg-gray-100 text-gray-400";
 const UNASSIGNED = "__unassigned__";
 const DRAG_THRESHOLD_PX = 4;
+const LONG_RANGE_DAYS = 31; // 넘으면 등록 전 확인(날짜 잘못 골라 수백 건 생기는 것 방지)
 
 function colorOf(key: string) { return PROJECT_COLORS[key] ?? PROJECT_COLORS.sky; }
 function fmtMD(iso: string): string {
@@ -54,6 +58,9 @@ function dayDiff(fromIso: string, toIso: string): number {
 function addDays(iso: string, n: number): string {
   const d = new Date(isoToUtc(iso) + n * 86400000);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+function daysInRange(startIso: string, endIso: string): string[] {
+  return Array.from({ length: dayDiff(startIso, endIso) + 1 }, (_, i) => addDays(startIso, i));
 }
 
 type DaySlot = { d: number; iso: string; inMonth: boolean };
@@ -173,6 +180,25 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     loadHolidays([gridStartYear, gridEndYear]).then(setHolidays);
   }, [gridStartYear, gridEndYear]);
+  // 휴무일 — 날짜별 지정. 저장 실패 시 되돌리고 알림(체크된 것처럼 보였다가 사라지지 않게)
+  const [offDays, setOffDays] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    loadOffDays(tenantId, gridStartIso, gridEndIso).then((ds) => setOffDays(new Set(ds)));
+  }, [tenantId, gridStartIso, gridEndIso]);
+  function applyOffDay(iso: string, isOff: boolean) {
+    setOffDays((prev) => {
+      const next = new Set(prev);
+      if (isOff) next.add(iso); else next.delete(iso);
+      return next;
+    });
+  }
+  async function toggleOffDay(iso: string, isOff: boolean) {
+    applyOffDay(iso, isOff); // optimistic
+    if (!(await setOffDay(tenantId, iso, isOff))) {
+      applyOffDay(iso, !isOff);
+      alert("휴무일 저장에 실패했습니다.");
+    }
+  }
   useEffect(() => {
     // 첫 로드 시 등록줄 프로젝트 기본값 = 첫 프로젝트
     reloadProjects().then((act) => {
@@ -230,6 +256,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
   }
 
   // ── 등록줄 ──
+  const formSaved = form.id ? events.find((x) => x.id === form.id) ?? null : null;
   function fillNew(rowKey: string, start: string, end: string) {
     setForm((f) => ({
       id: null, projectId: rowKey, start, end, isDone: false,
@@ -254,8 +281,10 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     const projectId = f.projectId === UNASSIGNED ? null : f.projectId;
     const end = f.end >= f.start ? f.end : f.start;
     if (f.id === null) {
+      const dates = daysInRange(f.start, end);
+      if (dates.length > LONG_RANGE_DAYS && !confirm(`${dates.length}일치 일정이 하루씩 등록됩니다. 계속할까요?`)) return;
       setForm({ ...f, title: "" }); // 프로젝트·날짜·담당 유지 → 연속 입력
-      await addEvent(tenantId, f.start, f.title, f.assignee || null, null, end, projectId);
+      await addDailyEvents(tenantId, dates, f.title, f.assignee || null, null, projectId);
     } else {
       const patch = { title: f.title.trim(), assignee: f.assignee || null, event_date: f.start, end_date: end, project_id: projectId };
       setEvents((prev) => prev.map((x) => (x.id === f.id ? { ...x, ...patch } : x))); // optimistic
@@ -289,6 +318,16 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
     resetForm();
     setEvents((prev) => prev.filter((x) => x.id !== id)); // optimistic
     await deleteEvent(id);
+  }
+  // 옛 기간 막대 → 하루짜리 N건. 새 건 등록 성공 후에만 원본 삭제(실패해도 일정 유실 없음)
+  async function splitFormEvent() {
+    if (!formSaved) return;
+    const e = formSaved;
+    const dates = daysInRange(e.event_date, e.end_date);
+    if (!confirm(`'${e.title}' 일정을 ${dates.length}일로 나눌까요?`)) return;
+    resetForm();
+    if (await addDailyEvents(tenantId, dates, e.title, e.assignee, e.memo, e.project_id, e.is_done)) await deleteEvent(e.id);
+    reloadEvents();
   }
 
   // ── 드래그(포인터) ──
@@ -501,6 +540,9 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                 className={"text-xs " + (form.isDone ? "text-emerald-600 hover:text-emerald-700" : "text-gray-400 hover:text-emerald-600")}>
                 {form.isDone ? "✓ 완료됨" : "완료"}
               </button>
+              {formSaved && formSaved.event_date !== formSaved.end_date && (
+                <button onClick={splitFormEvent} className="text-xs text-gray-400 hover:text-black">날짜별로 나누기</button>
+              )}
               <button onClick={removeFormEvent} className="text-xs text-gray-400 hover:text-rose-500">삭제</button>
               <button onClick={resetForm} className="text-xs text-gray-400 hover:text-black">취소</button>
             </>
@@ -528,16 +570,20 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                   {week.map((slot, ci) => {
                     const isToday = slot.iso === todayIso;
                     const holiday = holidays[slot.iso];
-                    const dowColor = ci === SUN || holiday ? "text-rose-400" : ci === SAT ? "text-blue-400" : OFF_DOWS.includes(ci) ? "text-gray-500" : "text-gray-400";
+                    const isOff = offDays.has(slot.iso);
+                    const dowColor = isOff ? "text-gray-700" : ci === SUN || holiday ? "text-rose-400" : ci === SAT ? "text-blue-400" : "text-gray-400";
                     return (
                       <div key={slot.iso} title={holiday ? holiday.join(", ") : undefined}
-                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (OFF_DOWS.includes(ci) ? "bg-gray-200 " : "") + (slot.inMonth ? "" : "opacity-40")}>
+                        className={"flex items-center gap-1 px-1.5 py-1 text-xs min-w-0 " + (isOff ? `${OFF_BG} ` : "") + (slot.inMonth ? "" : "opacity-40")}>
                         <span className={dowColor}>{CAL_DOW[ci]}</span>
                         <span className={"w-5 h-5 shrink-0 flex items-center justify-center rounded-full " +
                           (isToday ? "bg-black text-white font-bold" : holiday ? "text-rose-500" : "text-gray-700")}>
                           {slot.d}
                         </span>
                         {holiday && <span className="text-[10px] text-rose-500 truncate">{shortHolidayName(holiday)}</span>}
+                        <input type="checkbox" checked={isOff} title="휴무일"
+                          onChange={(e) => toggleOffDay(slot.iso, e.target.checked)}
+                          className="ml-auto w-3.5 h-3.5 shrink-0 cursor-pointer accent-gray-700" />
                       </div>
                     );
                   })}
@@ -563,7 +609,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
                           <div key={col.iso} data-iso={col.iso} data-row={row.key}
                             onPointerDown={(ev) => beginDrag(ev, "select", row.key, col.iso, null)}
                             className={"min-h-[30px] py-1 flex flex-col gap-[2px] cursor-pointer border-r border-gray-50 last:border-r-0 " +
-                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : isToday ? "bg-amber-50/50 " : OFF_DOWS.includes(ci) ? "bg-gray-200 hover:bg-gray-300 " : "hover:bg-gray-50 ") +
+                              (inSel ? "bg-sky-100/70 " : isFormTarget ? "bg-sky-50 " : offDays.has(col.iso) ? `${OFF_BG} ` : isToday ? "bg-amber-50/50 " : "hover:bg-gray-50 ") +
                               (inMonth ? "" : "opacity-50")}>
                             {col.lanes.map((seg, li) => {
                               if (!seg) return <div key={li} className="h-[18px]" />;
@@ -604,7 +650,7 @@ export default function ProjectSchedule({ tenantId }: { tenantId: string }) {
           </div>
         </div>
         <div className="mt-2 text-[11px] text-gray-400">
-          칸 클릭=날짜 지정 · 칸 끌기=기간 지정 · 일정 클릭=수정 · 일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
+          날짜 옆 체크=휴무일 · 칸 클릭=날짜 지정 · 칸 끌기=기간 지정(하루씩 따로 등록) · 일정 클릭=수정 · 일정 끌기=이동(다른 프로젝트 행으로도) · 일정 양 끝 끌기=기간 조절
         </div>
       </div>
     </div>

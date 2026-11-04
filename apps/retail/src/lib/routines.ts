@@ -134,6 +134,14 @@ export async function addEvent(tenantId: string, dateIso: string, title: string,
   if (error) { console.error("addEvent:", error); return null; }
   return data.id;
 }
+// 날짜마다 하루짜리 일정 1건씩 등록(날짜별로 따로 완료 체크). insert 한 번이라 전부 성공 or 전부 실패
+export async function addDailyEvents(tenantId: string, dates: string[], title: string, assignee: string | null, memo: string | null, projectId: string | null, isDone = false): Promise<boolean> {
+  const { error } = await supabase
+    .from("schedule_events")
+    .insert(dates.map((d) => ({ tenant_id: tenantId, event_date: d, end_date: d, title: title.trim(), assignee: assignee || null, memo: memo || null, project_id: projectId, is_done: isDone })));
+  if (error) { console.error("addDailyEvents:", error); return false; }
+  return true;
+}
 export async function deleteEvent(id: string): Promise<void> {
   await supabase.from("schedule_events").delete().eq("id", id);
 }
@@ -145,6 +153,24 @@ export async function updateEvent(
   patch: Partial<Pick<ScheduleEvent, "title" | "assignee" | "event_date" | "end_date" | "project_id">>
 ): Promise<void> {
   await supabase.from("schedule_events").update(patch).eq("id", id);
+}
+
+// ── 휴무일 (마이그 235) ─────────────────
+export async function loadOffDays(tenantId: string, fromIso: string, toIso: string): Promise<string[]> {
+  const { data } = await supabase
+    .from("schedule_off_days")
+    .select("off_date")
+    .eq("tenant_id", tenantId)
+    .gte("off_date", fromIso)
+    .lte("off_date", toIso);
+  return (data ?? []).map((r) => r.off_date as string);
+}
+export async function setOffDay(tenantId: string, dateIso: string, isOff: boolean): Promise<boolean> {
+  const { error } = isOff
+    ? await supabase.from("schedule_off_days").upsert({ tenant_id: tenantId, off_date: dateIso })
+    : await supabase.from("schedule_off_days").delete().eq("tenant_id", tenantId).eq("off_date", dateIso);
+  if (error) { console.error("setOffDay:", error); return false; }
+  return true;
 }
 
 // ── 일정 프로젝트 ──────────────────────
