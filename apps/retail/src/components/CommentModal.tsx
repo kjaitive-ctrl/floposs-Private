@@ -3,6 +3,10 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { styles } from "@/common/styles";
+import {
+  CAUTION_OPTIONS, SEASON_NOTE_MAX, SEASON_OPTIONS, WASH_OPTIONS,
+  normalizeDetailOptions, type DetailOptions,
+} from "@/lib/detailOptions";
 
 // MD기능 [멘트] — 마이그 195 기준 단순 메모 + 자동 prefill.
 //   - tenant 가 starter text 정의 → 신규 작성 시 자동 prefill (= form 자동입력).
@@ -35,10 +39,37 @@ function safeText(v: unknown): string {
   return String(v);
 }
 
+// 상세페이지 선택 항목 — 여러 개 선택 가능한 칩 묶음.
+function OptionChips({ title, options, selected, onChange }: {
+  title: string;
+  options: { key: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-bold text-black mb-1.5">{title}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map(o => {
+          const on = selected.includes(o.key);
+          return (
+            <button key={o.key} type="button" aria-pressed={on}
+              onClick={() => onChange(on ? selected.filter(k => k !== o.key) : [...selected, o.key])}
+              className={"px-3 py-1.5 text-xs rounded border " + (on ? "bg-black text-white border-black font-medium" : "bg-white text-gray-700 border-gray-300 hover:border-gray-500")}>
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function CommentModal({ tenantId, productId, productName, onClose, onSaved }: Props) {
   const [loading, setLoading] = useState(true);
   const [template, setTemplate] = useState("");
   const [memo, setMemo] = useState("");
+  const [options, setOptions] = useState<DetailOptions>(() => normalizeDetailOptions(null));
   const [editMode, setEditMode] = useState(false);
   const [draftTemplate, setDraftTemplate] = useState("");
   const [saving, setSaving] = useState(false);
@@ -48,7 +79,7 @@ export default function CommentModal({ tenantId, productId, productName, onClose
     (async () => {
       const [{ data: tenant }, { data: product }] = await Promise.all([
         supabase.from("tenants").select("comment_template").eq("id", tenantId).maybeSingle(),
-        supabase.from("products").select("comment_data").eq("id", productId).maybeSingle(),
+        supabase.from("products").select("comment_data, detail_options").eq("id", productId).maybeSingle(),
       ]);
       if (cancelled) return;
       // DB 상태 무관 (JSONB / TEXT 둘 다) 안전 변환
@@ -58,6 +89,7 @@ export default function CommentModal({ tenantId, productId, productName, onClose
       setDraftTemplate(tpl);
       // 빈 메모 + 양식 있으면 자동 prefill (= 양식 그대로 시작)
       setMemo(data || tpl);
+      setOptions(normalizeDetailOptions(product?.detail_options));
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -65,8 +97,14 @@ export default function CommentModal({ tenantId, productId, productName, onClose
 
   async function handleSaveMemo() {
     setSaving(true);
+    // 양식을 그대로 둔 메모는 빈 값 — 안 그러면 "원단:" 같은 빈 줄이 상세페이지 맨 위에 나감.
+    const untouched = !!template.trim() && memo.trim() === template.trim();
     await supabase.from("products")
-      .update({ comment_data: memo, updated_at: new Date().toISOString() })
+      .update({
+        comment_data: untouched ? "" : memo,
+        detail_options: { ...options, season_note: options.season_note.trim() },
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", productId);
     setSaving(false);
     onSaved();
@@ -132,9 +170,20 @@ export default function CommentModal({ tenantId, productId, productName, onClose
                 rows={12}
                 placeholder={template || "양식이 없습니다. 우상단 '양식 편집' 으로 starter text 를 설정해보세요."}
                 className={styles.modalInput + " resize-none text-sm leading-relaxed"} />
-              <p className="text-[11px] text-gray-400">
-                AI 가 나중에 이 텍스트 그대로 받아 상세 MD 멘트를 생성합니다. ([[AI 크레딧 시스템 - 휴면]])
-              </p>
+              <div className="pt-3 border-t border-gray-100 space-y-3">
+                <p className="text-xs text-gray-500">상세페이지 항목 (선택한 항목만 표시, 여러 개 선택 가능)</p>
+                <OptionChips title="계절감" options={SEASON_OPTIONS} selected={options.seasons}
+                  onChange={seasons => setOptions(o => ({ ...o, seasons }))} />
+                <input type="text" value={options.season_note} maxLength={SEASON_NOTE_MAX}
+                  onChange={e => setOptions(o => ({ ...o, season_note: e.target.value }))}
+                  placeholder="계절감 한 줄 문구 (선택) 예: 도톰하고 포근한 두께감"
+                  aria-label="계절감 한 줄 문구"
+                  className={styles.modalInput + " text-sm text-black"} />
+                <OptionChips title="세탁방법" options={WASH_OPTIONS} selected={options.washes}
+                  onChange={washes => setOptions(o => ({ ...o, washes }))} />
+                <OptionChips title="주의사항" options={CAUTION_OPTIONS} selected={options.cautions}
+                  onChange={cautions => setOptions(o => ({ ...o, cautions }))} />
+              </div>
             </>
           )}
         </div>

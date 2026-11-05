@@ -14,6 +14,7 @@ import {
 import { shortLocFromNested } from "@/lib/retailSuppliers";
 import SizeModal from "@/components/SizeModal";
 import CommentModal from "@/components/CommentModal";
+import { hasDetailOptions } from "@/lib/detailOptions";
 import ShootModal from "@/components/ShootModal";
 import ProductImagesModal from "@/components/ProductImagesModal";
 import OptionChipCell from "@/components/OptionChipCell";
@@ -197,7 +198,7 @@ function ProductsPageInner() {
   // select 절 — fetchItems / refetchOneProduct 공통.
   // product_measurements(count) — SIZE 버튼 판정용 (박제 0 시 옅은 주황).
   // product_variants.sort_order — toRow active 정렬 기준 (마이그 033, 클라이언트 INSERT 순 박제)
-  const PRODUCT_SELECT = "id, product_code, barcode, cafe24_product_no, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), consumer_name, progress_memo, comment_data, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, barcode, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
+  const PRODUCT_SELECT = "id, product_code, barcode, cafe24_product_no, wholesale_name, wholesale_supplier, category, wholesale_price, wholesale_discount_price, wholesale_price_current, sale_price, consumer_price, regular_sale_price, status, launch_date, return_deadline, return_shipped_date, description, country_of_origin, material_composition, retail_supplier_id, retail_suppliers(slots(building, floor, section, unit)), consumer_name, progress_memo, comment_data, detail_options, sold_out, product_variants(id, color, size, option3, is_active, consumer_label_color, consumer_label_size, consumer_label_option3, is_for_sale, sold_out, variant_code, barcode, sort_order), product_images(count), product_shoots(count), product_measurements(count)";
 
   // DbProduct → ProductRow. existingKey 보존하면 React reconciliation 동일 row 인식 → DOM 재생성 X.
   function toRow(p: DbProduct, existingKey?: string): ProductRow {
@@ -248,7 +249,7 @@ function ProductsPageInner() {
       sold_out:            p.sold_out ?? false,
       image_count:         p.product_images?.[0]?.count ?? 0,
       measurements_count:  p.product_measurements?.[0]?.count ?? 0,
-      has_comment:         !!(p.comment_data && p.comment_data.trim()),
+      has_comment:         !!(p.comment_data && p.comment_data.trim()) || hasDetailOptions(p.detail_options),
       shoot_count:         p.product_shoots?.[0]?.count ?? 0,
       cafe24_product_no:   (p as { cafe24_product_no?: number | null }).cafe24_product_no ?? null,
     };

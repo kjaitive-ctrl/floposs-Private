@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getValidTokenForTenant, cafe24Api, cafe24UploadImageToProduct, type ValidToken } from "@/lib/cafe24";
 import { getObjectBuffer, keyFromPublicUrl } from "@/lib/r2";
 import { buildThumbnailAsset } from "@/lib/thumbnailGif";
+import { CAUTION_OPTIONS, SEASON_OPTIONS, WASH_OPTIONS, normalizeDetailOptions, type DetailOptions } from "@/lib/detailOptions";
 
 // R2 공개 URL → key 역추출 후 Buffer 반환
 async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
@@ -67,6 +68,7 @@ interface DbProduct {
   country_of_origin: string | null;
   material_composition: unknown;
   comment_data: string | null;
+  detail_options: unknown;
   cafe24_product_no: number | null;
   product_variants: DbVariant[];
   product_images: DbImage[];
@@ -147,7 +149,31 @@ function infoRow(label: string, value: string): string {
   return `<div style="text-align:center;margin-bottom:18px;"><span ${INFO_LABEL}>${escapeHtml(label)}</span><p ${INFO_VAL}>${escapeHtml(value)}</p></div>`;
 }
 
-const QUALITY_GUARANTEE_TEXT = "소비자보호에 관한 법률로 규정되어있는 소비자 청약 철회 가능범위에 해당되는 경우";
+// 계절감 막대 — 선택한 칸만 색을 채우고 나머지는 회색. 사이즈표와 같은 인라인 표 방식.
+function buildSeasonBar(options: DetailOptions): string {
+  if (options.seasons.length === 0) return "";
+  const labels = SEASON_OPTIONS.map(s => {
+    const on = options.seasons.includes(s.key);
+    return `<td style="text-align:center;padding:0 0 6px;font-size:12px;font-weight:${on ? 700 : 400};color:${on ? "#222" : "#aaa"};">${escapeHtml(s.label)}<br /><span style="font-size:10px;font-weight:400;">${escapeHtml(s.en)}</span></td>`;
+  }).join("");
+  const bars = SEASON_OPTIONS.map(s => {
+    const fill = options.seasons.includes(s.key) ? s.background : "background:#EFEFEF;";
+    return `<td style="height:14px;padding:0;border-left:2px solid #fff;border-right:2px solid #fff;${fill}"></td>`;
+  }).join("");
+  const note = options.season_note
+    ? `<p style="margin:8px 0 0;font-size:13px;color:#333;text-align:center;">${escapeHtml(options.season_note)}</p>`
+    : "";
+  return `<div style="text-align:center;margin-bottom:24px;"><span ${INFO_LABEL}>계절감</span><table style="width:100%;max-width:420px;margin:0 auto;border-collapse:collapse;table-layout:fixed;"><tr>${labels}</tr><tr>${bars}</tr></table>${note}</div>`;
+}
+
+function buildCautionBlock(options: DetailOptions): string {
+  const items = CAUTION_OPTIONS.filter(c => options.cautions.includes(c.key));
+  if (items.length === 0) return "";
+  const rows = items.map(c => `<p style="margin:0 0 4px;font-size:12px;color:#333;text-align:center;"><strong>${escapeHtml(c.label)}</strong> ${escapeHtml(c.text)}</p>`).join("");
+  return `<div style="text-align:center;margin-bottom:18px;"><span ${INFO_LABEL}>주의사항</span>${rows}</div>`;
+}
+
+const QUALITY_GUARANTEE_TEXT ="소비자보호에 관한 법률로 규정되어있는 소비자 청약 철회 가능범위에 해당되는 경우";
 
 // 원산지 표기 정규화 — 자유입력값을 괄호 없는 표준 문구로 치환
 function formatOrigin(raw: string | null): string {
@@ -179,6 +205,11 @@ function buildDetailHtml(
     lines.push(`<p style="font-size:14px;color:#333;text-align:center;margin-bottom:72px;white-space:pre-line;">${escapeHtml(p.comment_data.trim())}</p>`);
   }
 
+  // 계절감 막대 (멘트 바로 아래)
+  const detailOptions = normalizeDetailOptions(p.detail_options);
+  const seasonBar = buildSeasonBar(detailOptions);
+  if (seasonBar) lines.push(seasonBar);
+
   // 2. 상품정보 (Color / Size / 소재) — 사장 결정: 박스 테두리 없이 라벨+텍스트만
   const colors   = uniq(activeVariants.map(v => v.consumer_label_color));
   const sizes    = uniq(activeVariants.map(v => v.consumer_label_size));
@@ -190,6 +221,12 @@ function buildDetailHtml(
     if (material)            lines.push(infoRow("Fabric", material));
     lines.push(`</div>`);
   }
+
+  // 세탁방법 + 주의사항 (소재 다음, 착용정보 위)
+  const washLabels = WASH_OPTIONS.filter(w => detailOptions.washes.includes(w.key)).map(w => w.label);
+  if (washLabels.length > 0) lines.push(infoRow("세탁방법", washLabels.join(", ")));
+  const cautionBlock = buildCautionBlock(detailOptions);
+  if (cautionBlock) lines.push(cautionBlock);
 
   // 3. 착용정보 (촬영 데이터 전체 — 같은 모델이 옵션 여러 개 입고 촬영하는 경우가 흔함 → 모델별로 묶어서 전부 표기)
   const shoots = p.product_shoots ?? [];
@@ -346,7 +383,7 @@ export async function POST(req: NextRequest) {
       regular_sale_price, consumer_price,
       wholesale_price, wholesale_price_current,
       country_of_origin, material_composition,
-      comment_data, cafe24_product_no,
+      comment_data, detail_options, cafe24_product_no,
       product_variants(id, consumer_label_color, consumer_label_size, consumer_label_option3, is_active, sort_order),
       product_images(url, sort_order, is_main, image_type),
       product_measurements(size, measurements),

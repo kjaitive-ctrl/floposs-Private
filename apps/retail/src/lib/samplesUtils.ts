@@ -60,6 +60,8 @@ export type DbProduct = {
   product_shoots?: { count: number }[] | null;
   // MD기능 멘트 박제 (products.comment_data) — 버튼 초록 판정용
   comment_data?: string | null;
+  // 상세페이지 선택 항목 (마이그 236) — 버튼 초록 판정용
+  detail_options?: unknown;
 };
 
 export interface EditableRow {
