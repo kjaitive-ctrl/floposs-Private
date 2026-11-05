@@ -4,7 +4,8 @@
 // products 에서 자동 채워짐(스냅샷, 라이브 조인 아님) — 수량만 사용자가 입력.
 // 거래처별로 묶어서 보여줌 — [이미지 복사]로 그 거래처 발주서를 카톡 등으로 수동 전송하는
 // 용도(정식 발주 제출(order_notes)과는 별개, 가벼운 개인 시트). 마이그 231.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+// 등록은 샘플 등록처럼 맨 위 입력 줄에서 — Enter 로 저장하면 거래처 묶음으로 들어가고 다시 입력 줄로.
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { styles } from "@/common/styles";
 import { formatComma, parseDigits, sanitizeFilename } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
@@ -12,15 +13,36 @@ import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orde
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import {
   type OrderItem, type OrderProduct, variantLabel,
-  loadOrderProducts, loadOrderItems, addBlankOrderItems, updateOrderItem, deleteOrderItem,
+  loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem,
 } from "@/lib/purchaseOrder";
+
+const EMPTY_DRAFT = {
+  product_id: null as string | null,
+  product_name: "",
+  wholesale_name: "",
+  supplier_name: "",
+  variant_label: "",
+  unit_price: 0,
+  quantity: 1,
+};
+
+// 예전 "+5줄 추가"로 생긴 내용 없는 행은 표에 보여주지 않음.
+function hasContent(item: OrderItem) {
+  return !!(item.product_id || item.product_name?.trim() || item.wholesale_name?.trim()
+    || item.supplier_name?.trim() || item.variant_label?.trim() || item.quantity);
+}
+
+function focusCell(id: string) {
+  setTimeout(() => document.getElementById(id)?.focus(), 50);
+}
 
 export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [products, setProducts] = useState<OrderProduct[]>([]);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [addErr, setAddErr] = useState<string | null>(null);
+  const [draft, setDraft] = useState(EMPTY_DRAFT);
+  const [draftErr, setDraftErr] = useState<string | null>(null);
+  const savingDraft = useRef(false);
   const [storeName, setStoreName] = useState("");
   const [companyName, setCompanyName] = useState("");
   // 거래처별 복사 결과 문구 (잠시 표시)
@@ -35,7 +57,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       supabase.from("tenants").select("store_name, company_name").eq("id", tenantId).maybeSingle(),
     ]);
     setProducts(prods);
-    setItems(its);
+    setItems(its.filter(hasContent));
     setStoreName(tenantRes.data?.store_name ?? "");
     setCompanyName(tenantRes.data?.company_name ?? "");
     setLoading(false);
@@ -63,13 +85,54 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     updateOrderItem(item.id, patch);
   }
 
-  async function handleAddRows() {
-    setAdding(true);
-    setAddErr(null);
-    const { items: created, error } = await addBlankOrderItems(tenantId, 5);
-    setAdding(false);
-    if (error) { setAddErr(error); return; }
-    setItems(prev => [...prev, ...created]);
+  function handleDraftPick(product: OrderProduct) {
+    setDraft({
+      ...EMPTY_DRAFT,
+      product_id: product.id,
+      product_name: product.consumer_name || product.wholesale_name || "",
+      wholesale_name: product.wholesale_name || "",
+      supplier_name: (product.wholesale_supplier || "").trim(),
+      unit_price: product.effective_price || 0,
+      quantity: draft.quantity,
+    });
+    setDraftErr(null);
+    focusCell(product.variants.some(v => variantLabel(v)) ? "po-draft-option" : "po-draft-quantity");
+  }
+
+  // 고른 상품의 이름을 고치면 등록 안 된 상품으로 보고 자동으로 채운 값을 비움.
+  function handleDraftNameChange(text: string) {
+    setDraft(d => d.product_id
+      ? { ...EMPTY_DRAFT, product_name: text, quantity: d.quantity }
+      : { ...d, product_name: text });
+  }
+
+  async function submitDraft() {
+    if (savingDraft.current) return;
+    const name = draft.product_name.trim();
+    const wholesaleName = draft.wholesale_name.trim();
+    if (!name && !wholesaleName) { focusCell("po-draft-name"); return; }
+    savingDraft.current = true;
+    setDraftErr(null);
+    const { item, error } = await addOrderItem(tenantId, {
+      product_id: draft.product_id,
+      product_name: name || null,
+      wholesale_name: wholesaleName || null,
+      supplier_name: draft.supplier_name.trim() || null,
+      variant_label: draft.variant_label || null,
+      unit_price: draft.unit_price,
+      quantity: draft.quantity,
+    });
+    savingDraft.current = false;
+    if (error || !item) { setDraftErr(error ?? "등록 실패"); return; }
+    setItems(prev => [...prev, item]);
+    setDraft(EMPTY_DRAFT);
+    focusCell("po-draft-name");
+  }
+
+  function handleDraftEnter(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    submitDraft();
   }
 
   async function handleDelete(item: OrderItem) {
@@ -125,6 +188,69 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     copyStatusTimer.current = setTimeout(() => setCopyStatus(null), 4000);
   }
 
+  function renderDraftRow() {
+    const options = Array.from(new Set(
+      (products.find(p => p.id === draft.product_id)?.variants ?? []).map(variantLabel).filter(Boolean)
+    ));
+    return (
+      <tr className="bg-amber-50">
+        <td className="px-1 py-1 text-center text-gray-400">+</td>
+        <td className="px-1 py-1 min-w-[140px]">
+          <ProductPickerCombobox
+            id="po-draft-name"
+            products={products}
+            value={draft.product_name}
+            onTextChange={handleDraftNameChange}
+            onPick={handleDraftPick}
+            onKeyDownNav={handleDraftEnter}
+          />
+        </td>
+        <td className="px-1 py-1 min-w-[140px]">
+          <input value={draft.wholesale_name} placeholder="도매상품명"
+            onChange={e => setDraft(d => ({ ...d, wholesale_name: e.target.value }))}
+            onKeyDown={handleDraftEnter}
+            className={styles.gridInput} />
+        </td>
+        <td className="px-1 py-1 min-w-[100px]">
+          <input value={draft.supplier_name} placeholder="거래처"
+            onChange={e => setDraft(d => ({ ...d, supplier_name: e.target.value }))}
+            onKeyDown={handleDraftEnter}
+            className={styles.gridInput} />
+        </td>
+        <td className="px-1 py-1 min-w-[100px]">
+          {options.length > 0 ? (
+            <select id="po-draft-option" value={draft.variant_label}
+              onChange={e => setDraft(d => ({ ...d, variant_label: e.target.value }))}
+              onKeyDown={handleDraftEnter}
+              className={styles.gridInput}>
+              <option value="">선택</option>
+              {options.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input id="po-draft-option" value={draft.variant_label} placeholder="옵션"
+              onChange={e => setDraft(d => ({ ...d, variant_label: e.target.value }))}
+              onKeyDown={handleDraftEnter}
+              className={styles.gridInput} />
+          )}
+        </td>
+        <td className="px-1 py-1 w-20">
+          <input id="po-draft-quantity" value={formatComma(draft.quantity)} placeholder="0"
+            onFocus={e => e.target.select()}
+            onChange={e => setDraft(d => ({ ...d, quantity: Number(parseDigits(e.target.value) || "0") }))}
+            onKeyDown={handleDraftEnter}
+            className={styles.gridInput + " text-right"} />
+        </td>
+        <td className="px-1 py-1 w-24">
+          <input value={formatComma(draft.unit_price)} placeholder="0"
+            onChange={e => setDraft(d => ({ ...d, unit_price: Number(parseDigits(e.target.value) || "0") }))}
+            onKeyDown={handleDraftEnter}
+            className={styles.gridInput + " text-right"} />
+        </td>
+        <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(draft.unit_price * draft.quantity)}</td>
+      </tr>
+    );
+  }
+
   function renderRow(item: OrderItem) {
     const product = products.find(p => p.id === item.product_id);
     const variants = product?.variants ?? [];
@@ -172,6 +298,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         </td>
         <td className="px-1 py-1 w-20">
           <input value={formatComma(item.quantity ?? "")} placeholder="0"
+            onFocus={e => e.target.select()}
             onChange={e => patchLocal(item.id, { quantity: Number(parseDigits(e.target.value) || "0") })}
             onBlur={() => updateOrderItem(item.id, { quantity: item.quantity ?? 0 })}
             className={styles.gridInput + " text-right"} />
@@ -208,9 +335,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 && (
-                <tr><td colSpan={8} className="text-center text-gray-400 py-6 text-xs">아직 주문 행이 없어요 — 아래에서 추가하세요.</td></tr>
-              )}
+              {renderDraftRow()}
               {groups.map(([supplier, rows]) => {
                 const copyable = rows.filter(i => i.quantity > 0 && (i.wholesale_name || i.product_name)).length;
                 return (
@@ -239,11 +364,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           </table>
         </div>
       )}
-      <div className="flex items-center gap-2">
-        <button type="button" onClick={handleAddRows} disabled={adding} className={styles.btnSmallGhost}>
-          {adding ? "추가 중…" : "+ 5줄 추가"}
-        </button>
-        {addErr && <span className="text-xs text-red-600">{addErr}</span>}
+      <div className="text-xs">
+        {draftErr
+          ? <span className="text-red-600">{draftErr}</span>
+          : <span className="text-gray-400">맨 위 줄에 입력하고 Enter를 누르면 등록됩니다.</span>}
       </div>
     </div>
   );

@@ -71,19 +71,19 @@ export async function loadOrderItems(tenantId: string): Promise<OrderItem[]> {
   return (data ?? []) as OrderItem[];
 }
 
-// 빈 행 여러 개를 한 번에 생성 — 회계 매트릭스 "+5줄 추가"와 같은 방식.
-export async function addBlankOrderItems(tenantId: string, count: number): Promise<{ items: OrderItem[]; error: string | null }> {
+export type OrderItemPatch = Partial<Omit<OrderItem, "id" | "sort_order">>;
+
+// 맨 위 입력 줄에서 Enter 로 등록할 때 한 행 생성 — 샘플 등록과 같은 방식.
+export async function addOrderItem(tenantId: string, fields: OrderItemPatch): Promise<{ item: OrderItem | null; error: string | null }> {
   const { data: maxRow, error: maxErr } = await supabase.from("purchase_order_items").select("sort_order")
     .eq("tenant_id", tenantId).order("sort_order", { ascending: false }).limit(1).maybeSingle();
-  if (maxErr) { console.error("addBlankOrderItems (sort_order lookup):", maxErr); return { items: [], error: maxErr.message }; }
-  let sort_order = maxRow?.sort_order ?? 0;
-  const rows = Array.from({ length: count }, () => ({ tenant_id: tenantId, quantity: 0, sort_order: ++sort_order }));
-  const { data, error } = await supabase.from("purchase_order_items").insert(rows).select(ORDER_ITEM_COLS);
-  if (error) { console.error("addBlankOrderItems:", error); return { items: [], error: error.message }; }
-  return { items: (data ?? []) as OrderItem[], error: null };
+  if (maxErr) { console.error("addOrderItem (sort_order lookup):", maxErr); return { item: null, error: maxErr.message }; }
+  const { data, error } = await supabase.from("purchase_order_items")
+    .insert({ ...fields, tenant_id: tenantId, sort_order: (maxRow?.sort_order ?? 0) + 1 })
+    .select(ORDER_ITEM_COLS).single();
+  if (error) { console.error("addOrderItem:", error); return { item: null, error: error.message }; }
+  return { item: data as OrderItem, error: null };
 }
-
-export type OrderItemPatch = Partial<Omit<OrderItem, "id" | "sort_order">>;
 
 export async function updateOrderItem(id: string, patch: OrderItemPatch): Promise<void> {
   await supabase.from("purchase_order_items").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
