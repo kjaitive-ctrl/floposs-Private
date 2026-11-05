@@ -26,12 +26,14 @@ export default function ProductPickerCombobox({ id, products, value, onTextChang
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 전체 품절 상품은 검색에서만 뺌 — 이미 등록한 줄은 옵션·이미지에 상품 정보가 계속 필요.
   const term = value.trim().toLowerCase();
+  const orderable = products.filter(p => !p.sold_out);
   const hits = term
-    ? products.filter(p =>
+    ? orderable.filter(p =>
         (p.consumer_name ?? "").toLowerCase().includes(term) ||
         (p.wholesale_name ?? "").toLowerCase().includes(term))
-    : products;
+    : orderable;
 
   function openDropdown() {
     const el = inputRef.current;

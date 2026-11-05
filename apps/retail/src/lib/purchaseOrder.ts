@@ -17,6 +17,7 @@ export interface OrderProduct {
   wholesale_name: string | null;
   wholesale_supplier: string | null;
   effective_price: number;
+  sold_out: boolean;
   variants: OrderProductVariant[];
 }
 
@@ -28,7 +29,7 @@ export function variantLabel(v: OrderProductVariant): string {
 export async function loadOrderProducts(tenantId: string): Promise<OrderProduct[]> {
   const { data, error } = await supabase
     .from("products")
-    .select("id, consumer_name, wholesale_name, wholesale_supplier, wholesale_price, wholesale_discount_price, wholesale_price_current, product_variants(id, color, size, option3, is_active)")
+    .select("id, consumer_name, wholesale_name, wholesale_supplier, wholesale_price, wholesale_discount_price, wholesale_price_current, sold_out, product_variants(id, color, size, option3, is_active)")
     .eq("tenant_id", tenantId)
     .eq("is_active", true);
   if (error) { console.error("loadOrderProducts:", error); return []; }
@@ -43,6 +44,7 @@ export async function loadOrderProducts(tenantId: string): Promise<OrderProduct[
       wholesale_name: p.wholesale_name,
       wholesale_supplier: p.wholesale_supplier,
       effective_price,
+      sold_out: p.sold_out ?? false,
       variants: (p.product_variants ?? []).filter((v) => v.is_active !== false),
     };
   });
