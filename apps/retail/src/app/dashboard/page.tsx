@@ -1,26 +1,21 @@
 "use client";
 
-import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
-import { WeatherWidget, UpcomingScheduleWidget } from "@/components/dashboard/DashboardWidgets";
+import ProjectSchedule from "@/components/routines/ProjectSchedule";
+import LongTermTasksPanel from "@/components/routines/LongTermTasksPanel";
 
-// Retail 위젯형 대시보드 홈 (FLO 로고 → 이리로). 좌=일정, 우끝=날씨.
+// 대시보드 = 일정 (FLO 로고 → 이리로). 사장 결정 2026-11-05.
+// 일정 = 주 블록 × 프로젝트 행(ProjectSchedule, 마이그 234).
+// 우측 패널 = 프로젝트 바 + 장기과제(날짜 미정 할일, 마이그 232). xl 이상 화면에서만 노출.
 export default function DashboardHome() {
   const { tenant } = useTenant();
   return (
-    <main className={styles.main}>
-      <div className="flex gap-4 items-start">
-        <div className="flex-1 space-y-4 min-w-0">
-          {tenant?.id ? (
-            <UpcomingScheduleWidget tenantId={tenant.id} />
-          ) : (
-            <div className="text-xs text-gray-400">불러오는 중…</div>
-          )}
-        </div>
-        <div className="w-72 shrink-0">
-          <WeatherWidget />
-        </div>
-      </div>
+    <main className="max-w-[1800px] mx-auto px-6 pt-3 pb-8">
+      {!tenant?.id ? (
+        <div className="text-xs text-gray-400">불러오는 중…</div>
+      ) : (
+        <ProjectSchedule tenantId={tenant.id} side={<LongTermTasksPanel tenantId={tenant.id} />} />
+      )}
     </main>
   );
 }
