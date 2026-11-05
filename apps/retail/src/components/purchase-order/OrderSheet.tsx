@@ -63,9 +63,11 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(EMPTY_DRAFT);
-  const [draftErr, setDraftErr] = useState<string | null>(null);
+  // 표가 길면 아래쪽은 화면 밖이라 등록 결과는 표 위 날짜 줄에 표시.
+  const [draftMsg, setDraftMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [statusErr, setStatusErr] = useState<string | null>(null);
   const savingDraft = useRef(false);
+  const [saving, setSaving] = useState(false);
   const [today, setToday] = useState(() => kstDate(new Date()));
   const [selectedDate, setSelectedDate] = useState(today);
   const [storeName, setStoreName] = useState("");
@@ -120,7 +122,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       unit_price: product.effective_price || 0,
       quantity: draft.quantity,
     });
-    setDraftErr(null);
+    setDraftMsg(null);
     focusCell(product.variants.some(v => variantLabel(v)) ? "po-draft-option" : "po-draft-quantity");
   }
 
@@ -137,29 +139,45 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     const wholesaleName = draft.wholesale_name.trim();
     if (!name && !wholesaleName) { focusCell("po-draft-name"); return; }
     savingDraft.current = true;
-    setDraftErr(null);
-    const { item, error } = await addOrderItem(tenantId, {
-      product_id: draft.product_id,
-      product_name: name || null,
-      wholesale_name: wholesaleName || null,
-      supplier_name: draft.supplier_name.trim() || null,
-      variant_label: draft.variant_label || null,
-      unit_price: draft.unit_price,
-      quantity: draft.quantity,
-    });
-    savingDraft.current = false;
-    if (error || !item) { setDraftErr(error ?? "등록 실패"); return; }
-    setItems(prev => [...prev, item]);
-    // 지난 날짜를 보다가 등록해도 방금 넣은 줄이 보이도록 오늘로 돌아옴
-    const createdDate = kstDate(item.created_at);
-    setToday(createdDate);
-    setSelectedDate(createdDate);
-    setDraft(EMPTY_DRAFT);
-    focusCell("po-draft-name");
+    setSaving(true);
+    setDraftMsg(null);
+    try {
+      const { item, error } = await addOrderItem(tenantId, {
+        product_id: draft.product_id,
+        product_name: name || null,
+        wholesale_name: wholesaleName || null,
+        supplier_name: draft.supplier_name.trim() || null,
+        variant_label: draft.variant_label || null,
+        unit_price: draft.unit_price,
+        quantity: draft.quantity,
+      });
+      if (error || !item) { setDraftMsg({ text: `등록 실패: ${error ?? "저장된 줄을 받지 못했습니다"}`, error: true }); return; }
+      setItems(prev => [...prev, item]);
+      // 지난 날짜를 보다가 등록해도 방금 넣은 줄이 보이도록 오늘로 돌아옴
+      const createdDate = kstDate(item.created_at);
+      setToday(createdDate);
+      setSelectedDate(createdDate);
+      setDraft(EMPTY_DRAFT);
+      // 새 거래처 묶음은 표 맨 아래에 생겨 안 보일 수 있으니 어디로 들어갔는지 알려줌
+      setDraftMsg({ text: `등록됨: ${name || wholesaleName} → 거래처 ${item.supplier_name?.trim() || "미지정"}` });
+      focusCell("po-draft-name");
+    } catch (e) {
+      setDraftMsg({ text: `등록 실패: ${e instanceof Error ? e.message : String(e)}`, error: true });
+    } finally {
+      savingDraft.current = false;
+      setSaving(false);
+    }
   }
 
   function handleDraftEnter(e: KeyboardEvent<HTMLElement>) {
     if (e.key !== "Enter" || e.nativeEvent.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    submitDraft();
+  }
+
+  // 옵션 고르기 칸은 글자 조합이 없으니 한글 입력 상태(key=Process, 229)여도 Enter 로 등록.
+  function handleDraftSelectEnter(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== "Enter" && e.code !== "Enter" && e.code !== "NumpadEnter") return;
     e.preventDefault();
     submitDraft();
   }
@@ -288,7 +306,12 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     ));
     return (
       <tr className="bg-amber-50">
-        <td className="px-1 py-1 text-center text-gray-400">+</td>
+        <td className="px-1 py-1 text-center">
+          <button type="button" disabled={saving} onClick={submitDraft} title="이 줄 등록 (Enter)"
+            className={styles.btnSmall + " whitespace-nowrap bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>
+            {saving ? "저장 중" : "등록"}
+          </button>
+        </td>
         <td className="px-1 py-1 min-w-[140px]">
           <ProductPickerCombobox
             id="po-draft-name"
@@ -315,7 +338,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           {options.length > 0 ? (
             <select id="po-draft-option" value={draft.variant_label}
               onChange={e => setDraft(d => ({ ...d, variant_label: e.target.value }))}
-              onKeyDown={handleDraftEnter}
+              onKeyDown={handleDraftSelectEnter}
               className={styles.gridInput}>
               <option value="">선택</option>
               {options.map(o => <option key={o} value={o}>{o}</option>)}
@@ -476,6 +499,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           {dayItems.length}행{carriedItems.length > 0 && ` · 넘어온 보류 ${carriedItems.length}건`}
         </span>
         {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
+        {draftMsg && <span role="status" className={"text-xs " + (draftMsg.error ? "text-red-600" : "text-emerald-700")}>{draftMsg.text}</span>}
       </div>
       {loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
@@ -538,11 +562,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           </table>
         </div>
       )}
-      <div className="text-xs">
-        {draftErr
-          ? <span className="text-red-600">{draftErr}</span>
-          : <span className="text-gray-400">맨 위 줄에 입력하고 Enter를 누르면 오늘 날짜로 등록됩니다.</span>}
-      </div>
+      <div className="text-xs text-gray-400">맨 위 줄에 입력하고 Enter 또는 [등록]을 누르면 오늘 날짜로 등록됩니다.</div>
     </div>
   );
 }
