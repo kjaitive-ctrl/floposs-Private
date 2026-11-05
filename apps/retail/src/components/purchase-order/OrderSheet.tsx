@@ -32,6 +32,17 @@ function hasContent(item: OrderItem) {
     || item.supplier_name?.trim() || item.variant_label?.trim() || item.quantity);
 }
 
+// 등록 시각을 한국 날짜(YYYY-MM-DD)로 — 날짜별 보기의 기준.
+function kstDate(value: string | Date) {
+  return new Date(value).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+}
+
+function formatDateLabel(date: string) {
+  return new Date(`${date}T00:00:00+09:00`).toLocaleDateString("ko-KR", {
+    timeZone: "Asia/Seoul", month: "long", day: "numeric", weekday: "short",
+  });
+}
+
 function focusCell(id: string) {
   setTimeout(() => document.getElementById(id)?.focus(), 50);
 }
@@ -43,6 +54,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [draftErr, setDraftErr] = useState<string | null>(null);
   const savingDraft = useRef(false);
+  const [today, setToday] = useState(() => kstDate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(today);
   const [storeName, setStoreName] = useState("");
   const [companyName, setCompanyName] = useState("");
   // 거래처별 복사 결과 문구 (잠시 표시)
@@ -125,6 +138,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     savingDraft.current = false;
     if (error || !item) { setDraftErr(error ?? "등록 실패"); return; }
     setItems(prev => [...prev, item]);
+    // 지난 날짜를 보다가 등록해도 방금 넣은 줄이 보이도록 오늘로 돌아옴
+    const createdDate = kstDate(item.created_at);
+    setToday(createdDate);
+    setSelectedDate(createdDate);
     setDraft(EMPTY_DRAFT);
     focusCell("po-draft-name");
   }
@@ -143,15 +160,28 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
 
   // 거래처별로 묶기 — 편집 중 매 글자마다 재편성되면 안 되니(입력 중 그룹이
   // 계속 바뀌면 포커스가 튐) supplier_name 은 blur 시에만 로컬 state 갱신.
+  const visibleItems = useMemo(
+    () => items.filter(item => kstDate(item.created_at) === selectedDate),
+    [items, selectedDate]
+  );
   const groups = useMemo(() => {
     const map = new Map<string, OrderItem[]>();
-    for (const item of items) {
+    for (const item of visibleItems) {
       const key = (item.supplier_name || "").trim() || "미지정";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(item);
     }
     return Array.from(map.entries());
-  }, [items]);
+  }, [visibleItems]);
+
+  // ◀ ▶ 는 주문이 있는 날짜끼리만 이동 — 오늘은 비어 있어도 항상 포함.
+  const dates = useMemo(
+    () => Array.from(new Set([...items.map(item => kstDate(item.created_at)), today])).sort(),
+    [items, today]
+  );
+  const dateIndex = dates.indexOf(selectedDate);
+  const prevDate = dateIndex > 0 ? dates[dateIndex - 1] : null;
+  const nextDate = dateIndex >= 0 && dateIndex < dates.length - 1 ? dates[dateIndex + 1] : null;
 
   // 옵션 라벨("연밤 / FREE")을 상품 옵션과 대조해 사입옵션·사이즈 칸으로 나눔.
   // 직접 입력한 옵션은 나눌 수 없어 사입옵션 칸에 그대로 표시.
@@ -316,7 +346,17 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
 
   return (
     <div className={styles.cardSm}>
-      <div className={styles.sectionLabel}>주문 시트 ({items.length}행)</div>
+      <div className="flex items-center gap-2 mb-2">
+        <button type="button" disabled={!prevDate} onClick={() => prevDate && setSelectedDate(prevDate)}
+          title="이전 주문 날짜" className={styles.btnSmall + " bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>◀</button>
+        <span className="text-sm font-bold text-black whitespace-nowrap">{formatDateLabel(selectedDate)}</span>
+        <button type="button" disabled={!nextDate} onClick={() => nextDate && setSelectedDate(nextDate)}
+          title="다음 주문 날짜" className={styles.btnSmall + " bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>▶</button>
+        {selectedDate !== today && (
+          <button type="button" onClick={() => setSelectedDate(today)} className={styles.btnSmallGhost}>오늘</button>
+        )}
+        <span className="text-xs text-gray-500">{visibleItems.length}행</span>
+      </div>
       {loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
       ) : (
@@ -367,7 +407,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       <div className="text-xs">
         {draftErr
           ? <span className="text-red-600">{draftErr}</span>
-          : <span className="text-gray-400">맨 위 줄에 입력하고 Enter를 누르면 등록됩니다.</span>}
+          : <span className="text-gray-400">맨 위 줄에 입력하고 Enter를 누르면 오늘 날짜로 등록됩니다.</span>}
       </div>
     </div>
   );

@@ -58,9 +58,10 @@ export interface OrderItem {
   unit_price: number | null;
   quantity: number;
   sort_order: number;
+  created_at: string;
 }
 
-const ORDER_ITEM_COLS = "id, product_id, product_name, wholesale_name, variant_label, supplier_name, unit_price, quantity, sort_order";
+const ORDER_ITEM_COLS = "id, product_id, product_name, wholesale_name, variant_label, supplier_name, unit_price, quantity, sort_order, created_at";
 
 export async function loadOrderItems(tenantId: string): Promise<OrderItem[]> {
   const { data, error } = await supabase.from("purchase_order_items")
@@ -71,7 +72,7 @@ export async function loadOrderItems(tenantId: string): Promise<OrderItem[]> {
   return (data ?? []) as OrderItem[];
 }
 
-export type OrderItemPatch = Partial<Omit<OrderItem, "id" | "sort_order">>;
+export type OrderItemPatch = Partial<Omit<OrderItem, "id" | "sort_order" | "created_at">>;
 
 // 맨 위 입력 줄에서 Enter 로 등록할 때 한 행 생성 — 샘플 등록과 같은 방식.
 export async function addOrderItem(tenantId: string, fields: OrderItemPatch): Promise<{ item: OrderItem | null; error: string | null }> {
