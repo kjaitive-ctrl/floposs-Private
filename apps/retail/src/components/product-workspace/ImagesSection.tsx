@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { styles } from "@/common/styles";
 import { keyFromR2Url } from "@/lib/r2Client";
 import { sanitizeFilename } from "@/lib/format";
 // jszip 은 다중 다운로드 시점에만 dynamic import — 초기 번들 크기 영향 X
@@ -14,12 +13,13 @@ import { sanitizeFilename } from "@/lib/format";
 //   - Google Drive 식 선택: 카드 클릭 = 선택 토글. 선택 시 상단 액션바 (다운로드 / URL복사).
 //   - 업로드 순차 (원본 보존) + 진행률 디테일 (5/40, 현재 파일명, %) + 실패 skip.
 //   - 대표/순서 UI 제거. DB 컬럼(is_main/sort_order) 유지 — 미래 export 시 활용.
+//   - 업로드 등 진행 중에는 onBusyChange 로 알려 작업 창이 닫히거나 상품이 바뀌지 않게 함.
 
 type Props = {
   productId: string;
   productName: string;
-  onClose: () => void;
-  onSaved: () => void;
+  onBusyChange: (busy: boolean) => void;
+  onSaved: (productId: string) => void;
 };
 
 type ImageType = "thumbnail" | "detail" | "etc";
@@ -72,7 +72,7 @@ function filenameFromUrl(url: string): string {
 
 const INTERNAL_MIME = "application/x-floposs-image-id";
 
-export default function ProductImagesModal({ productId, productName, onClose, onSaved }: Props) {
+export default function ImagesSection({ productId, productName, onBusyChange, onSaved }: Props) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ImageRow[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -102,6 +102,9 @@ export default function ProductImagesModal({ productId, productName, onClose, on
 
   const fileRef = useRef<HTMLInputElement>(null);
   const pendingTypeRef = useRef<ImageType>("thumbnail");
+
+  const busy = uploading || downloading || deleting || stamping;
+  useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
 
   const fetchImages = useCallback(async () => {
     setLoading(true);
@@ -235,7 +238,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
     setUploading(false);
     if (fileRef.current) fileRef.current.value = "";
     await fetchImages();
-    onSaved();
+    onSaved(productId);
   }
 
   async function handleDelete(row: ImageRow) {
@@ -259,7 +262,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       return next;
     });
     await fetchImages();
-    onSaved();
+    onSaved(productId);
   }
 
   async function changeImageType(rowId: string, newType: ImageType) {
@@ -271,7 +274,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       .update({ image_type: newType, sort_order: newSort })
       .eq("id", rowId);
     await fetchImages();
-    onSaved();
+    onSaved(productId);
   }
 
   // ── 다운로드 (presigned GET URL 정공법) ──
@@ -377,7 +380,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       }));
       setSelectedIds(new Set());
       await fetchImages();
-      onSaved();
+      onSaved(productId);
     } finally {
       setDeleting(false);
     }
@@ -417,7 +420,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
       // 각인 완료 후 선택 해제 — 마우스로 일일이 풀고 다음 이미지 재선택할 필요 없게.
       setSelectedIds(new Set());
       await fetchImages();
-      onSaved();
+      onSaved(productId);
     } catch (e) {
       setStampError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -540,12 +543,10 @@ export default function ProductImagesModal({ productId, productName, onClose, on
   const hasSelection = selectedCount > 0;
 
   return (
-    <div className={styles.modalOverlay} onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[92vh] flex flex-col"
-        onClick={e => e.stopPropagation()}>
-        {/* 헤더: 선택 모드 vs 기본 모드 */}
+    <section aria-label="상품 이미지">
+        {/* 헤더: 선택 모드 vs 기본 모드. 스크롤해도 선택 작업·진행률이 보이게 고정 */}
         {hasSelection ? (
-          <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-center justify-between bg-blue-50/40">
+          <div className="sticky top-0 z-10 px-6 py-3 border-b border-gray-200 flex items-center justify-between bg-blue-50">
             <div className="flex items-center gap-3">
               <button onClick={clearSelection}
                 disabled={downloading || deleting}
@@ -577,11 +578,8 @@ export default function ProductImagesModal({ productId, productName, onClose, on
             </div>
           </div>
         ) : (
-          <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-start justify-between">
-            <div>
-              <h3 className="text-lg font-bold text-black mb-1">상품 이미지</h3>
-              <p className="text-xs text-gray-500">{productName}</p>
-            </div>
+          <div className="sticky top-0 z-10 px-6 py-3 border-b border-gray-200 flex items-start justify-between bg-white">
+            <h4 className="text-sm font-bold text-black">이미지</h4>
             <div className="text-[11px] text-gray-500 text-right min-w-[180px]">
               <div>{rows.length}장 · {formatBytes(totalBytes)}</div>
               {uploading && (
@@ -658,7 +656,7 @@ export default function ProductImagesModal({ productId, productName, onClose, on
           onChange={onFileInputChange}
           className="hidden" />
 
-        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4">
           {loading ? (
             <p className="text-xs text-gray-400 text-center py-6">불러오는 중...</p>
           ) : (
@@ -759,11 +757,6 @@ export default function ProductImagesModal({ productId, productName, onClose, on
             })
           )}
         </div>
-
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className={styles.btnSecondary}>닫기</button>
-        </div>
-      </div>
-    </div>
+    </section>
   );
 }

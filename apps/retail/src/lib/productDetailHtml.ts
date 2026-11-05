@@ -159,7 +159,7 @@ function piRow(label: string, value: string, isLast = false): string {
   return `<tr><td ${labelStyle}>${escapeHtml(label)}</td><td ${valueStyle}>${escapeHtml(value)}</td></tr>`;
 }
 
-// 멘트: 줄바꿈 유지 (양식을 그대로 둔 메모는 CommentModal 이 빈 값으로 저장)
+// 멘트: 줄바꿈 유지 (양식을 그대로 둔 메모는 CommentSection 이 빈 값으로 저장)
 function buildCommentModule(p: DetailProduct): string {
   if (!p.comment_data?.trim()) return "";
   return `<p style="font-size:14px;color:#333;text-align:center;margin-bottom:72px;white-space:pre-line;">${escapeHtml(p.comment_data.trim())}</p>`;

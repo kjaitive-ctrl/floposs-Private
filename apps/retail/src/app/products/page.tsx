@@ -15,7 +15,6 @@ import { shortLocFromNested } from "@/lib/retailSuppliers";
 import SizeModal from "@/components/SizeModal";
 import ProductWorkspaceModal, { type WorkspaceSection } from "@/components/product-workspace/ProductWorkspaceModal";
 import { hasDetailOptions } from "@/lib/detailOptions";
-import ProductImagesModal from "@/components/ProductImagesModal";
 import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
 import PriceModal from "@/components/PriceModal";
@@ -97,7 +96,6 @@ function ProductsPageInner() {
   const [sizeModalRow, setSizeModalRow] = useState<ProductRow | null>(null);
   // 상품 작업 창 — 정보 창과 같이 id 만 들고 rows 에서 찾음 (이전/다음 이동도 id 교체)
   const [workspace, setWorkspace] = useState<{ id: string; section: WorkspaceSection } | null>(null);
-  const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
   const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
   const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
   const [marginRow, setMarginRow] = useState<ProductRow | null>(null);
@@ -360,7 +358,7 @@ function ProductsPageInner() {
   }
 
   // 선택 상품들의 썸네일(image_type='thumbnail') 이미지를 GIF(2장+)/JPEG(1장)로 합성해 다운로드.
-  // 1개 선택 = 파일 그대로 다운로드, 2개+ = ZIP 묶음 (ProductImagesModal 의 다운로드 패턴과 동일).
+  // 1개 선택 = 파일 그대로 다운로드, 2개+ = ZIP 묶음 (ImagesSection 의 다운로드 패턴과 동일).
   function safeFilename(row: ProductRow): string {
     return sanitizeFilename(row.consumer_name || row.wholesale_name || row.id);
   }
@@ -424,7 +422,7 @@ function ProductsPageInner() {
     }
   }
 
-  // URL → 다운로드 파일명 (ProductImagesModal 의 filenameFromUrl 과 동일 규칙: R2 key 끝부분).
+  // URL → 다운로드 파일명 (ImagesSection 의 filenameFromUrl 과 동일 규칙: R2 key 끝부분).
   function filenameFromUrl(url: string): string {
     try {
       const u = new URL(url);
@@ -860,7 +858,7 @@ function ProductsPageInner() {
                             className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
                           <button onClick={() => setWorkspace({ id: row.id, section: "shoot" })}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
-                          <button onClick={() => setImagesModalRow(row)}
+                          <button onClick={() => setWorkspace({ id: row.id, section: "images" })}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>IMG</button>
                         </div>
                       </td>
@@ -1087,7 +1085,7 @@ function ProductsPageInner() {
               else if (editor === "shoot") setWorkspace({ id: infoRow.id, section: "shoot" });
               else setSizeModalRow(infoRow);
             }}
-            onOpenImages={() => setImagesModalRow(infoRow)}
+            onOpenImages={() => setWorkspace({ id: infoRow.id, section: "images" })}
             onClose={() => setInfoRowId(null)}
           />
         );
@@ -1121,21 +1119,6 @@ function ProductsPageInner() {
           onNext={() => setWorkspace({ id: rows[workspaceIndex + 1].id, section: workspace!.section })}
           onClose={closeWorkspace}
           onSaved={refetchOneProduct}
-        />
-      )}
-
-      {imagesModalRow && tenant && (
-        <ProductImagesModal
-          productId={imagesModalRow.id}
-          productName={imagesModalRow.consumer_name || imagesModalRow.wholesale_name || ""}
-          onClose={() => {
-            setImagesModalRow(null);
-            // image_count 갱신 — [샘플로] 가드 동기화 (사장 결정 2026-05-29)
-            refetchOneProduct(imagesModalRow.id);
-          }}
-          onSaved={() => {
-            // 모달 안에서 즉시 갱신하므로 list 만 별도 refresh 안 함 — 닫을 때 page refetch.
-          }}
         />
       )}
 

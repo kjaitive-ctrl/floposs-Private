@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Variant } from "@/lib/samplesUtils";
+import ImagesSection from "@/components/product-workspace/ImagesSection";
 import CommentSection from "@/components/product-workspace/CommentSection";
 import ShootSection from "@/components/product-workspace/ShootSection";
 
@@ -29,21 +30,31 @@ export default function ProductWorkspaceModal({
   tenantId, productId, productName, wholesaleName, variants, section, position, onPrev, onNext, onClose, onSaved,
 }: Props) {
   const [lastModelId, setLastModelId] = useState("");
+  // 이미지 업로드·다운로드·삭제·각인 진행 중에는 닫거나 상품을 바꾸지 않음 — 진행률을 놓치고 결과를 확인할 수 없게 됨
+  const [imagesBusy, setImagesBusy] = useState(false);
+
+  const close = useCallback(() => {
+    if (imagesBusy) {
+      alert("이미지 작업이 끝난 뒤 닫을 수 있습니다.");
+      return;
+    }
+    onClose();
+  }, [imagesBusy, onClose]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       // 입력 중 Esc 는 입력칸에서 빠져나오기만 함
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select")) {
+      const target = e.target;
+      if (target instanceof HTMLElement && target.closest("input, textarea, select")) {
         target.blur();
         return;
       }
-      onClose();
+      close();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [close]);
 
   return (
     <div role="dialog" aria-modal="true" aria-label="상품 작업"
@@ -58,15 +69,15 @@ export default function ProductWorkspaceModal({
         </div>
         <div className="ml-auto flex items-center gap-2 shrink-0">
           <span className="text-xs text-gray-500">{position.index + 1} / {position.total}</span>
-          <button type="button" onClick={onPrev} disabled={position.index <= 0}
+          <button type="button" onClick={onPrev} disabled={imagesBusy || position.index <= 0}
             className="px-2.5 py-1 text-xs border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed">
             ◀ 이전
           </button>
-          <button type="button" onClick={onNext} disabled={position.index >= position.total - 1}
+          <button type="button" onClick={onNext} disabled={imagesBusy || position.index >= position.total - 1}
             className="px-2.5 py-1 text-xs border border-gray-300 rounded text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed">
             다음 ▶
           </button>
-          <button type="button" onClick={onClose} aria-label="닫기"
+          <button type="button" onClick={close} aria-label="닫기"
             className="ml-2 w-8 h-8 flex items-center justify-center text-xl leading-none text-gray-500 hover:text-black">×</button>
         </div>
       </header>
@@ -79,7 +90,10 @@ export default function ProductWorkspaceModal({
             initialModelId={lastModelId} onModelChange={setLastModelId}
             autoFocus={section === "shoot"} onSaved={onSaved} />
         </div>
-        <div className="flex-1 min-w-0 lg:overflow-y-auto" />
+        <div className="flex-1 min-w-0 lg:overflow-y-auto">
+          <ImagesSection productId={productId} productName={productName || wholesaleName}
+            onBusyChange={setImagesBusy} onSaved={onSaved} />
+        </div>
       </div>
     </div>
   );
