@@ -2,11 +2,13 @@
 
 // 주문(사입 발주) 시트 — 엑셀형 표. 상품명 고르면 도매상품명/거래처/단가/옵션이
 // products 에서 자동 채워짐(스냅샷, 라이브 조인 아님) — 수량만 사용자가 입력.
-// 거래처별로 묶어서 보여줌 — 그 구간을 스크린샷해서 카톡 등으로 수동 전송하는
+// 거래처별로 묶어서 보여줌 — [이미지 복사]로 그 거래처 발주서를 카톡 등으로 수동 전송하는
 // 용도(정식 발주 제출(order_notes)과는 별개, 가벼운 개인 시트). 마이그 231.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { styles } from "@/common/styles";
-import { formatComma, parseDigits } from "@/lib/format";
+import { formatComma, parseDigits, sanitizeFilename } from "@/lib/format";
+import { supabase } from "@/lib/supabase";
+import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orderImage";
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import {
   type OrderItem, type OrderProduct, variantLabel,
@@ -19,15 +21,30 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [addErr, setAddErr] = useState<string | null>(null);
+  const [storeName, setStoreName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  // 거래처별 복사 결과 문구 (잠시 표시)
+  const [copyStatus, setCopyStatus] = useState<{ supplier: string; text: string; error?: boolean } | null>(null);
+  const copyStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    const [prods, its] = await Promise.all([loadOrderProducts(tenantId), loadOrderItems(tenantId)]);
+    const [prods, its, tenantRes] = await Promise.all([
+      loadOrderProducts(tenantId),
+      loadOrderItems(tenantId),
+      supabase.from("tenants").select("store_name, company_name").eq("id", tenantId).maybeSingle(),
+    ]);
     setProducts(prods);
     setItems(its);
+    setStoreName(tenantRes.data?.store_name ?? "");
+    setCompanyName(tenantRes.data?.company_name ?? "");
     setLoading(false);
   }, [tenantId]);
   useEffect(() => { loadAll(); }, [loadAll]);
+
+  useEffect(() => () => {
+    if (copyStatusTimer.current) clearTimeout(copyStatusTimer.current);
+  }, []);
 
   function patchLocal(id: string, patch: Partial<OrderItem>) {
     setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i));
@@ -72,6 +89,41 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     }
     return Array.from(map.entries());
   }, [items]);
+
+  // 옵션 라벨("연밤 / FREE")을 상품 옵션과 대조해 사입옵션·사이즈 칸으로 나눔.
+  // 직접 입력한 옵션은 나눌 수 없어 사입옵션 칸에 그대로 표시.
+  function toImageRow(item: OrderItem): OrderImageRow {
+    const label = item.variant_label ?? "";
+    const variant = products.find(p => p.id === item.product_id)?.variants.find(v => variantLabel(v) === label);
+    return {
+      name: item.wholesale_name || item.product_name || "",
+      option: variant ? [variant.color, variant.option3].filter(Boolean).join(" / ") : label,
+      size: variant?.size ?? "",
+      supplier: item.supplier_name ?? "",
+      quantity: item.quantity,
+    };
+  }
+
+  // 클릭 직후 동기로 복사를 시작해야 브라우저가 사용자 동작으로 인정함 (await 전에 렌더 시작).
+  async function handleCopyImage(supplier: string, rows: OrderItem[]) {
+    const targets = rows.filter(i => i.quantity > 0 && (i.wholesale_name || i.product_name));
+    if (targets.length === 0) return;
+    const store = storeName || companyName;
+    const company = companyName.replace(/^\(주\)\s*/, "주식회사 ");
+    const image = renderOrderImage(`${store}/주문`, store === companyName ? "" : `(${company})`, targets.map(toImageRow));
+    const noOption = targets.filter(i => !i.variant_label).length;
+    let status: { supplier: string; text: string; error?: boolean };
+    try {
+      const result = await copyOrderImage(image, `${sanitizeFilename(`${store}_주문_${supplier}`)}.png`);
+      const base = result === "copied" ? `복사됨 ${targets.length}줄 — 카톡에 붙여넣으세요` : `복사가 막혀 파일로 내려받았습니다 (${targets.length}줄)`;
+      status = { supplier, text: noOption > 0 ? `${base} · 옵션 없는 줄 ${noOption}개` : base };
+    } catch (e) {
+      status = { supplier, text: `이미지 복사 실패: ${e instanceof Error ? e.message : String(e)}`, error: true };
+    }
+    setCopyStatus(status);
+    if (copyStatusTimer.current) clearTimeout(copyStatusTimer.current);
+    copyStatusTimer.current = setTimeout(() => setCopyStatus(null), 4000);
+  }
 
   function renderRow(item: OrderItem) {
     const product = products.find(p => p.id === item.product_id);
@@ -159,14 +211,30 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               {items.length === 0 && (
                 <tr><td colSpan={8} className="text-center text-gray-400 py-6 text-xs">아직 주문 행이 없어요 — 아래에서 추가하세요.</td></tr>
               )}
-              {groups.map(([supplier, rows]) => (
-                <Fragment key={supplier}>
-                  <tr>
-                    <td colSpan={8} className="px-2 pt-3 pb-1 text-sm font-bold text-black bg-gray-50">거래처: {supplier}</td>
-                  </tr>
-                  {rows.map(renderRow)}
-                </Fragment>
-              ))}
+              {groups.map(([supplier, rows]) => {
+                const copyable = rows.filter(i => i.quantity > 0 && (i.wholesale_name || i.product_name)).length;
+                return (
+                  <Fragment key={supplier}>
+                    <tr>
+                      <td colSpan={8} className="px-2 pt-3 pb-1 bg-gray-50">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-black">거래처: {supplier}</span>
+                          <button type="button" disabled={copyable === 0}
+                            onClick={() => handleCopyImage(supplier, rows)}
+                            title={copyable === 0 ? "수량을 입력하면 복사할 수 있습니다" : "수량이 있는 줄만 이미지로 복사 (단가 제외)"}
+                            className={styles.btnSmall + " whitespace-nowrap bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>
+                            이미지 복사
+                          </button>
+                          {copyStatus?.supplier === supplier && (
+                            <span role="status" className={"text-xs " + (copyStatus.error ? "text-red-600" : "text-emerald-700")}>{copyStatus.text}</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {rows.map(renderRow)}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
