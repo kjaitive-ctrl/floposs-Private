@@ -6,7 +6,7 @@ import { styles } from "@/common/styles";
 
 // retail /dashboard/settings 안 "모델 관리" 서브섹션.
 //   - tenant 자체 모델 풀 CRUD.
-//   - 활성 toggle = ShootModal dropdown 노출 여부.
+//   - 활성 toggle = 작업 창 촬영 구역(ShootSection) dropdown 노출 여부.
 //   - 마이그 196 (models 테이블).
 
 export type Model = {

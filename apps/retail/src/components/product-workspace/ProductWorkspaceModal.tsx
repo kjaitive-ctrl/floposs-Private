@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import type { Variant } from "@/lib/samplesUtils";
 import CommentSection from "@/components/product-workspace/CommentSection";
+import ShootSection from "@/components/product-workspace/ShootSection";
 
 // MD기능 [멘트][촬영][IMG] 공용 — 세 가지를 꽉 찬 화면 하나에서 작업 (사장 결정 2026-11-05).
 // 왼쪽 = 입력(멘트·촬영), 오른쪽 = 이미지. 사진을 보면서 멘트를 쓰고 착용 옵션을 고르기 위함.
@@ -14,6 +16,7 @@ type Props = {
   productId: string;
   productName: string;
   wholesaleName: string;
+  variants: Variant[];
   section: WorkspaceSection;
   position: { index: number; total: number };
   onPrev: () => void;
@@ -23,8 +26,10 @@ type Props = {
 };
 
 export default function ProductWorkspaceModal({
-  tenantId, productId, productName, wholesaleName, section, position, onPrev, onNext, onClose, onSaved,
+  tenantId, productId, productName, wholesaleName, variants, section, position, onPrev, onNext, onClose, onSaved,
 }: Props) {
+  const [lastModelId, setLastModelId] = useState("");
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
@@ -70,6 +75,9 @@ export default function ProductWorkspaceModal({
       <div key={productId} className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
         <div className="lg:w-[440px] shrink-0 lg:overflow-y-auto px-5 py-4 space-y-6 border-b lg:border-b-0 lg:border-r border-gray-200">
           <CommentSection tenantId={tenantId} productId={productId} autoFocus={section === "comment"} onSaved={onSaved} />
+          <ShootSection tenantId={tenantId} productId={productId} ownVariants={variants}
+            initialModelId={lastModelId} onModelChange={setLastModelId}
+            autoFocus={section === "shoot"} onSaved={onSaved} />
         </div>
         <div className="flex-1 min-w-0 lg:overflow-y-auto" />
       </div>

@@ -15,7 +15,6 @@ import { shortLocFromNested } from "@/lib/retailSuppliers";
 import SizeModal from "@/components/SizeModal";
 import ProductWorkspaceModal, { type WorkspaceSection } from "@/components/product-workspace/ProductWorkspaceModal";
 import { hasDetailOptions } from "@/lib/detailOptions";
-import ShootModal from "@/components/ShootModal";
 import ProductImagesModal from "@/components/ProductImagesModal";
 import OptionChipCell from "@/components/OptionChipCell";
 import MemoModal from "@/components/MemoModal";
@@ -98,7 +97,6 @@ function ProductsPageInner() {
   const [sizeModalRow, setSizeModalRow] = useState<ProductRow | null>(null);
   // 상품 작업 창 — 정보 창과 같이 id 만 들고 rows 에서 찾음 (이전/다음 이동도 id 교체)
   const [workspace, setWorkspace] = useState<{ id: string; section: WorkspaceSection } | null>(null);
-  const [shootModalRow, setShootModalRow] = useState<ProductRow | null>(null);
   const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
   const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
   const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
@@ -860,7 +858,7 @@ function ProductsPageInner() {
                         <div className="flex gap-1 justify-center">
                           <button onClick={() => setWorkspace({ id: row.id, section: "comment" })}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
-                          <button onClick={() => setShootModalRow(row)}
+                          <button onClick={() => setWorkspace({ id: row.id, section: "shoot" })}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
                           <button onClick={() => setImagesModalRow(row)}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.image_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>IMG</button>
@@ -1086,7 +1084,7 @@ function ProductsPageInner() {
             }}
             onEdit={editor => {
               if (editor === "comment") setWorkspace({ id: infoRow.id, section: "comment" });
-              else if (editor === "shoot") setShootModalRow(infoRow);
+              else if (editor === "shoot") setWorkspace({ id: infoRow.id, section: "shoot" });
               else setSizeModalRow(infoRow);
             }}
             onOpenImages={() => setImagesModalRow(infoRow)}
@@ -1116,26 +1114,13 @@ function ProductsPageInner() {
           productId={workspaceRow.id}
           productName={workspaceRow.consumer_name}
           wholesaleName={workspaceRow.wholesale_name}
+          variants={workspaceRow.variants}
           section={workspace!.section}
           position={{ index: workspaceIndex, total: rows.length }}
           onPrev={() => setWorkspace({ id: rows[workspaceIndex - 1].id, section: workspace!.section })}
           onNext={() => setWorkspace({ id: rows[workspaceIndex + 1].id, section: workspace!.section })}
           onClose={closeWorkspace}
           onSaved={refetchOneProduct}
-        />
-      )}
-
-      {shootModalRow && tenant && (
-        <ShootModal
-          tenantId={tenant.id}
-          productId={shootModalRow.id}
-          productName={shootModalRow.consumer_name || shootModalRow.wholesale_name || ""}
-          ownVariants={shootModalRow.variants}
-          onClose={() => setShootModalRow(null)}
-          onSaved={() => {
-            setShootModalRow(null);
-            refetchOneProduct(shootModalRow.id);
-          }}
         />
       )}
 
