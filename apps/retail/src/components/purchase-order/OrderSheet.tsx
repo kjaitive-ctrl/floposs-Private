@@ -5,6 +5,8 @@
 // 거래처별로 묶어서 보여줌 — [이미지 복사]로 그 거래처 발주서를 카톡 등으로 수동 전송하는
 // 용도(정식 발주 제출(order_notes)과는 별개, 가벼운 개인 시트). 마이그 231.
 // 등록은 샘플 등록처럼 맨 위 입력 줄에서 — Enter 로 저장하면 거래처 묶음으로 들어가고 다시 입력 줄로.
+// 줄마다 반품·교환·수거완료·메모·보류(마이그 237) — 표에서만 관리하고 이미지에는 나가지 않음.
+// 보류·반품·교환 줄은 거래처에 다시 주문되면 안 되므로 이미지에서 줄째 뺌.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { styles } from "@/common/styles";
 import { formatComma, parseDigits, sanitizeFilename } from "@/lib/format";
@@ -12,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orderImage";
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import {
-  type OrderItem, type OrderProduct, variantLabel,
+  type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel,
   loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem,
 } from "@/lib/purchaseOrder";
 
@@ -37,6 +39,15 @@ function kstDate(value: string | Date) {
   return new Date(value).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 }
 
+// 이미지로 거래처에 보낼 수 있는 줄.
+function isOrderable(item: OrderItem) {
+  return item.quantity > 0 && !!(item.wholesale_name || item.product_name) && !item.held_at && !item.claim_type;
+}
+
+function formatShortDate(value: string) {
+  return new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric" });
+}
+
 function formatDateLabel(date: string) {
   return new Date(`${date}T00:00:00+09:00`).toLocaleDateString("ko-KR", {
     timeZone: "Asia/Seoul", month: "long", day: "numeric", weekday: "short",
@@ -53,6 +64,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState(EMPTY_DRAFT);
   const [draftErr, setDraftErr] = useState<string | null>(null);
+  const [statusErr, setStatusErr] = useState<string | null>(null);
   const savingDraft = useRef(false);
   const [today, setToday] = useState(() => kstDate(new Date()));
   const [selectedDate, setSelectedDate] = useState(today);
@@ -158,21 +170,68 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     setItems(prev => prev.filter(i => i.id !== item.id));
   }
 
+  // 반품·교환·수거·메모·보류 저장 — 실패하면 화면을 되돌리고 알려줌.
+  async function saveStatus(item: OrderItem, patch: OrderItemPatch) {
+    const previous = Object.fromEntries(
+      Object.keys(patch).map(key => [key, item[key as keyof OrderItem] ?? null])
+    ) as OrderItemPatch;
+    patchLocal(item.id, patch);
+    setStatusErr(null);
+    const error = await updateOrderItem(item.id, patch);
+    if (error) {
+      patchLocal(item.id, previous);
+      setStatusErr(`저장 실패: ${error}`);
+    }
+  }
+
+  // 같은 버튼을 다시 누르면 해제. 수량은 1부터 — 여러 개인 줄은 칸에서 고침.
+  function handleClaim(item: OrderItem, type: OrderClaimType) {
+    if (item.claim_type !== type) {
+      saveStatus(item, { claim_type: type, claim_quantity: item.claim_quantity ?? 1 });
+      return;
+    }
+    if (item.claim_collected_at && !confirm("수거완료 기록도 함께 지워집니다. 해제할까요?")) return;
+    saveStatus(item, { claim_type: null, claim_quantity: null, claim_collected_at: null });
+  }
+
+  function handleClaimQuantityBlur(item: OrderItem) {
+    const quantity = Math.min(Math.max(item.claim_quantity ?? 1, 1), Math.max(item.quantity, 1));
+    saveStatus(item, { claim_quantity: quantity });
+  }
+
+  // 주문 수량을 줄이면 반품·교환 수량이 넘치지 않게 같이 맞춤.
+  function handleQuantityBlur(item: OrderItem) {
+    const quantity = item.quantity ?? 0;
+    const maxClaim = Math.max(quantity, 1);
+    if (item.claim_quantity && item.claim_quantity > maxClaim) {
+      saveStatus(item, { quantity, claim_quantity: maxClaim });
+    } else {
+      updateOrderItem(item.id, { quantity });
+    }
+  }
+
   // 거래처별로 묶기 — 편집 중 매 글자마다 재편성되면 안 되니(입력 중 그룹이
   // 계속 바뀌면 포커스가 튐) supplier_name 은 blur 시에만 로컬 state 갱신.
-  const visibleItems = useMemo(
+  const dayItems = useMemo(
     () => items.filter(item => kstDate(item.created_at) === selectedDate),
+    [items, selectedDate]
+  );
+  // 이전 날짜에서 보류해 둔 줄 — 해제할 때까지 이후 날짜마다 맨 위에 표시.
+  const carriedItems = useMemo(
+    () => items.filter(item => item.held_at
+      && kstDate(item.created_at) < selectedDate
+      && kstDate(item.held_at) <= selectedDate),
     [items, selectedDate]
   );
   const groups = useMemo(() => {
     const map = new Map<string, OrderItem[]>();
-    for (const item of visibleItems) {
+    for (const item of dayItems) {
       const key = (item.supplier_name || "").trim() || "미지정";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(item);
     }
     return Array.from(map.entries());
-  }, [visibleItems]);
+  }, [dayItems]);
 
   // ◀ ▶ 는 주문이 있는 날짜끼리만 이동 — 오늘은 비어 있어도 항상 포함.
   const dates = useMemo(
@@ -199,8 +258,9 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
 
   // 클릭 직후 동기로 복사를 시작해야 브라우저가 사용자 동작으로 인정함 (await 전에 렌더 시작).
   async function handleCopyImage(supplier: string, rows: OrderItem[]) {
-    const targets = rows.filter(i => i.quantity > 0 && (i.wholesale_name || i.product_name));
+    const targets = rows.filter(isOrderable);
     if (targets.length === 0) return;
+    const excluded = rows.filter(i => i.held_at || i.claim_type).length;
     const store = storeName || companyName;
     const company = companyName.replace(/^\(주\)\s*/, "주식회사 ");
     const image = renderOrderImage(`${store}/주문`, store === companyName ? "" : `(${company})`, targets.map(toImageRow));
@@ -209,7 +269,11 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     try {
       const result = await copyOrderImage(image, `${sanitizeFilename(`${store}_주문_${supplier}`)}.png`);
       const base = result === "copied" ? `복사됨 ${targets.length}줄 — 카톡에 붙여넣으세요` : `복사가 막혀 파일로 내려받았습니다 (${targets.length}줄)`;
-      status = { supplier, text: noOption > 0 ? `${base} · 옵션 없는 줄 ${noOption}개` : base };
+      const notes = [
+        noOption > 0 ? `옵션 없는 줄 ${noOption}개` : "",
+        excluded > 0 ? `보류·반품·교환 ${excluded}줄 제외` : "",
+      ].filter(Boolean);
+      status = { supplier, text: [base, ...notes].join(" · ") };
     } catch (e) {
       status = { supplier, text: `이미지 복사 실패: ${e instanceof Error ? e.message : String(e)}`, error: true };
     }
@@ -277,6 +341,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(draft.unit_price * draft.quantity)}</td>
+        <td colSpan={4} />
       </tr>
     );
   }
@@ -286,9 +351,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     const variants = product?.variants ?? [];
     const options = Array.from(new Set(variants.map(variantLabel).filter(Boolean)));
     const subtotal = (item.unit_price || 0) * (item.quantity || 0);
+    const createdDate = kstDate(item.created_at);
 
     return (
-      <tr key={item.id} className={styles.tr}>
+      <tr key={item.id} className={styles.tr + (item.held_at ? " bg-orange-50" : "")}>
         <td className="px-1 py-1 text-center">
           <button type="button" onClick={() => handleDelete(item)} className="text-gray-300 hover:text-red-600" title="이 행 삭제">×</button>
         </td>
@@ -330,7 +396,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           <input value={formatComma(item.quantity ?? "")} placeholder="0"
             onFocus={e => e.target.select()}
             onChange={e => patchLocal(item.id, { quantity: Number(parseDigits(e.target.value) || "0") })}
-            onBlur={() => updateOrderItem(item.id, { quantity: item.quantity ?? 0 })}
+            onBlur={() => handleQuantityBlur(item)}
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-1 py-1 w-24">
@@ -340,6 +406,57 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(subtotal)}</td>
+        <td className="px-2 py-1 border-l border-gray-200 whitespace-nowrap">
+          <div className="flex items-center gap-1">
+            <button type="button" disabled={item.quantity <= 0} onClick={() => handleClaim(item, "return")}
+              title={item.quantity <= 0 ? "수량이 있는 줄만 표시할 수 있습니다" : undefined}
+              className={(item.claim_type === "return" ? styles.btnSmallRed : styles.btnSmallGhost) + " disabled:opacity-30 disabled:cursor-not-allowed"}>반품</button>
+            <button type="button" disabled={item.quantity <= 0} onClick={() => handleClaim(item, "exchange")}
+              title={item.quantity <= 0 ? "수량이 있는 줄만 표시할 수 있습니다" : undefined}
+              className={(item.claim_type === "exchange" ? styles.btnSmallBlue : styles.btnSmallGhost) + " disabled:opacity-30 disabled:cursor-not-allowed"}>교환</button>
+            {item.claim_type && item.quantity > 1 && (
+              <span className="flex items-center gap-0.5 ml-1 text-gray-500">
+                <input value={formatComma(item.claim_quantity ?? "")} aria-label="반품·교환 수량"
+                  onFocus={e => e.target.select()}
+                  onChange={e => patchLocal(item.id, { claim_quantity: Number(parseDigits(e.target.value) || "0") })}
+                  onBlur={() => handleClaimQuantityBlur(item)}
+                  className="w-8 px-1 py-0.5 text-xs text-right text-black border border-gray-300 rounded" />
+                /{item.quantity}
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-2 py-1 whitespace-nowrap">
+          {item.claim_type ? (
+            <button type="button"
+              onClick={() => saveStatus(item, { claim_collected_at: item.claim_collected_at ? null : new Date().toISOString() })}
+              title={item.claim_collected_at ? "누르면 수거 전으로 되돌림" : "고객에게서 수거했으면 누르세요"}
+              className={item.claim_collected_at ? styles.btnSmallGreen : styles.btnSmall + " bg-white"}>
+              {item.claim_collected_at ? `수거완료 ${formatShortDate(item.claim_collected_at)}` : "수거완료"}
+            </button>
+          ) : (
+            <span className="text-gray-300">-</span>
+          )}
+        </td>
+        <td className="px-1 py-1 min-w-[200px]">
+          <input defaultValue={item.memo ?? ""} placeholder="메모" title={item.memo ?? undefined}
+            onKeyDown={e => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) e.currentTarget.blur(); }}
+            onBlur={e => { const v = e.target.value.trim(); if (v !== (item.memo ?? "")) saveStatus(item, { memo: v || null }); }}
+            className={styles.gridInput} />
+        </td>
+        <td className="px-2 py-1 whitespace-nowrap">
+          <div className="flex items-center gap-1">
+            <button type="button"
+              onClick={() => saveStatus(item, { held_at: item.held_at ? null : new Date().toISOString() })}
+              title={item.held_at ? "누르면 보류 해제" : "해제할 때까지 다음 날짜에도 계속 보입니다"}
+              className={item.held_at ? styles.btnSmallOrange : styles.btnSmallGhost}>
+              보류
+            </button>
+            {createdDate !== selectedDate && (
+              <span className="text-gray-500">{formatShortDate(item.created_at)} 주문</span>
+            )}
+          </div>
+        </td>
       </tr>
     );
   }
@@ -355,7 +472,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         {selectedDate !== today && (
           <button type="button" onClick={() => setSelectedDate(today)} className={styles.btnSmallGhost}>오늘</button>
         )}
-        <span className="text-xs text-gray-500">{visibleItems.length}행</span>
+        <span className="text-xs text-gray-500">
+          {dayItems.length}행{carriedItems.length > 0 && ` · 넘어온 보류 ${carriedItems.length}건`}
+        </span>
+        {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
       </div>
       {loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
@@ -372,21 +492,35 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 <th className={styles.th}>수량</th>
                 <th className={styles.th}>단가</th>
                 <th className={styles.th}>소계</th>
+                <th className={styles.thLeft + " border-l border-gray-200"}>반품·교환</th>
+                <th className={styles.thLeft}>수거</th>
+                <th className={styles.thLeft}>메모</th>
+                <th className={styles.thLeft}>보류</th>
               </tr>
             </thead>
             <tbody>
               {renderDraftRow()}
+              {carriedItems.length > 0 && (
+                <>
+                  <tr>
+                    <td colSpan={12} className="px-2 pt-3 pb-1 bg-orange-50">
+                      <span className="text-sm font-bold text-black">보류: 이전 날짜에서 넘어온 주문</span>
+                    </td>
+                  </tr>
+                  {carriedItems.map(renderRow)}
+                </>
+              )}
               {groups.map(([supplier, rows]) => {
-                const copyable = rows.filter(i => i.quantity > 0 && (i.wholesale_name || i.product_name)).length;
+                const copyable = rows.filter(isOrderable).length;
                 return (
                   <Fragment key={supplier}>
                     <tr>
-                      <td colSpan={8} className="px-2 pt-3 pb-1 bg-gray-50">
+                      <td colSpan={12} className="px-2 pt-3 pb-1 bg-gray-50">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-black">거래처: {supplier}</span>
                           <button type="button" disabled={copyable === 0}
                             onClick={() => handleCopyImage(supplier, rows)}
-                            title={copyable === 0 ? "수량을 입력하면 복사할 수 있습니다" : "수량이 있는 줄만 이미지로 복사 (단가 제외)"}
+                            title={copyable === 0 ? "복사할 줄이 없습니다 (수량 없음 또는 보류·반품·교환)" : "수량이 있는 줄만 이미지로 복사 (단가·메모 제외, 보류·반품·교환 줄 제외)"}
                             className={styles.btnSmall + " whitespace-nowrap bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>
                             이미지 복사
                           </button>

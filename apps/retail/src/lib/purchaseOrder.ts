@@ -59,13 +59,19 @@ export interface OrderItem {
   quantity: number;
   sort_order: number;
   created_at: string;
+  // 마이그 237 — 반품·교환·수거완료·메모·보류. 주문 이미지에는 나가지 않음.
+  claim_type?: OrderClaimType | null;
+  claim_quantity?: number | null;
+  claim_collected_at?: string | null;
+  memo?: string | null;
+  held_at?: string | null;
 }
 
-const ORDER_ITEM_COLS = "id, product_id, product_name, wholesale_name, variant_label, supplier_name, unit_price, quantity, sort_order, created_at";
+export type OrderClaimType = "return" | "exchange";
 
 export async function loadOrderItems(tenantId: string): Promise<OrderItem[]> {
   const { data, error } = await supabase.from("purchase_order_items")
-    .select(ORDER_ITEM_COLS)
+    .select("*")
     .eq("tenant_id", tenantId)
     .order("sort_order").order("created_at");
   if (error) { console.error("loadOrderItems:", error); return []; }
@@ -81,13 +87,15 @@ export async function addOrderItem(tenantId: string, fields: OrderItemPatch): Pr
   if (maxErr) { console.error("addOrderItem (sort_order lookup):", maxErr); return { item: null, error: maxErr.message }; }
   const { data, error } = await supabase.from("purchase_order_items")
     .insert({ ...fields, tenant_id: tenantId, sort_order: (maxRow?.sort_order ?? 0) + 1 })
-    .select(ORDER_ITEM_COLS).single();
+    .select("*").single();
   if (error) { console.error("addOrderItem:", error); return { item: null, error: error.message }; }
   return { item: data as OrderItem, error: null };
 }
 
-export async function updateOrderItem(id: string, patch: OrderItemPatch): Promise<void> {
-  await supabase.from("purchase_order_items").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+export async function updateOrderItem(id: string, patch: OrderItemPatch): Promise<string | null> {
+  const { error } = await supabase.from("purchase_order_items").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+  if (error) console.error("updateOrderItem:", error);
+  return error?.message ?? null;
 }
 
 // 자식 레코드가 이 테이블을 참조하는 곳이 없어서 완전삭제로 충분.

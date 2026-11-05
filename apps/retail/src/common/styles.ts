@@ -48,6 +48,11 @@ export const styles = {
   btnOutline:    "px-3 py-1 text-xs font-medium rounded border border-black text-black hover:bg-gray-100",
   btnSmall:      "px-2 py-0.5 text-xs border border-black text-black rounded hover:bg-gray-100",
   btnSmallGhost: "px-2 py-0.5 text-xs border border-gray-300 text-gray-600 rounded hover:bg-gray-50",
+  // 켜진 상태 표시용 (주문 시트 반품·교환·수거완료·보류)
+  btnSmallRed:    "px-2 py-0.5 text-xs border border-red-600 bg-red-600 text-white rounded hover:bg-red-700",
+  btnSmallBlue:   "px-2 py-0.5 text-xs border border-blue-600 bg-blue-600 text-white rounded hover:bg-blue-700",
+  btnSmallGreen:  "px-2 py-0.5 text-xs border border-emerald-600 bg-emerald-600 text-white rounded hover:bg-emerald-700",
+  btnSmallOrange: "px-2 py-0.5 text-xs border border-orange-500 bg-orange-500 text-white rounded hover:bg-orange-600",
 
   // ── 모달 ──
   modalOverlay: "fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4",
