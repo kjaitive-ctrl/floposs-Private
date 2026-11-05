@@ -19,10 +19,10 @@ async function fetchImageBuffer(r2Url: string): Promise<Buffer> {
 const DETAIL_IMG_MAX_BYTES = 2 * 1024 * 1024; // 2MB 안전 마진
 const DETAIL_IMG_EDGE_CANDIDATES = [2000, 1600, 1200, 900]; // 긴 변 기준 순차 축소
 
-// 이미지 많은 상품이 Vercel 함수 시간제한(무료 플랜 60초 강제)에 걸리는 걸 줄이기 위해 완전 순차
-// 대신 2장씩 동시 처리. 예전에 전체를 한꺼번에 병렬로 쐈다가 카페24 버스트 제한에 걸린 적 있어
-// 2로 제한 — 더 걸리면 이 숫자만 낮추면 됨.
-const IMAGE_UPLOAD_CONCURRENCY = 2;
+// ⚠️ 카페24 업로드(products/{no}/images)는 반드시 1장씩 순차. 이 엔드포인트는 "상품 대표이미지 교체"라
+// 응답의 detail_image 가 "방금 올린 파일"이 아니라 "상품의 현재 대표이미지"를 돌려줌 — 2장 동시로 쏘면
+// 둘 다 나중에 끝난 쪽 URL을 받아 상세페이지에 같은 이미지가 2번 박히고 다른 1장은 빠졌음(2026-07~10 실측:
+// 중복이 항상 동시처리 묶음 안의 짝). 속도는 R2 다운로드+리사이즈를 다음 장 업로드와 겹쳐서 확보.
 
 async function capImageForCafe24(buf: Buffer): Promise<Buffer> {
   if (buf.length <= DETAIL_IMG_MAX_BYTES) return buf;
@@ -230,7 +230,7 @@ function buildDetailHtml(
 
   // 4. 상세 이미지 (등록 순서)
   for (const url of imageUrls) {
-    lines.push(`<p style="margin:0;"><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:block;" alt="" /></p>`);
+    lines.push(`<p style="margin:0 0 24px;"><img src="${escapeHtml(url)}" style="max-width:100%;height:auto;display:block;margin:0 auto;" alt="" /></p>`);
   }
 
   // 5. 사이즈표 + 고정 안내문구
@@ -469,34 +469,40 @@ export async function POST(req: NextRequest) {
       }
 
       // 이미지 업로드: 전체 이미지를 cafe24 CDN에 올리고 CDN URL로 상세 HTML 조립.
-      // 2장씩 동시 처리(IMAGE_UPLOAD_CONCURRENCY) — 완료 순서가 뒤섞일 수 있어 원래 인덱스 자리에
-      // 결과를 꽂아 상세페이지 이미지 순서를 보존. 이미지 1장 실패해도(allSettled) 나머지 성공한
-      // 이미지만으로 상세페이지는 반드시 생성.
+      // 카페24 업로드는 1장씩 순차(위 ⚠️ 참고), 다음 장의 R2 다운로드+리사이즈는 현재 장 업로드와 동시 진행.
+      // 이미지 1장 실패해도 나머지 성공한 이미지만으로 상세페이지는 반드시 생성.
       if (cafe24ProductNo) {
-        const cdnUrlsByIndex: (string | null)[] = new Array(detailImages.length).fill(null);
+        const cdnUrls: string[] = [];
         const failReasons: string[] = [];
 
-        for (let i = 0; i < detailImages.length; i += IMAGE_UPLOAD_CONCURRENCY) {
-          const batch = detailImages.slice(i, i + IMAGE_UPLOAD_CONCURRENCY);
-          const settled = await Promise.allSettled(batch.map(async (img, offset) => {
-            const imgName = img.url.split("/").pop() ?? "image.jpg";
-            const buf = await fetchImageBuffer(img.url);
-            const capped = await capImageForCafe24(buf);
+        const prepare = (img: DbImage) => fetchImageBuffer(img.url)
+          .then(capImageForCafe24)
+          .then(buf => ({ ok: true as const, buf }), (err: unknown) => ({ ok: false as const, err }));
+        let pending = detailImages.length > 0 ? prepare(detailImages[0]) : null;
+
+        for (let i = 0; i < detailImages.length; i++) {
+          const prepared = await pending!;
+          pending = i + 1 < detailImages.length ? prepare(detailImages[i + 1]) : null;
+          if (!prepared.ok) {
+            failReasons.push(String(prepared.err).slice(0, 300));
+            continue;
+          }
+          try {
+            const imgName = detailImages[i].url.split("/").pop() ?? "image.jpg";
             const { cdnUrl } = await callCafe24(t => cafe24UploadImageToProduct(
-              t.mall_id, t.access_token, cafe24ProductNo!, capped, imgName,
+              t.mall_id, t.access_token, cafe24ProductNo!, prepared.buf, imgName,
             ));
-            return { index: i + offset, cdnUrl };
-          }));
-          for (const r of settled) {
-            if (r.status === "fulfilled") {
-              if (r.value.cdnUrl) cdnUrlsByIndex[r.value.index] = r.value.cdnUrl;
-            } else {
-              failReasons.push(String(r.reason).slice(0, 300));
+            // 안전망: 같은 URL이 또 오면 = 응답이 방금 올린 파일이 아님 → 상세에 중복 박지 않고 경고로 남김
+            if (cdnUrl && cdnUrls.includes(cdnUrl)) {
+              failReasons.push(`${imgName}: 카페24가 이전 이미지와 같은 URL 반환 (중복 제외)`);
+            } else if (cdnUrl) {
+              cdnUrls.push(cdnUrl);
             }
+          } catch (e) {
+            failReasons.push(String(e).slice(0, 300));
           }
         }
 
-        const cdnUrls = cdnUrlsByIndex.filter((u): u is string => !!u);
         if (failReasons.length > 0) {
           const msg = `이미지 ${failReasons.length}/${detailImages.length}장 업로드 실패 (첫 실패: ${failReasons[0]})`;
           imageWarning = imageWarning ? `${imageWarning}; ${msg}` : msg;
