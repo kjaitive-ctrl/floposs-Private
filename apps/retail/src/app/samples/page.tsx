@@ -14,6 +14,7 @@ import SizeModal from "@/components/SizeModal";
 import MemoModal from "@/components/MemoModal";
 import SupplierAutocomplete from "@/components/SupplierAutocomplete";
 import { shortLocFromNested } from "@/lib/retailSuppliers";
+import { suggestConsumerPrice, suggestRegularPrice } from "@/lib/platformPricing";
 import HelpDot from "@/components/HelpDot";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
@@ -525,8 +526,20 @@ export default function SamplesPage() {
     // created_at 은 순수 샘플 등록시점이라 안 건드림 — "샘플로" 되돌리면 /samples 에서
     // 원래 등록 자리로 자동 복귀해야 하기 때문 (created_at 을 건드리면 복귀 안 됨).
     const nowIso = new Date().toISOString();
+    // 비어 있는 가격만 자동 입력 — "샘플로" 되돌렸다가 다시 진행하는 경우 기존 가격 유지.
+    const { data: prices } = await supabase.from("products")
+      .select("regular_sale_price, consumer_price, wholesale_price_current")
+      .eq("id", row.id)
+      .maybeSingle();
+    const cost = Number(prices?.wholesale_price_current || row.wholesale_price || 0);
+    const regularPrice = prices?.regular_sale_price ?? (cost > 0 ? suggestRegularPrice(cost) : null);
+    const consumerPrice = prices?.consumer_price ?? (regularPrice ? suggestConsumerPrice(Number(regularPrice)) : null);
     const { error } = await supabase.from("products")
-      .update({ status: "registered", updated_at: nowIso, registered_at: nowIso })
+      .update({
+        status: "registered", updated_at: nowIso, registered_at: nowIso,
+        regular_sale_price: regularPrice,
+        consumer_price: consumerPrice,
+      })
       .eq("id", row.id);
 
     if (error) {

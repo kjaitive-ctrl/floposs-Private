@@ -55,6 +55,25 @@ export function calcMargin(
   return { fee, vat, cost, margin, fxMissing, hasData, rate: hasData ? margin / sell * 100 : null };
 }
 
+// [진행] 시 비어 있는 가격 자동 입력값. 최근 입력 가격(2026-05 이후 136개)에 맞춘 규칙 (사장 결정 2026-11-05).
+// 2024-12 등록분은 무료배송비가 포함된 가격이라 기준에서 제외. 입력 후에는 표에서 자유롭게 수정.
+//   상시판매가: 남길 금액 = 2,500원 + 도매가 × 25%. %만 쓰면 저가 상품에 남는 돈이 너무 적음. 100원 단위 반올림.
+//   소비자가: 상시판매가 × 1.05, 1,000원 단위 올림.
+const SUGGEST_BASE_MARGIN = 2500;
+const SUGGEST_COST_RATIO = 0.25;
+const SUGGEST_CONSUMER_RATIO = 1.05;
+
+export function suggestRegularPrice(costKrw: number): number {
+  const target = SUGGEST_BASE_MARGIN + costKrw * SUGGEST_COST_RATIO;
+  // calcMargin(원화)을 판매가 기준으로 푼 식: 남는 돈 = 판매가 × (1/1.1 − 수수료%) − 고정수수료 − 도매가
+  const raw = (costKrw + FIXED_FEE_KRW + target) / (1 / 1.1 - CAFE24_FEE_RATE / 100);
+  return Math.round(raw / 100) * 100;
+}
+
+export function suggestConsumerPrice(regularPrice: number): number {
+  return Math.ceil(regularPrice * SUGGEST_CONSUMER_RATIO / 1000) * 1000;
+}
+
 // 기준가(원화) → 플랫폼 표시가.
 // 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
 // 외화 플랫폼 (사장 결정 2026-07-20, 수정 2026-07-20): 먼저 순수 환율변환 후,
