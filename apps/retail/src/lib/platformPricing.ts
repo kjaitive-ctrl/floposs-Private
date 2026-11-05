@@ -35,6 +35,26 @@ export function calcVat(sell: number, currency: PlatformCurrency): number {
   return sell * 0.1;
 }
 
+// 순마진 = 상시판매가 − 수수료 − 도매가(해당통화로 환산) − 부가세.
+// MarginCalcModal + /products 마진 칸 + 상품 정보 창 공용. rate 는 계산 가능할 때만 값이 있음.
+export function calcMargin(
+  sell: number,
+  costKrw: number,  // 도매가 — 항상 원화 원본
+  feeRatePercent: number,
+  currency: PlatformCurrency,
+  fxRate: number | null,
+) {
+  const needsFx = currency !== "KRW";
+  const fxMissing = needsFx && !fxRate;
+  const cost = needsFx ? (fxRate ? costKrw / fxRate : 0) : costKrw;
+  const fixedFee = needsFx ? (fxRate ? FIXED_FEE_KRW / fxRate : 0) : FIXED_FEE_KRW;
+  const fee = sell > 0 ? calcFee(sell, feeRatePercent, fixedFee) : 0;
+  const vat = sell > 0 ? calcVat(sell, currency) : 0;
+  const margin = sell - fee - cost - vat;
+  const hasData = sell > 0 && costKrw > 0 && !fxMissing;
+  return { fee, vat, cost, margin, fxMissing, hasData, rate: hasData ? margin / sell * 100 : null };
+}
+
 // 기준가(원화) → 플랫폼 표시가.
 // 원화 플랫폼: 표시가 = 기준가 / (1 - 플랫폼수수료% 전체) — 기존 공식 그대로.
 // 외화 플랫폼 (사장 결정 2026-07-20, 수정 2026-07-20): 먼저 순수 환율변환 후,

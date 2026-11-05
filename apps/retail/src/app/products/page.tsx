@@ -22,6 +22,7 @@ import MemoModal from "@/components/MemoModal";
 import PriceModal from "@/components/PriceModal";
 import PriceHistoryModal from "@/components/PriceHistoryModal";
 import MarginCalcModal from "@/components/MarginCalcModal";
+import ProductInfoModal from "@/components/ProductInfoModal";
 import Cafe24PushModal from "@/components/Cafe24PushModal";
 import SaveStatusDot from "@/components/SaveStatusDot";
 import Pagination from "@/components/Pagination";
@@ -30,24 +31,19 @@ import { useCellNavigation } from "@/lib/useCellNavigation";
 import { useRowAutosave } from "@/lib/useRowAutosave";
 import { useCategoryOptions } from "@/lib/useCategoryOptions";
 import {
-  convertToPlatformPrice, formatPlatformPrice, feeContextFor, CAFE24_FEE_RATE,
-  calcFee, calcVat, FIXED_FEE_KRW,
+  convertToPlatformPrice, formatPlatformPrice, feeContextFor,
+  calcMargin,
   type Platform, type FxRates,
 } from "@/lib/platformPricing";
 // excelUtils 는 dynamic import — xlsx 라이브러리가 [엑셀 다운로드] 클릭 시점에만 로드
 
 // 마진율 구간별 색상: <10% 빨강 / 10~20% 주황 / 20~30% 노랑 / 30%+ 초록 / 미입력 회색
-function marginRateColor(sellStr: string, costStr: string, feeRatePercent: number): string {
-  const sell = Number(sellStr);
-  const cost = Number(costStr);
-  if (!sell || !cost) return "text-gray-300 hover:text-gray-500";
-  const fee = calcFee(sell, feeRatePercent, FIXED_FEE_KRW);
-  const vat = calcVat(sell, "KRW");
-  const rate = (sell - fee - cost - vat) / sell * 100;
-  if (rate < 10)  return "text-red-500    hover:text-red-700";
-  if (rate < 20)  return "text-orange-400 hover:text-orange-600";
-  if (rate < 30)  return "text-yellow-400 hover:text-yellow-600";
-  return                  "text-emerald-400 hover:text-emerald-600";
+function marginRateColor(rate: number | null): string {
+  if (rate === null) return "text-gray-400";
+  if (rate < 10)  return "text-red-600";
+  if (rate < 20)  return "text-orange-600";
+  if (rate < 30)  return "text-yellow-600";
+  return                  "text-emerald-600";
 }
 
 // /products = 정식 등록된 상품 (status IN registered/inactive).
@@ -106,6 +102,10 @@ function ProductsPageInner() {
   const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
   const [historyRow, setHistoryRow] = useState<ProductRow | null>(null);
   const [marginRow, setMarginRow] = useState<ProductRow | null>(null);
+  // 상품 정보 창 — 표가 갱신돼도 최신 값을 보도록 id 만 들고 rows 에서 찾음.
+  // infoReloadKey = 창 위에서 멘트/촬영/SIZE/IMG 를 저장하면 모듈을 다시 읽게 하는 신호.
+  const [infoRowId, setInfoRowId] = useState<string | null>(null);
+  const [infoReloadKey, setInfoReloadKey] = useState(0);
   // 일괄 액션용 일시 선택 state (DB 박제 X, 새로고침 시 초기화)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [cafe24PushOpen, setCafe24PushOpen] = useState(false);
@@ -164,6 +164,19 @@ function ProductsPageInner() {
     const converted = convertToPlatformPrice(base, selectedPlatform, fxRates);
     if (converted === null) return "환율 설정 필요";
     return formatPlatformPrice(converted, selectedPlatform.currency);
+  }
+
+  // 표 마진 칸 + 정보 창 + 마진 계산 창이 같은 값을 보도록 선택된 채널 기준으로 한 곳에서 계산.
+  function marginOf(row: ProductRow) {
+    const base = Number(row.regular_sale_price);
+    const sell = selectedPlatform ? convertToPlatformPrice(base, selectedPlatform, fxRates) ?? 0 : base;
+    const cost = Number(row.wholesale_price_current || row.wholesale_price || 0);
+    return calcMargin(sell, cost, feeCtx.feeRate, feeCtx.currency, feeCtx.fxRate);
+  }
+
+  function formatMarginAmount(amount: number): string {
+    if (feeCtx.currency === "KRW") return Math.round(amount).toLocaleString();
+    return formatPlatformPrice(amount, feeCtx.currency);
   }
 
   function toggleSelect(id: string) {
@@ -309,6 +322,7 @@ function ProductsPageInner() {
       .maybeSingle();
     if (error || !data) return;
     setRows(prev => prev.map(r => r.id === productId ? toRow(data as DbProduct, r._key) : r));
+    setInfoReloadKey(k => k + 1);
   }
 
   useEffect(() => {
@@ -530,35 +544,58 @@ function ProductsPageInner() {
     }
   }
 
-  async function handleRevert(row: ProductRow) {
+  // 선택 상품 일괄 [샘플로]. 표의 행 버튼에서 툴바로 이동 (사장 결정 2026-11-05 — 자주 안 씀).
+  async function handleRevertSelected() {
+    const targets = rows.filter(r => selectedIds.has(r.id));
     // 이미지 등록 시 회귀 차단 (사장 결정 2026-05-29) — 샘플 단계엔 이미지 X
-    if (row.image_count > 0) {
-      alert(`이미지가 ${row.image_count}장 등록되어 있어 샘플로 되돌릴 수 없습니다.\n[IMG] 모달에서 먼저 모든 이미지를 삭제하세요.`);
+    const blocked = targets.filter(r => r.image_count > 0);
+    const eligible = targets.filter(r => r.image_count === 0);
+    const blockedNote = blocked.length > 0
+      ? `이미지가 등록되어 제외 (${blocked.length}개): ${blocked.map(safeFilename).join(", ")}\n[IMG] 창에서 이미지를 모두 삭제해야 되돌릴 수 있습니다.`
+      : "";
+    if (eligible.length === 0) {
+      alert(`샘플로 되돌릴 수 있는 상품이 없습니다.\n\n${blockedNote}`);
       return;
     }
     // 마이그 198: 바코드 폐기 안내 (외부 push 동기화는 미래 작업)
-    const msg = "샘플 단계로 되돌리면:\n"
+    const msg = `${eligible.length}개 상품을 샘플 단계로 되돌리면:\n`
       + "• 발급된 바코드가 폐기됩니다 (재진행 시 새 바코드)\n"
       + "• 종이 라벨 출력된 바코드가 있다면 수거 필요\n"
       + "• 카페24 등 외부 플랫폼에 등록된 경우 별도 동기화 필요\n\n"
+      + `대상: ${eligible.map(safeFilename).join(", ")}\n\n`
+      + (blockedNote ? `${blockedNote}\n\n` : "")
       + "계속하시겠습니까?";
     if (!confirm(msg)) return;
 
-    // 바코드 폐기 (RPC: products.barcode NULL + variants barcode NULL + history revoked 박제)
-    const { error: revokeError } = await supabase.rpc("revoke_product_barcode", {
-      p_product_id: row.id,
-      p_reason: "샘플로 회귀",
-    });
-    if (revokeError) {
-      console.error("바코드 폐기 실패:", revokeError);
-      alert(`바코드 폐기 실패: ${revokeError.message}`);
-      return;
+    const failed: string[] = [];
+    const reverted: string[] = [];
+    for (const row of eligible) {
+      // 바코드 폐기 (RPC: products.barcode NULL + variants barcode NULL + history revoked 박제)
+      const { error: revokeError } = await supabase.rpc("revoke_product_barcode", {
+        p_product_id: row.id,
+        p_reason: "샘플로 회귀",
+      });
+      if (revokeError) {
+        console.error("바코드 폐기 실패:", revokeError);
+        failed.push(`${safeFilename(row)}: 바코드 폐기 실패 (${revokeError.message})`);
+        continue;
+      }
+      // status 변경
+      const { error: statusError } = await supabase.from("products")
+        .update({ status: "sample_received", updated_at: new Date().toISOString() })
+        .eq("id", row.id);
+      if (statusError) {
+        failed.push(`${safeFilename(row)}: 상태 변경 실패 (${statusError.message})`);
+        continue;
+      }
+      reverted.push(row.id);
     }
-
-    // status 변경
-    await supabase.from("products")
-      .update({ status: "sample_received", updated_at: new Date().toISOString() })
-      .eq("id", row.id);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      reverted.forEach(id => next.delete(id));
+      return next;
+    });
+    if (failed.length > 0) alert(`샘플로 되돌리기 실패 (${failed.length}개):\n${failed.join("\n")}`);
     if (tenant?.id) fetchItems(tenant.id);
   }
 
@@ -581,6 +618,7 @@ function ProductsPageInner() {
   const thBot = thBase + " bg-gray-100 sticky top-9";
   const td = "border-r border-r-gray-100 align-middle";
   const inp = styles.gridInput;
+  const infoRow = infoRowId ? rows.find(r => r.id === infoRowId) ?? null : null;
 
   function cellProps(row: ProductRow, col: EditField) {
     return {
@@ -651,6 +689,14 @@ function ProductsPageInner() {
                 title="선택 상품의 각인(라벨 합성)된 이미지만 상품별 폴더로 ZIP 다운로드"
                 className={styles.btnSmall + " py-1 !border-amber-400 !text-amber-700 hover:!bg-amber-50 disabled:opacity-50"}>
                 {stampExporting ? (stampExportStatus || "생성 중...") : `각인 이미지 ${selectedIds.size}개`}
+              </button>
+            )}
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleRevertSelected}
+                title="선택 상품을 샘플 단계로 되돌리기 (이미지 있는 상품 제외)"
+                className={styles.btnSmallGhost + " py-1 whitespace-nowrap"}>
+                샘플로 {selectedIds.size}개
               </button>
             )}
             <button onClick={async () => {
@@ -737,8 +783,9 @@ function ProductsPageInner() {
                 <th className={thTopInput + " min-w-[130px]"}>옵션2 (사이즈)</th>
                 <th className={thTopInput + " min-w-[110px]"}>옵션3</th>
                 <th className={thTopInput + " w-32"}>상시판매가</th>
-                <th className={thTopInput + " w-32"}>판매가</th>
-                <th className={thTopInput + " w-32"}>소비자가</th>
+                <th className={thTop + " w-16"}>마진</th>
+                <th className={thTopInput + " w-24"}>판매가</th>
+                <th className={thTopInput + " w-24"}>소비자가</th>
                 <th className={thTopInput + " w-32"}>카테고리</th>
                 <th className={thTopInput + " w-32 border-r-0"}>상품코드</th>
               </tr>
@@ -751,16 +798,17 @@ function ProductsPageInner() {
                 <th className={thBot + " min-w-[130px]"}>옵션2 (사이즈)</th>
                 <th className={thBot + " min-w-[110px]"}>옵션3</th>
                 <th className={thBot + " w-32"}>공급가</th>
-                <th className={thBot + " w-32"}>할인가</th>
-                <th className={thBot + " w-32"}>제조국</th>
+                <th className={thBot + " w-16"}>마진율</th>
+                <th className={thBot + " w-24"}>할인가</th>
+                <th className={thBot + " w-24"}>제조국</th>
                 <th className={thBot + " w-24"}>혼용율</th>
                 <th className={thBot + " min-w-[180px] border-r-0"}>공급사</th>
               </tr>
             </thead>
             {loading ? (
-              <tbody><tr><td colSpan={14} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr></tbody>
+              <tbody><tr><td colSpan={15} className="px-3 py-6 text-center text-xs text-gray-600">불러오는 중...</td></tr></tbody>
               ) : rows.length === 0 ? (
-              <tbody><tr><td colSpan={14} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr></tbody>
+              <tbody><tr><td colSpan={15} className="px-3 py-6 text-center text-xs text-gray-400">등록된 상품이 없습니다. /samples 에서 [진행] 버튼으로 등록하세요.</td></tr></tbody>
               ) : rows.map((row, i) => {
                 // 한 상품 = 2 tr (사장 결정).
                 //   ● 만 rowSpan=2. 나머지는 모두 위/아래 분할.
@@ -773,6 +821,14 @@ function ProductsPageInner() {
                 const tdBot  = "px-2 py-1.5 border-r border-r-gray-100 border-b-2 border-b-gray-300 text-xs text-gray-500 align-middle h-9";
                 // 상품 단위 zebra (짝수 행 옅은 음영) — 100개 리스트에서 상품 덩어리 구분 (Gestalt 공통영역)
                 const zebra  = i % 2 === 1 ? "bg-gray-100/70" : "";
+                const margin = marginOf(row);
+                // 마진 칸: 위=금액, 아래=율. 누르면 계산 내역(마진 계산 창).
+                const marginCell = (text: string) => (
+                  <button type="button" title="마진 계산 내역" onClick={() => setMarginRow(row)}
+                    className={"w-full px-1 py-1 text-right text-xs font-semibold whitespace-nowrap hover:underline " + marginRateColor(margin.rate)}>
+                    {text}
+                  </button>
+                );
                 return (
                   <tbody key={row._key} className={"group " + zebra}>
                     <tr className="group-hover:bg-sky-50/60">
@@ -858,12 +914,10 @@ function ProductsPageInner() {
                       {selectedPlatform ? (
                         <>
                           <td className={tdTop}>
-                            <div className="flex items-center justify-end gap-2 pr-2">
-                              <div className="text-right text-xs text-gray-700 flex-1 min-w-0">{platformDisplay(row.regular_sale_price)}</div>
-                              <button type="button" title="마진 계산"
-                                onClick={() => setMarginRow(row)}
-                                className="text-gray-400 hover:text-gray-600 font-semibold shrink-0">%</button>
-                            </div>
+                            <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.regular_sale_price)}</div>
+                          </td>
+                          <td className={tdTop + " p-0"}>
+                            {marginCell(margin.fxMissing ? "환율" : margin.hasData ? formatMarginAmount(margin.margin) : "-")}
                           </td>
                           <td className={tdTop}>
                             <div className="pr-2 text-right text-xs text-gray-700">{platformDisplay(row.sale_price)}</div>
@@ -875,17 +929,15 @@ function ProductsPageInner() {
                       ) : (
                         <>
                           <td className={tdTop + (row.regular_sale_price ? "" : " bg-orange-50")}>
-                            <div className="flex items-center justify-end gap-2 pr-2">
-                              <input id={`cell-${row._key}-regular_sale_price`}
-                                type="text" inputMode="numeric"
-                                value={formatComma(row.regular_sale_price)}
-                                onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
-                                onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
-                                className={inp + " text-right flex-1 min-w-0"} />
-                              <button type="button" title="마진 계산"
-                                onClick={() => setMarginRow(row)}
-                                className={marginRateColor(row.regular_sale_price, row.wholesale_price_current || String(row.wholesale_price ?? ""), CAFE24_FEE_RATE) + " font-semibold shrink-0"}>%</button>
-                            </div>
+                            <input id={`cell-${row._key}-regular_sale_price`}
+                              type="text" inputMode="numeric"
+                              value={formatComma(row.regular_sale_price)}
+                              onChange={e => updateCell(row._key, "regular_sale_price", parseDigits(e.target.value))}
+                              onKeyDown={e => handleNav(e, row._key, "regular_sale_price")}
+                              className={inp + " text-right"} />
+                          </td>
+                          <td className={tdTop + " p-0"}>
+                            {marginCell(margin.hasData ? formatMarginAmount(margin.margin) : "-")}
                           </td>
                           <td className={tdTop}>
                             <input id={`cell-${row._key}-sale_price`}
@@ -929,7 +981,7 @@ function ProductsPageInner() {
                         onClick={() => setMemoModal({ row, kind: "sample" })}>
                         {row.description || "-"}
                       </td>
-                      {/* 액션: 아래=[SIZE] [샘플로]. 사이즈는 회계 무관 메타데이터라 상시 활성.
+                      {/* 액션: 아래=[SIZE] [정보]. 사이즈는 회계 무관 메타데이터라 상시 활성.
                           product_measurements 박제 row 가 0 이면 옅은 주황으로 환기 (사이즈표 미박제). */}
                       <td className={tdBot + " text-center"}>
                         <div className="flex gap-1 justify-center">
@@ -937,11 +989,10 @@ function ProductsPageInner() {
                             className={styles.btnSmall + (row.measurements_count > 0 ? "" : " !bg-orange-50")}>
                             SIZE
                           </button>
-                          <button onClick={() => handleRevert(row)}
-                            disabled={row.image_count > 0}
-                            title={row.image_count > 0 ? `이미지 ${row.image_count}장 등록됨 — 먼저 삭제 후 가능` : "샘플 단계로 되돌리기"}
-                            className={styles.btnSmallGhost + " whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"}>
-                            샘플로
+                          <button onClick={() => setInfoRowId(row.id)}
+                            title="상품 정보를 한 화면에서 보고 복사"
+                            className={styles.btnSmall + " whitespace-nowrap"}>
+                            정보
                           </button>
                         </div>
                       </td>
@@ -961,6 +1012,9 @@ function ProductsPageInner() {
                           <button type="button" onClick={() => setHistoryRow(row)} title="가격 변경 이력"
                             className="text-gray-300 hover:text-gray-600">📜</button>
                         </div>
+                      </td>
+                      <td className={tdBot + " !p-0"}>
+                        {marginCell(margin.rate !== null ? `${margin.rate.toFixed(1)}%` : "-")}
                       </td>
                       {/* 할인가/제조국/혼용율/공급사: 아래=samples 박제 read-only */}
                       <td className={tdBot + " text-right"}>{formatComma(row.wholesale_discount_price) || "-"}</td>
@@ -996,6 +1050,45 @@ function ProductsPageInner() {
           onClose={() => setMemoModal(null)}
         />
       )}
+
+      {/* 정보 창은 수정 창들보다 먼저 렌더 — 같은 z-index 라 수정 창이 위에 뜸 */}
+      {infoRow && tenant && (() => {
+        const infoMargin = marginOf(infoRow);
+        return (
+          <ProductInfoModal
+            tenantId={tenant.id}
+            productId={infoRow.id}
+            category={infoRow.category}
+            reloadKey={infoReloadKey}
+            fields={{
+              consumer_name: infoRow.consumer_name,
+              wholesale_name: infoRow.wholesale_name,
+              supplier: infoRow.wholesale_supplier,
+              supplier_loc: infoRow.supplier_loc,
+              wholesale_price: infoRow.wholesale_price_current || String(infoRow.wholesale_price ?? ""),
+              wholesale_discount_price: String(infoRow.wholesale_discount_price ?? ""),
+              regular_sale_price: infoRow.regular_sale_price,
+              sale_price: infoRow.sale_price,
+              consumer_price: infoRow.consumer_price,
+              margin: infoMargin.rate !== null ? `${formatMarginAmount(infoMargin.margin)} (${infoMargin.rate.toFixed(1)}%)` : "",
+              category: infoRow.category,
+              country_of_origin: infoRow.country_of_origin,
+              material_composition: infoRow.material_composition,
+              colors: joinUniq(infoRow.variants, "consumer_label_color"),
+              sizes: joinUniq(infoRow.variants, "consumer_label_size"),
+              option3s: joinUniq(infoRow.variants, "consumer_label_option3"),
+              barcode: infoRow.barcode ?? "",
+            }}
+            onEdit={editor => {
+              if (editor === "comment") setCommentModalRow(infoRow);
+              else if (editor === "shoot") setShootModalRow(infoRow);
+              else setSizeModalRow(infoRow);
+            }}
+            onOpenImages={() => setImagesModalRow(infoRow)}
+            onClose={() => setInfoRowId(null)}
+          />
+        );
+      })()}
 
       {sizeModalRow && tenant && (
         <SizeModal
@@ -1103,6 +1196,11 @@ function ProductsPageInner() {
             wholesale_name: r.wholesale_name,
             image_count: r.image_count,
             cafe24_product_no: r.cafe24_product_no,
+            regular_sale_price: r.regular_sale_price,
+            category: r.category,
+            has_comment: r.has_comment,
+            shoot_count: r.shoot_count,
+            measurements_count: r.measurements_count,
           }))}
           onClose={() => setCafe24PushOpen(false)}
           onDone={(updatedMap) => {

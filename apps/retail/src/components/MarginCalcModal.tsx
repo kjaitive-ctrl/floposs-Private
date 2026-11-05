@@ -1,6 +1,6 @@
 "use client";
 import { formatComma } from "@/lib/format";
-import { formatPlatformPrice, calcFee, calcVat, FIXED_FEE_KRW, type PlatformCurrency } from "@/lib/platformPricing";
+import { formatPlatformPrice, calcMargin, FIXED_FEE_KRW, type PlatformCurrency } from "@/lib/platformPricing";
 
 interface Props {
   productName: string;
@@ -16,20 +16,11 @@ interface Props {
 // 부가세 = 원화: 상시판매가 − (상시판매가/1.1) / 외화: 상시판매가 × 10% (calcVat)
 // 마진   = 상시판매가 − 수수료 − 도매가(해당통화로 환산) − 부가세
 export default function MarginCalcModal({ productName, sellPrice, wholesalePrice, feeRatePercent, currency, fxRate, onClose }: Props) {
-  const needsFx = currency !== "KRW";
-  const fxMissing = needsFx && !fxRate;
-
   const sell = sellPrice ?? 0;
   const costRaw = wholesalePrice ?? 0;
-  const cost = needsFx ? (fxRate ? costRaw / fxRate : 0) : costRaw;
-  const fixedFee = needsFx ? (fxRate ? FIXED_FEE_KRW / fxRate : 0) : FIXED_FEE_KRW;
+  const { fee, vat, cost, margin, fxMissing, hasData, rate } = calcMargin(sell, costRaw, feeRatePercent, currency, fxRate);
+  const rateStr = rate !== null ? rate.toFixed(1) + "%" : null;
 
-  const fee = sell > 0 ? calcFee(sell, feeRatePercent, fixedFee) : 0;
-  const vat = sell > 0 ? calcVat(sell, currency) : 0;
-  const margin = sell - fee - cost - vat;
-  const rateStr = sell > 0 && costRaw > 0 && !fxMissing ? (margin / sell * 100).toFixed(1) + "%" : null;
-
-  const hasData = sell > 0 && costRaw > 0 && !fxMissing;
   const fmt = (v: number) => formatPlatformPrice(v, currency);
 
   return (

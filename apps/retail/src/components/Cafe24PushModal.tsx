@@ -5,12 +5,37 @@ import { styles } from "@/common/styles";
 
 interface Props {
   selectedIds: string[];
-  rows: { id: string; consumer_name: string; wholesale_name: string; image_count: number; cafe24_product_no?: number | null }[];
+  rows: PushRow[];
   onClose: () => void;
   onDone: (updatedMap: Map<string, number>) => void;
 }
 
+interface PushRow {
+  id: string;
+  consumer_name: string;
+  wholesale_name: string;
+  image_count: number;
+  cafe24_product_no?: number | null;
+  regular_sale_price: string;
+  category: string;
+  has_comment: boolean;
+  shoot_count: number;
+  measurements_count: number;
+}
+
 type PushResult = { id: string; ok: boolean; cafe24_product_no?: number; error?: string };
+
+// 전송 전 알림용 — 경고만 하고 전송은 막지 않음.
+function missingItems(r: PushRow): string[] {
+  const missing: string[] = [];
+  if (!r.consumer_name.trim()) missing.push("상품명");
+  if (!r.regular_sale_price) missing.push("상시판매가");
+  if (!r.category) missing.push("카테고리");
+  if (!r.has_comment) missing.push("멘트");
+  if (r.shoot_count === 0) missing.push("촬영");
+  if (r.measurements_count === 0) missing.push("사이즈표");
+  return missing;
+}
 
 export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: Props) {
   const [pushing, setPushing] = useState(false);
@@ -22,6 +47,9 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
   const canPush  = selected.filter(r => r.image_count > 0);
   const updates  = canPush.filter(r => r.cafe24_product_no != null);
   const creates  = canPush.filter(r => r.cafe24_product_no == null);
+  const incomplete = canPush
+    .map(r => ({ row: r, missing: missingItems(r) }))
+    .filter(x => x.missing.length > 0);
 
   // 상품 하나씩 순차 요청 — 한 번에 다 묶어 보내면 이미지 많은 배치가 Vercel 함수 시간제한(무료
   // 플랜은 60초 강제 clamp, maxDuration 설정 무시)에 걸려 통째로 죽음. 상품 단위로 쪼개면 요청 하나당
@@ -95,6 +123,21 @@ export default function Cafe24PushModal({ selectedIds, rows, onClose, onDone }: 
                   {noImage.map(r => (
                     <div key={r.id} className="text-[11px] text-orange-600 truncate">
                       {r.consumer_name || r.wholesale_name || r.id}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 빠진 정보 — 전송은 가능 */}
+              {incomplete.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-2">
+                  <p className="text-[11px] font-semibold text-amber-800 mb-1">
+                    빠진 정보가 있는 상품 {incomplete.length}개 (전송은 가능)
+                  </p>
+                  {incomplete.map(({ row, missing }) => (
+                    <div key={row.id} className="flex gap-2 text-[11px] text-amber-800">
+                      <span className="truncate flex-1 min-w-0">{row.consumer_name || row.wholesale_name || row.id}</span>
+                      <span className="shrink-0 font-medium">{missing.join(", ")}</span>
                     </div>
                   ))}
                 </div>
