@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, KeyboardEvent, ChangeEvent, Fragment } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, KeyboardEvent, ChangeEvent, Fragment } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { PRODUCT_STATUSES } from "@/common/constants";
@@ -13,7 +13,7 @@ import {
 } from "@/lib/samplesUtils";
 import { shortLocFromNested } from "@/lib/retailSuppliers";
 import SizeModal from "@/components/SizeModal";
-import CommentModal from "@/components/CommentModal";
+import ProductWorkspaceModal, { type WorkspaceSection } from "@/components/product-workspace/ProductWorkspaceModal";
 import { hasDetailOptions } from "@/lib/detailOptions";
 import ShootModal from "@/components/ShootModal";
 import ProductImagesModal from "@/components/ProductImagesModal";
@@ -96,7 +96,8 @@ function ProductsPageInner() {
   const [rows, setRows] = useState<ProductRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sizeModalRow, setSizeModalRow] = useState<ProductRow | null>(null);
-  const [commentModalRow, setCommentModalRow] = useState<ProductRow | null>(null);
+  // 상품 작업 창 — 정보 창과 같이 id 만 들고 rows 에서 찾음 (이전/다음 이동도 id 교체)
+  const [workspace, setWorkspace] = useState<{ id: string; section: WorkspaceSection } | null>(null);
   const [shootModalRow, setShootModalRow] = useState<ProductRow | null>(null);
   const [imagesModalRow, setImagesModalRow] = useState<ProductRow | null>(null);
   const [priceModalRow, setPriceModalRow] = useState<ProductRow | null>(null);
@@ -601,6 +602,8 @@ function ProductsPageInner() {
 
   // hook 은 early return 위에 둬야 Rules of Hooks 안 깨짐 (Aw-Snap 회귀 방지).
   const handleNav = useCellNavigation({ rowsRef });
+  // 작업 창의 Esc 리스너가 렌더마다 다시 걸리지 않게 고정
+  const closeWorkspace = useCallback(() => setWorkspace(null), []);
 
   if (tenantLoading) {
     return <div className={styles.page}><main className="px-6 py-8 text-xs text-gray-400">불러오는 중...</main></div>;
@@ -619,6 +622,8 @@ function ProductsPageInner() {
   const td = "border-r border-r-gray-100 align-middle";
   const inp = styles.gridInput;
   const infoRow = infoRowId ? rows.find(r => r.id === infoRowId) ?? null : null;
+  const workspaceIndex = workspace ? rows.findIndex(r => r.id === workspace.id) : -1;
+  const workspaceRow = workspaceIndex >= 0 ? rows[workspaceIndex] : null;
 
   function cellProps(row: ProductRow, col: EditField) {
     return {
@@ -853,7 +858,7 @@ function ProductsPageInner() {
                           해당 버튼 배경 초록으로 (등록됨 시각 표시). */}
                       <td className={tdTop + " text-center"}>
                         <div className="flex gap-1 justify-center">
-                          <button onClick={() => setCommentModalRow(row)}
+                          <button onClick={() => setWorkspace({ id: row.id, section: "comment" })}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.has_comment ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>멘트</button>
                           <button onClick={() => setShootModalRow(row)}
                             className={styles.btnSmall + " whitespace-nowrap" + (row.shoot_count > 0 ? " !bg-black !text-white !border-black hover:!bg-gray-800" : "")}>촬영</button>
@@ -1080,7 +1085,7 @@ function ProductsPageInner() {
               barcode: infoRow.barcode ?? "",
             }}
             onEdit={editor => {
-              if (editor === "comment") setCommentModalRow(infoRow);
+              if (editor === "comment") setWorkspace({ id: infoRow.id, section: "comment" });
               else if (editor === "shoot") setShootModalRow(infoRow);
               else setSizeModalRow(infoRow);
             }}
@@ -1105,16 +1110,18 @@ function ProductsPageInner() {
         />
       )}
 
-      {commentModalRow && tenant && (
-        <CommentModal
+      {workspaceRow && tenant && (
+        <ProductWorkspaceModal
           tenantId={tenant.id}
-          productId={commentModalRow.id}
-          productName={commentModalRow.consumer_name || commentModalRow.wholesale_name || ""}
-          onClose={() => setCommentModalRow(null)}
-          onSaved={() => {
-            setCommentModalRow(null);
-            refetchOneProduct(commentModalRow.id);
-          }}
+          productId={workspaceRow.id}
+          productName={workspaceRow.consumer_name}
+          wholesaleName={workspaceRow.wholesale_name}
+          section={workspace!.section}
+          position={{ index: workspaceIndex, total: rows.length }}
+          onPrev={() => setWorkspace({ id: rows[workspaceIndex - 1].id, section: workspace!.section })}
+          onNext={() => setWorkspace({ id: rows[workspaceIndex + 1].id, section: workspace!.section })}
+          onClose={closeWorkspace}
+          onSaved={refetchOneProduct}
         />
       )}
 
