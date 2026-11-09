@@ -70,6 +70,15 @@ export interface OrderItem {
   // 마이그 238 — 입고수량 + 미입고(held_at 을 같이 쓰고 이유로 구분).
   received_quantity?: number | null;
   held_reason?: "not_received" | null;
+  // 마이그 239 — 보유재고 출고(누적).
+  shipped_quantity?: number | null;
+  shipped_at?: string | null;
+}
+
+// 보유 = 입고 + 반품·교환 수거완료 − 출고. 입고를 안 적은 줄은 0.
+export function stockOf(item: OrderItem): number {
+  const collected = item.claim_type && item.claim_collected_at ? (item.claim_quantity ?? 0) : 0;
+  return Math.max(0, (item.received_quantity ?? 0) + collected - (item.shipped_quantity ?? 0));
 }
 
 export type OrderClaimType = "return" | "exchange";

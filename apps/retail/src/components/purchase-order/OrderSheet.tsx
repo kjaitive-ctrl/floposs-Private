@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orderImage";
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import {
-  type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel,
+  type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel, stockOf,
   loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem, moveOrderItemToToday,
 } from "@/lib/purchaseOrder";
 
@@ -75,6 +75,9 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   // 거래처별 복사 결과 문구 (잠시 표시)
   const [copyStatus, setCopyStatus] = useState<{ supplier: string; text: string; error?: boolean } | null>(null);
   const copyStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 보유재고 목록 펼침 + 줄마다 출고할 장수 (비우면 전부)
+  const [stockOpen, setStockOpen] = useState(false);
+  const [shipQty, setShipQty] = useState<Record<string, number>>({});
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -262,6 +265,37 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     }
   }
 
+  // 보유재고에서 출고 — 장수를 적으면 그만큼만(부분 출고), 비우면 남은 것 전부.
+  async function handleShip(item: OrderItem) {
+    const stock = stockOf(item);
+    if (stock <= 0) return;
+    const n = Math.min(Math.max(shipQty[item.id] ?? stock, 1), stock);
+    setShipQty(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+    await saveStatus(item, { shipped_quantity: (item.shipped_quantity ?? 0) + n, shipped_at: new Date().toISOString() });
+    setDraftMsg({ text: `출고: ${item.product_name || item.wholesale_name || "(이름 없음)"} ${n}장${stock - n > 0 ? ` (남은 ${stock - n}장)` : ""}` });
+  }
+
+  const stockItems = useMemo(() => items.filter(item => stockOf(item) > 0), [items]);
+  const stockTotal = stockItems.reduce((sum, item) => sum + stockOf(item), 0);
+
+  // 맨 위 입력 줄에서 고른 상품이 이미 보유 중인지 — 옵션별 장수.
+  const draftStock = useMemo(() => {
+    const name = draft.product_name.trim();
+    if (!draft.product_id && !name) return null;
+    const byOption = new Map<string, number>();
+    for (const item of stockItems) {
+      const same = draft.product_id ? item.product_id === draft.product_id : (item.product_name ?? "").trim() === name;
+      if (!same) continue;
+      const key = item.variant_label || "옵션 없음";
+      byOption.set(key, (byOption.get(key) ?? 0) + stockOf(item));
+    }
+    if (byOption.size === 0) return null;
+    const total = Array.from(byOption.values()).reduce((a, b) => a + b, 0);
+    const detail = Array.from(byOption.entries()).map(([k, v]) => `${k} ${v}`).join(", ");
+    const selected = draft.variant_label ? byOption.get(draft.variant_label) ?? 0 : null;
+    return { total, detail, selected };
+  }, [draft.product_id, draft.product_name, draft.variant_label, stockItems]);
+
   // 거래처별로 묶기 — 편집 중 매 글자마다 재편성되면 안 되니(입력 중 그룹이
   // 계속 바뀌면 포커스가 튐) supplier_name 은 blur 시에만 로컬 state 갱신.
   const dayItems = useMemo(
@@ -355,6 +389,15 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             onPick={handleDraftPick}
             onKeyDownNav={handleDraftEnter}
           />
+          {draftStock && (
+            <div className="px-1 pt-0.5 text-[11px] font-medium text-emerald-700" title={`보유: ${draftStock.detail}`}>
+              {draftStock.selected === null
+                ? `보유 ${draftStock.total}장 (${draftStock.detail})`
+                : draftStock.selected > 0
+                  ? `이 옵션 보유 ${draftStock.selected}장`
+                  : `이 옵션 보유 없음 (다른 옵션 ${draftStock.total}장)`}
+            </div>
+          )}
         </td>
         <td className="px-1 py-1 min-w-[140px]">
           <input value={draft.wholesale_name} placeholder="도매상품명"
@@ -565,9 +608,67 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         <span className="text-xs text-gray-500">
           {dayItems.length}행{carriedItems.length > 0 && ` · 넘어온 보류·미입고 ${carriedItems.length}건`}
         </span>
+        <button type="button" disabled={stockItems.length === 0} onClick={() => setStockOpen(o => !o)}
+          title={stockItems.length === 0 ? "보유재고 없음 (입고 또는 반품·교환 수거완료된 줄이 보유로 잡힘)" : "입고됐거나 반품·교환으로 돌아와서 아직 출고 안 한 물건"}
+          className={(stockOpen ? styles.btnSmallGreen : styles.btnSmall + " bg-white") + " whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed"}>
+          보유재고 {stockTotal}장 {stockOpen ? "▲" : "▼"}
+        </button>
         {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
         {draftMsg && <span role="status" className={"text-xs " + (draftMsg.error ? "text-red-600" : "text-emerald-700")}>{draftMsg.text}</span>}
       </div>
+      {stockOpen && stockItems.length > 0 && (
+        <div className="overflow-x-auto border border-emerald-200 rounded-lg mb-3">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-emerald-50">
+                <th className={styles.thLeft}>주문일</th>
+                <th className={styles.thLeft}>상품명</th>
+                <th className={styles.thLeft}>도매상품명</th>
+                <th className={styles.thLeft}>거래처</th>
+                <th className={styles.thLeft}>옵션</th>
+                <th className={styles.thLeft}>들어온 이유</th>
+                <th className={styles.th}>보유</th>
+                <th className={styles.thLeft}>출고</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stockItems.map(item => {
+                const stock = stockOf(item);
+                const reasons = [
+                  item.received_quantity ? `입고 ${item.received_quantity}` : "",
+                  item.claim_type && item.claim_collected_at ? `${item.claim_type === "return" ? "반품" : "교환"} 수거 ${item.claim_quantity ?? 0}` : "",
+                  item.shipped_quantity ? `출고 ${item.shipped_quantity}` : "",
+                ].filter(Boolean).join(" · ");
+                return (
+                  <tr key={item.id} className={styles.tr}>
+                    <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{formatShortDate(item.created_at)}</td>
+                    <td className="px-2 py-1 text-black">{item.product_name}</td>
+                    <td className="px-2 py-1 text-gray-600">{item.wholesale_name}</td>
+                    <td className="px-2 py-1 text-gray-600">{item.supplier_name}</td>
+                    <td className="px-2 py-1 text-black">{item.variant_label}</td>
+                    <td className="px-2 py-1 text-gray-500 whitespace-nowrap">{reasons}</td>
+                    <td className="px-2 py-1 text-right font-bold text-emerald-700 whitespace-nowrap">{stock}장</td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <input value={shipQty[item.id] == null ? "" : formatComma(shipQty[item.id])} placeholder={String(stock)}
+                          aria-label="출고 장수"
+                          onFocus={e => e.target.select()}
+                          onChange={e => { const d = parseDigits(e.target.value); setShipQty(prev => { const next = { ...prev }; if (d) next[item.id] = Number(d); else delete next[item.id]; return next; }); }}
+                          onKeyDown={e => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) handleShip(item); }}
+                          className="w-12 px-1 py-0.5 text-xs text-right text-black border border-gray-300 rounded" />
+                        <span className="text-gray-500">장</span>
+                        <button type="button" onClick={() => handleShip(item)}
+                          title="적은 장수만큼 출고 (비우면 전부)"
+                          className={styles.btnSmall + " bg-white"}>출고</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {loading ? (
         <div className="text-xs text-gray-400">불러오는 중…</div>
       ) : (
