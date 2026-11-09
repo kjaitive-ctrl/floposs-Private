@@ -195,7 +195,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     setStatusErr(null);
     const { created_at, error } = await moveOrderItemToToday(item.id);
     if (error || !created_at) { setStatusErr(`오늘로 옮기기 실패: ${error ?? "알 수 없는 오류"}`); return; }
-    patchLocal(item.id, { created_at, held_at: null });
+    patchLocal(item.id, { created_at, held_at: null, held_reason: null });
     const movedDate = kstDate(created_at);
     setToday(movedDate);
     setSelectedDate(movedDate);
@@ -224,6 +224,26 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     }
     if (item.claim_collected_at && !confirm("수거완료 기록도 함께 지워집니다. 해제할까요?")) return;
     saveStatus(item, { claim_type: null, claim_quantity: null, claim_collected_at: null });
+  }
+
+  // 보류(아직 주문 안 함)·미입고(주문했는데 안 들어옴) — 같은 버튼을 다시 누르면 해제.
+  // 둘 다 held_at 을 써서 다음 날짜부터 맨 위에 계속 보임.
+  function toggleHold(item: OrderItem, reason: "not_received" | null) {
+    const active = !!item.held_at && (item.held_reason ?? null) === reason;
+    saveStatus(item, active
+      ? { held_at: null, held_reason: null }
+      : { held_at: item.held_at ?? new Date().toISOString(), held_reason: reason });
+  }
+
+  // 입고수량 저장 — 미입고 줄이 다 들어오면 미입고를 자동으로 풂.
+  function handleReceivedBlur(item: OrderItem) {
+    const received = item.received_quantity ?? null;
+    if (received !== null && received >= item.quantity && item.held_reason === "not_received") {
+      saveStatus(item, { received_quantity: received, held_at: null, held_reason: null });
+      setDraftMsg({ text: `입고 완료 — 미입고 해제: ${item.product_name || item.wholesale_name || "(이름 없음)"}` });
+    } else {
+      saveStatus(item, { received_quantity: received });
+    }
   }
 
   function handleClaimQuantityBlur(item: OrderItem) {
@@ -303,7 +323,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       const base = result === "copied" ? `복사됨 ${targets.length}줄 — 카톡에 붙여넣으세요` : `복사가 막혀 파일로 내려받았습니다 (${targets.length}줄)`;
       const notes = [
         noOption > 0 ? `옵션 없는 줄 ${noOption}개` : "",
-        excluded > 0 ? `보류·반품·교환 ${excluded}줄 제외` : "",
+        excluded > 0 ? `보류·미입고·반품·교환 ${excluded}줄 제외` : "",
       ].filter(Boolean);
       status = { supplier, text: [base, ...notes].join(" · ") };
     } catch (e) {
@@ -364,13 +384,14 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               className={styles.gridInput} />
           )}
         </td>
-        <td className="px-1 py-1 w-20">
+        <td className="px-1 py-1 w-24 min-w-[72px]">
           <input id="po-draft-quantity" value={formatComma(draft.quantity)} placeholder="0"
             onFocus={e => e.target.select()}
             onChange={e => setDraft(d => ({ ...d, quantity: Number(parseDigits(e.target.value) || "0") }))}
             onKeyDown={handleDraftEnter}
             className={styles.gridInput + " text-right"} />
         </td>
+        <td className="px-1 py-1 w-24" />
         <td className="px-1 py-1 w-24">
           <input value={formatComma(draft.unit_price)} placeholder="0"
             onChange={e => setDraft(d => ({ ...d, unit_price: Number(parseDigits(e.target.value) || "0") }))}
@@ -389,6 +410,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     const options = Array.from(new Set(variants.map(variantLabel).filter(Boolean)));
     const subtotal = (item.unit_price || 0) * (item.quantity || 0);
     const createdDate = kstDate(item.created_at);
+    const isHold = !!item.held_at && !item.held_reason;
+    const isNotReceived = !!item.held_at && item.held_reason === "not_received";
+    // 보류(아직 주문 안 함) 줄은 입고를 적을 일이 없음.
+    const canReceive = item.quantity > 0 && !isHold;
 
     return (
       <tr key={item.id} className={styles.tr + (item.held_at ? " bg-orange-50" : "")}>
@@ -429,12 +454,26 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               className={styles.gridInput} />
           )}
         </td>
-        <td className="px-1 py-1 w-20">
+        <td className="px-1 py-1 w-24 min-w-[72px]">
           <input value={formatComma(item.quantity ?? "")} placeholder="0"
             onFocus={e => e.target.select()}
             onChange={e => patchLocal(item.id, { quantity: Number(parseDigits(e.target.value) || "0") })}
             onBlur={() => handleQuantityBlur(item)}
             className={styles.gridInput + " text-right"} />
+        </td>
+        <td className="px-1 py-1 w-24 min-w-[72px]">
+          {canReceive ? (
+            <input value={item.received_quantity == null ? "" : formatComma(item.received_quantity)} placeholder="-"
+              aria-label="입고수량"
+              title="실제로 들어온 수량 — 미입고 줄은 다 들어오면 자동으로 풀립니다"
+              onFocus={e => e.target.select()}
+              onChange={e => { const d = parseDigits(e.target.value); patchLocal(item.id, { received_quantity: d ? Number(d) : null }); }}
+              onBlur={() => handleReceivedBlur(item)}
+              className={styles.gridInput + " text-right " + (item.received_quantity == null ? ""
+                : item.received_quantity >= item.quantity ? "text-emerald-700 font-medium" : "text-orange-600 font-medium")} />
+          ) : (
+            <span className="block text-right text-gray-300 px-2">-</span>
+          )}
         </td>
         <td className="px-1 py-1 w-24">
           <input value={formatComma(item.unit_price ?? "")} placeholder="0"
@@ -483,11 +522,15 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         </td>
         <td className="px-2 py-1 whitespace-nowrap">
           <div className="flex items-center gap-1">
-            <button type="button"
-              onClick={() => saveStatus(item, { held_at: item.held_at ? null : new Date().toISOString() })}
-              title={item.held_at ? "누르면 보류 해제" : "해제할 때까지 다음 날짜에도 계속 보입니다"}
-              className={item.held_at ? styles.btnSmallOrange : styles.btnSmallGhost}>
+            <button type="button" onClick={() => toggleHold(item, null)}
+              title={isHold ? "누르면 보류 해제" : "아직 주문 안 함 — 해제할 때까지 다음 날짜에도 계속 보입니다"}
+              className={isHold ? styles.btnSmallOrange : styles.btnSmallGhost}>
               보류
+            </button>
+            <button type="button" disabled={item.quantity <= 0} onClick={() => toggleHold(item, "not_received")}
+              title={isNotReceived ? "누르면 미입고 해제" : "주문했는데 안 들어옴 — 다 입고될 때까지 다음 날짜에도 계속 보입니다"}
+              className={(isNotReceived ? styles.btnSmallOrange : styles.btnSmallGhost) + " whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed"}>
+              미입고
             </button>
             {createdDate !== selectedDate && (
               <span className="text-gray-500">{formatShortDate(item.created_at)} 주문</span>
@@ -520,7 +563,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           <button type="button" onClick={() => setSelectedDate(today)} className={styles.btnSmallGhost}>오늘</button>
         )}
         <span className="text-xs text-gray-500">
-          {dayItems.length}행{carriedItems.length > 0 && ` · 넘어온 보류 ${carriedItems.length}건`}
+          {dayItems.length}행{carriedItems.length > 0 && ` · 넘어온 보류·미입고 ${carriedItems.length}건`}
         </span>
         {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
         {draftMsg && <span role="status" className={"text-xs " + (draftMsg.error ? "text-red-600" : "text-emerald-700")}>{draftMsg.text}</span>}
@@ -538,12 +581,13 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 <th className={styles.thLeft}>거래처</th>
                 <th className={styles.th}>옵션</th>
                 <th className={styles.th}>수량</th>
+                <th className={styles.th}>입고</th>
                 <th className={styles.th}>단가</th>
                 <th className={styles.th}>소계</th>
                 <th className={styles.thLeft + " border-l border-gray-200"}>반품·교환</th>
                 <th className={styles.thLeft}>수거</th>
                 <th className={styles.thLeft}>메모</th>
-                <th className={styles.thLeft}>보류</th>
+                <th className={styles.thLeft}>보류·미입고</th>
               </tr>
             </thead>
             <tbody>
@@ -551,8 +595,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               {carriedItems.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={12} className="px-2 pt-3 pb-1 bg-orange-50">
-                      <span className="text-sm font-bold text-black">보류: 이전 날짜에서 넘어온 주문</span>
+                    <td colSpan={13} className="px-2 pt-3 pb-1 bg-orange-50">
+                      <span className="text-sm font-bold text-black">보류·미입고: 이전 날짜에서 넘어온 주문</span>
                     </td>
                   </tr>
                   {carriedItems.map(renderRow)}
@@ -563,12 +607,12 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 return (
                   <Fragment key={supplier}>
                     <tr>
-                      <td colSpan={12} className="px-2 pt-3 pb-1 bg-gray-50">
+                      <td colSpan={13} className="px-2 pt-3 pb-1 bg-gray-50">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-black">거래처: {supplier}</span>
                           <button type="button" disabled={copyable === 0}
                             onClick={() => handleCopyImage(supplier, rows)}
-                            title={copyable === 0 ? "복사할 줄이 없습니다 (수량 없음 또는 보류·반품·교환)" : "수량이 있는 줄만 이미지로 복사 (단가·메모 제외, 보류·반품·교환 줄 제외)"}
+                            title={copyable === 0 ? "복사할 줄이 없습니다 (수량 없음 또는 보류·미입고·반품·교환)" : "수량이 있는 줄만 이미지로 복사 (단가·메모 제외, 보류·미입고·반품·교환 줄 제외)"}
                             className={styles.btnSmall + " whitespace-nowrap bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>
                             이미지 복사
                           </button>

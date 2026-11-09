@@ -67,6 +67,9 @@ export interface OrderItem {
   claim_collected_at?: string | null;
   memo?: string | null;
   held_at?: string | null;
+  // 마이그 238 — 입고수량 + 미입고(held_at 을 같이 쓰고 이유로 구분).
+  received_quantity?: number | null;
+  held_reason?: "not_received" | null;
 }
 
 export type OrderClaimType = "return" | "exchange";
@@ -104,7 +107,7 @@ export async function updateOrderItem(id: string, patch: OrderItemPatch): Promis
 export async function moveOrderItemToToday(id: string): Promise<{ created_at: string | null; error: string | null }> {
   const now = new Date().toISOString();
   const { error } = await supabase.from("purchase_order_items")
-    .update({ created_at: now, held_at: null, updated_at: now }).eq("id", id);
+    .update({ created_at: now, held_at: null, held_reason: null, updated_at: now }).eq("id", id);
   if (error) { console.error("moveOrderItemToToday:", error); return { created_at: null, error: error.message }; }
   return { created_at: now, error: null };
 }
