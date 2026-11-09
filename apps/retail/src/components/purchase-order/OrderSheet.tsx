@@ -15,7 +15,7 @@ import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orde
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import {
   type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel,
-  loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem,
+  loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem, moveOrderItemToToday,
 } from "@/lib/purchaseOrder";
 
 const EMPTY_DRAFT = {
@@ -184,8 +184,22 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
 
   async function handleDelete(item: OrderItem) {
     if (!confirm(`"${item.product_name || "(이름 없음)"}" 행을 지울까요?`)) return;
-    await deleteOrderItem(item.id);
+    setStatusErr(null);
+    const error = await deleteOrderItem(item.id);
+    if (error) { setStatusErr(`삭제 실패: ${error}`); return; }
     setItems(prev => prev.filter(i => i.id !== item.id));
+  }
+
+  // 넘어온 보류 줄을 오늘 주문으로 — 보류가 풀리고 오늘 날짜의 거래처 묶음으로 들어가 이미지 복사에 포함됨.
+  async function handleMoveToToday(item: OrderItem) {
+    setStatusErr(null);
+    const { created_at, error } = await moveOrderItemToToday(item.id);
+    if (error || !created_at) { setStatusErr(`오늘로 옮기기 실패: ${error ?? "알 수 없는 오류"}`); return; }
+    patchLocal(item.id, { created_at, held_at: null });
+    const movedDate = kstDate(created_at);
+    setToday(movedDate);
+    setSelectedDate(movedDate);
+    setDraftMsg({ text: `오늘 주문으로 옮김: ${item.product_name || item.wholesale_name || "(이름 없음)"} (${formatShortDate(item.created_at)} 주문분)` });
   }
 
   // 반품·교환·수거·메모·보류 저장 — 실패하면 화면을 되돌리고 알려줌.
@@ -477,6 +491,16 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             </button>
             {createdDate !== selectedDate && (
               <span className="text-gray-500">{formatShortDate(item.created_at)} 주문</span>
+            )}
+            {item.held_at && createdDate < selectedDate && (
+              <>
+                <button type="button" onClick={() => handleMoveToToday(item)}
+                  title="보류를 풀고 오늘 주문으로 옮깁니다 (이미지 복사에 포함)"
+                  className={styles.btnSmall + " whitespace-nowrap bg-white"}>오늘 주문으로</button>
+                <button type="button" onClick={() => handleDelete(item)}
+                  title="이 줄을 지웁니다"
+                  className={styles.btnSmallGhost + " hover:text-red-600"}>삭제</button>
+              </>
             )}
           </div>
         </td>

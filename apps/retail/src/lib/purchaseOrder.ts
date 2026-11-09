@@ -100,7 +100,18 @@ export async function updateOrderItem(id: string, patch: OrderItemPatch): Promis
   return error?.message ?? null;
 }
 
+// 보류해 둔 줄을 오늘 주문으로 옮김 — 날짜 기준이 created_at 이라 지금 시각으로 바꾸고 보류 해제.
+export async function moveOrderItemToToday(id: string): Promise<{ created_at: string | null; error: string | null }> {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("purchase_order_items")
+    .update({ created_at: now, held_at: null, updated_at: now }).eq("id", id);
+  if (error) { console.error("moveOrderItemToToday:", error); return { created_at: null, error: error.message }; }
+  return { created_at: now, error: null };
+}
+
 // 자식 레코드가 이 테이블을 참조하는 곳이 없어서 완전삭제로 충분.
-export async function deleteOrderItem(id: string): Promise<void> {
-  await supabase.from("purchase_order_items").delete().eq("id", id);
+export async function deleteOrderItem(id: string): Promise<string | null> {
+  const { error } = await supabase.from("purchase_order_items").delete().eq("id", id);
+  if (error) console.error("deleteOrderItem:", error);
+  return error?.message ?? null;
 }
