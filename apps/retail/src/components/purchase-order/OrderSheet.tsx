@@ -594,8 +594,9 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     );
   }
 
+  // 칸 글자를 끌면 브라우저가 옆 칸(단가 등)에 옮겨 넣음 — 이 시트에선 끌어다 놓기 자체를 막음.
   return (
-    <div className={styles.cardSm}>
+    <div className={styles.cardSm} onDragStart={e => e.preventDefault()} onDrop={e => e.preventDefault()}>
       <div className="flex items-center gap-2 mb-2">
         <button type="button" disabled={!prevDate} onClick={() => prevDate && setSelectedDate(prevDate)}
           title="이전 주문 날짜" className={styles.btnSmall + " bg-white disabled:opacity-30 disabled:cursor-not-allowed"}>◀</button>
