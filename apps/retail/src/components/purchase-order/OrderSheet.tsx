@@ -44,6 +44,11 @@ function isOrderable(item: OrderItem) {
   return item.quantity > 0 && !!(item.wholesale_name || item.product_name) && !item.held_at && !item.claim_type;
 }
 
+// 들어온 걸 다 내보낸 줄 — [즉시출고] 버튼이 "출고됨"으로 바뀜.
+function isShippedOut(item: OrderItem) {
+  return (item.shipped_quantity ?? 0) > 0 && stockOf(item) === 0;
+}
+
 function formatShortDate(value: string) {
   return new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric" });
 }
@@ -238,15 +243,62 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       : { held_at: item.held_at ?? new Date().toISOString(), held_reason: reason });
   }
 
-  // 입고수량 저장 — 미입고 줄이 다 들어오면 미입고를 자동으로 풂.
+  // 입고수량에 맞춰 미입고를 자동으로 — 주문보다 적게 들어오면 미입고(다음 날짜로 넘어감),
+  // 다 들어오면 해제. 입고를 비우면 손대지 않음.
+  function receivePatch(item: OrderItem, received: number | null): OrderItemPatch {
+    if (received === null) return { received_quantity: null };
+    if (received < item.quantity) {
+      return { received_quantity: received, held_at: item.held_at ?? new Date().toISOString(), held_reason: "not_received" };
+    }
+    if (item.held_reason === "not_received") return { received_quantity: received, held_at: null, held_reason: null };
+    return { received_quantity: received };
+  }
+
+  function receiveMessage(item: OrderItem, received: number | null, shipped: boolean) {
+    const name = item.product_name || item.wholesale_name || "(이름 없음)";
+    if (received === null) return;
+    if (received < item.quantity) {
+      setDraftMsg({ text: `${shipped ? "출고" : "입고"} ${received}장 — 미입고 ${item.quantity - received}장은 다음 날짜로 넘어갑니다: ${name}` });
+    } else if (item.held_reason === "not_received") {
+      setDraftMsg({ text: `입고 완료 — 미입고 해제${shipped ? " · 출고" : ""}: ${name}` });
+    } else if (shipped) {
+      setDraftMsg({ text: `출고: ${name} ${received}장` });
+    }
+  }
+
   function handleReceivedBlur(item: OrderItem) {
     const received = item.received_quantity ?? null;
-    if (received !== null && received >= item.quantity && item.held_reason === "not_received") {
-      saveStatus(item, { received_quantity: received, held_at: null, held_reason: null });
-      setDraftMsg({ text: `입고 완료 — 미입고 해제: ${item.product_name || item.wholesale_name || "(이름 없음)"}` });
-    } else {
-      saveStatus(item, { received_quantity: received });
+    saveStatus(item, receivePatch(item, received));
+    receiveMessage(item, received, false);
+  }
+
+  // [즉시출고] — 입고 칸을 비워 두면 주문수량 전부 들어온 걸로 보고, 들어온 만큼 바로 출고(보유 0).
+  // 이미 다 출고된 줄에서 누르면 출고 취소.
+  function handleShipNow(item: OrderItem) {
+    if (isShippedOut(item)) {
+      if (!confirm("출고를 취소할까요? 보유재고로 돌아갑니다.")) return;
+      saveStatus(item, { shipped_quantity: 0, shipped_at: null });
+      return;
     }
+    const received = item.received_quantity ?? item.quantity;
+    const collected = item.claim_type && item.claim_collected_at ? (item.claim_quantity ?? 0) : 0;
+    saveStatus(item, {
+      ...receivePatch(item, received),
+      shipped_quantity: received + collected,
+      shipped_at: new Date().toISOString(),
+    });
+    receiveMessage(item, received, true);
+  }
+
+  // 보유재고 목록의 [전부 출고] — 남은 것 모두.
+  async function handleShipAll() {
+    const targets = items.filter(item => stockOf(item) > 0);
+    if (targets.length === 0 || !confirm(`보유재고 ${targets.length}줄을 전부 출고할까요?`)) return;
+    const now = new Date().toISOString();
+    for (const item of targets) {
+      await saveStatus(item, { shipped_quantity: (item.shipped_quantity ?? 0) + stockOf(item), shipped_at: now });
+    }
+    setDraftMsg({ text: `보유재고 ${targets.length}줄 전부 출고` });
   }
 
   function handleClaimQuantityBlur(item: OrderItem) {
@@ -504,16 +556,24 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             onBlur={() => handleQuantityBlur(item)}
             className={styles.gridInput + " text-right"} />
         </td>
-        <td className="px-1 py-1 w-24 min-w-[72px]">
+        <td className="px-1 py-1 min-w-[150px]">
           {canReceive ? (
-            <input value={item.received_quantity == null ? "" : formatComma(item.received_quantity)} placeholder="-"
-              aria-label="입고수량"
-              title="실제로 들어온 수량 — 미입고 줄은 다 들어오면 자동으로 풀립니다"
-              onFocus={e => e.target.select()}
-              onChange={e => { const d = parseDigits(e.target.value); patchLocal(item.id, { received_quantity: d ? Number(d) : null }); }}
-              onBlur={() => handleReceivedBlur(item)}
-              className={styles.gridInput + " text-right " + (item.received_quantity == null ? ""
-                : item.received_quantity >= item.quantity ? "text-emerald-700 font-medium" : "text-orange-600 font-medium")} />
+            <div className="flex items-center gap-1">
+              <input value={item.received_quantity == null ? "" : formatComma(item.received_quantity)} placeholder="-"
+                aria-label="입고수량"
+                title="지금까지 들어온 총수량 — 주문보다 적으면 자동 미입고, 다 들어오면 자동 해제"
+                onFocus={e => e.target.select()}
+                onChange={e => { const d = parseDigits(e.target.value); patchLocal(item.id, { received_quantity: d ? Number(d) : null }); }}
+                onKeyDown={e => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) e.currentTarget.blur(); }}
+                onBlur={() => handleReceivedBlur(item)}
+                className={styles.gridInput + " !w-14 shrink-0 text-right " + (item.received_quantity == null ? ""
+                  : item.received_quantity >= item.quantity ? "text-emerald-700 font-medium" : "text-orange-600 font-medium")} />
+              <button type="button" onClick={() => handleShipNow(item)}
+                title={isShippedOut(item) ? `${item.shipped_at ? formatShortDate(item.shipped_at) + " " : ""}출고 — 누르면 출고 취소` : "들어온 만큼 바로 출고 (입고 칸이 비었으면 주문수량 전부)"}
+                className={(isShippedOut(item) ? styles.btnSmallGreen : styles.btnSmall + " bg-white") + " whitespace-nowrap"}>
+                {isShippedOut(item) ? "출고됨" : "즉시출고"}
+              </button>
+            </div>
           ) : (
             <span className="block text-right text-gray-300 px-2">-</span>
           )}
@@ -575,6 +635,11 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               className={(isNotReceived ? styles.btnSmallOrange : styles.btnSmallGhost) + " whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed"}>
               미입고
             </button>
+            {isNotReceived && (
+              <span className="text-orange-600 font-medium whitespace-nowrap">
+                {Math.max(item.quantity - (item.received_quantity ?? 0), 0)}장 남음
+              </span>
+            )}
             {createdDate !== selectedDate && (
               <span className="text-gray-500">{formatShortDate(item.created_at)} 주문</span>
             )}
@@ -629,7 +694,12 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 <th className={styles.thLeft}>옵션</th>
                 <th className={styles.thLeft}>들어온 이유</th>
                 <th className={styles.th}>보유</th>
-                <th className={styles.thLeft}>출고</th>
+                <th className={styles.thLeft}>
+                  <div className="flex items-center gap-2">
+                    출고
+                    <button type="button" onClick={handleShipAll} className={styles.btnSmall + " bg-white font-normal"}>전부 출고</button>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody>
