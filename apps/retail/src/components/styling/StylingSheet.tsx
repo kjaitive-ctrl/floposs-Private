@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { styles } from "@/common/styles";
 import { addOrderItem } from "@/lib/purchaseOrder";
 import { formatComma, parseDigits } from "@/lib/format";
+import { uploadStylingImage, deleteR2Key, imageFromDataTransfer } from "@/lib/stylingImage";
 
 // 스타일링 시트 — 줄 = 코디 1벌. 메모 + 6칸(하의/상의·이너/상의·아우터/아우터/소품·가방/신발).
 // 칸마다 후보 샘플 1개: 매장명·상품명·컬러·단가. 칸에서 나오면 자동 저장.
@@ -25,7 +26,9 @@ type Cell = {
   id: string; look_id: string; slot: SlotKey;
   store_name: string | null; product_name: string | null; color: string | null; unit_price: number | null;
   order_item_id: string | null;
+  image_key: string | null; image_url: string | null;  // 마이그 244 — 후보 샘플 사진 1장 (R2)
 };
+const CELL_COLS = "id,look_id,slot,store_name,product_name,color,unit_price,order_item_id,image_key,image_url";
 type OrderState = { received_quantity: number | null; sample_product_id: string | null };
 type CellField = "store_name" | "product_name" | "color" | "unit_price";
 
@@ -38,6 +41,8 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null); // `${look}:${slot}`
+  const [preview, setPreview] = useState<string | null>(null);      // 크게 보기 URL
 
   const load = useCallback(async () => {
     const { data: ls, error: e1 } = await supabase.from("styling_looks")
@@ -48,7 +53,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     const ordMap: Record<string, OrderState> = {};
     if (ids.length) {
       const { data: cs, error: e2 } = await supabase.from("styling_cells")
-        .select("id,look_id,slot,store_name,product_name,color,unit_price,order_item_id").in("look_id", ids);
+        .select(CELL_COLS).in("look_id", ids);
       if (e2) { setMsg({ text: `불러오기 실패: ${e2.message}`, error: true }); setLoading(false); return; }
       (cs ?? []).forEach(c => { map[`${c.look_id}:${c.slot}`] = c as Cell; });
       const oids = (cs ?? []).map(c => c.order_item_id).filter(Boolean) as string[];
@@ -101,16 +106,81 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     const { data, error } = await supabase.from("styling_cells")
       .upsert({ tenant_id: tenantId, look_id: lookId, slot, [field]: value, updated_at: new Date().toISOString() },
         { onConflict: "look_id,slot" })
-      .select("id,look_id,slot,store_name,product_name,color,unit_price,order_item_id").single();
+      .select(CELL_COLS).single();
     if (error || !data) { setMsg({ text: `저장 실패: ${error?.message}`, error: true }); return; }
     setCells(prev => ({ ...prev, [k]: data as Cell }));
   }
 
-  // [주문서로] — 이 코디에서 아직 안 보낸 칸만 주문 탭에 샘플요청 줄로 (수량 1)
-  async function sendToOrder(look: Look) {
-    const targets = SLOTS.map(s => cells[`${look.id}:${s.key}`]).filter(c => hasContent(c) && !c!.order_item_id) as Cell[];
+  // ── 후보 샘플 사진 (칸마다 1장, R2) — 붙여넣기(Ctrl+V)·끌어놓기·앨범 선택 ──
+  async function ensureCell(lookId: string, slot: SlotKey): Promise<Cell | null> {
+    const cur = cells[`${lookId}:${slot}`];
+    if (cur) return cur;
+    const { data, error } = await supabase.from("styling_cells")
+      .upsert({ tenant_id: tenantId, look_id: lookId, slot }, { onConflict: "look_id,slot" })
+      .select(CELL_COLS).single();
+    if (error || !data) { setMsg({ text: `칸 만들기 실패: ${error?.message}`, error: true }); return null; }
+    setCells(prev => ({ ...prev, [`${lookId}:${slot}`]: data as Cell }));
+    return data as Cell;
+  }
+
+  async function setImage(lookId: string, slot: SlotKey, file: File | null) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const k = `${lookId}:${slot}`;
+    if (uploading) return;
+    setUploading(k);
+    setMsg(null);
+    try {
+      const cell = await ensureCell(lookId, slot);
+      if (!cell) return;
+      const { key, url } = await uploadStylingImage(cell.id, file);
+      const { data, error } = await supabase.from("styling_cells")
+        .update({ image_key: key, image_url: url, updated_at: new Date().toISOString() })
+        .eq("id", cell.id).select(CELL_COLS).single();
+      if (error || !data) { deleteR2Key(key); setMsg({ text: `사진 저장 실패: ${error?.message}`, error: true }); return; }
+      setCells(prev => ({ ...prev, [k]: data as Cell }));
+      if (cell.image_key && cell.image_key !== key) deleteR2Key(cell.image_key); // 바꾼 사진의 옛 파일 정리
+    } catch (e) {
+      setMsg({ text: `사진 올리기 실패: ${e instanceof Error ? e.message : String(e)}`, error: true });
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  async function removeImage(cell: Cell) {
+    if (!cell.image_key || !confirm("이 사진을 지울까요?")) return;
+    const { error } = await supabase.from("styling_cells")
+      .update({ image_key: null, image_url: null, updated_at: new Date().toISOString() }).eq("id", cell.id);
+    if (error) { setMsg({ text: `사진 삭제 실패: ${error.message}`, error: true }); return; }
+    setCells(prev => ({ ...prev, [`${cell.look_id}:${cell.slot}`]: { ...cell, image_key: null, image_url: null } }));
+    deleteR2Key(cell.image_key);
+  }
+
+  // 코디 순서 바꾸기 — 위/아래 줄과 sort_order 맞바꿈
+  async function moveLook(look: Look, dir: -1 | 1) {
+    const i = looks.findIndex(l => l.id === look.id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= looks.length) return;
+    const other = looks[j];
+    const next = [...looks];
+    next[i] = { ...other, sort_order: look.sort_order };
+    next[j] = { ...look, sort_order: other.sort_order };
+    // 같은 sort_order 였던 경우 대비: 서로 다른 값 보장
+    if (next[i].sort_order === next[j].sort_order) next[j].sort_order += dir;
+    setLooks(next);
+    const now = new Date().toISOString();
+    const [r1, r2] = await Promise.all([
+      supabase.from("styling_looks").update({ sort_order: next[j].sort_order, updated_at: now }).eq("id", look.id),
+      supabase.from("styling_looks").update({ sort_order: next[i].sort_order, updated_at: now }).eq("id", other.id),
+    ]);
+    if (r1.error || r2.error) { setMsg({ text: `순서 저장 실패: ${(r1.error || r2.error)?.message}`, error: true }); load(); }
+  }
+
+  // [주문서로] — 상품(칸) 하나 또는 코디 줄 전체. 아직 안 보낸 칸만 주문 탭에 샘플요청 줄로 (수량 1)
+  async function sendToOrder(look: Look, only?: SlotKey) {
+    const targets = SLOTS.filter(s => !only || s.key === only)
+      .map(s => cells[`${look.id}:${s.key}`]).filter(c => hasContent(c) && !c!.order_item_id) as Cell[];
     if (targets.length === 0) { setMsg({ text: "주문서로 보낼 칸이 없습니다 (매장명이나 상품명이 있는 칸, 아직 안 보낸 칸만)" }); return; }
-    setBusy(look.id);
+    setBusy(only ? `${look.id}:${only}` : look.id);
     let sent = 0;
     for (const c of targets) {
       const name = c.product_name?.trim() || null;
@@ -165,17 +235,27 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
             </tr>
             <tr>
               {SLOTS.map(s => (
-                <th key={s.key} className="min-w-[13rem] h-7 bg-yellow-200 border-b border-r border-gray-300 font-semibold">{s.label}</th>
+                <th key={s.key} className="min-w-[16rem] h-7 bg-yellow-200 border-b border-r border-gray-300 font-semibold">{s.label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {looks.map(look => (
+            {looks.map((look, idx) => (
               <tr key={look.id} className="align-top">
                 <td className="p-0 border-b border-r border-gray-300 relative group">
-                  <textarea defaultValue={look.memo} placeholder="메모"
-                    onBlur={e => saveMemo(look, e.currentTarget.value)}
-                    className="w-full h-[4.5rem] px-1.5 py-1 text-xs bg-transparent text-black resize-none focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset" />
+                  <div className="flex h-full">
+                    {/* 순서 바꾸기 */}
+                    <div className="flex flex-col justify-center border-r border-gray-200 bg-gray-50">
+                      <button type="button" disabled={idx === 0} onClick={() => moveLook(look, -1)} title="위로"
+                        className="px-1 text-[10px] text-gray-400 hover:text-black disabled:opacity-20">▲</button>
+                      <span className="text-[10px] text-gray-400 text-center">{idx + 1}</span>
+                      <button type="button" disabled={idx === looks.length - 1} onClick={() => moveLook(look, 1)} title="아래로"
+                        className="px-1 text-[10px] text-gray-400 hover:text-black disabled:opacity-20">▼</button>
+                    </div>
+                    <textarea defaultValue={look.memo} placeholder="메모"
+                      onBlur={e => saveMemo(look, e.currentTarget.value)}
+                      className="flex-1 h-[4.75rem] px-1.5 py-1 text-xs bg-transparent text-black resize-none focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset" />
+                  </div>
                   <button type="button" onClick={() => removeLook(look)} title="이 코디 줄 삭제"
                     className="absolute right-1 bottom-1 hidden group-hover:block text-gray-400 hover:text-red-600">✕</button>
                 </td>
@@ -183,8 +263,35 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                   const c = cells[`${look.id}:${s.key}`];
                   const locked = !!c?.order_item_id; // 주문서로 보낸 칸은 주문 탭에서 고침
                   return (
-                    <td key={s.key} className={"p-0 border-b border-r border-gray-300 " + (locked ? "bg-yellow-50" : "bg-amber-50/60")}>
-                      <div className="grid grid-cols-[1fr_5rem]">
+                    <td key={s.key}
+                      onPaste={e => { const f = imageFromDataTransfer(e.clipboardData); if (f) { e.preventDefault(); setImage(look.id, s.key, f); } }}
+                      onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
+                      onDrop={e => { const f = imageFromDataTransfer(e.dataTransfer); if (f) { e.preventDefault(); setImage(look.id, s.key, f); } }}
+                      className={"p-0 border-b border-r border-gray-300 " + (locked ? "bg-yellow-50" : "bg-amber-50/60")}>
+                      <div className="flex">
+                      {/* 사진 칸: 비었으면 눌러서 앨범 선택 / 칸 안에서 Ctrl+V / 끌어놓기 */}
+                      <div className="relative w-[4.5rem] shrink-0 border-r border-b border-amber-100 group/img">
+                        {uploading === `${look.id}:${s.key}` ? (
+                          <div className="h-full min-h-[3.5rem] flex items-center justify-center text-[10px] text-gray-500">올리는 중…</div>
+                        ) : c?.image_url ? (
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={c.image_url} alt="" onClick={() => setPreview(c.image_url)}
+                              className="w-full h-full min-h-[3.5rem] max-h-[4.5rem] object-cover cursor-zoom-in" />
+                            <button type="button" onClick={() => removeImage(c)} title="사진 삭제"
+                              className="absolute top-0 right-0 hidden group-hover/img:block bg-white/90 text-gray-500 hover:text-red-600 text-[10px] px-1">✕</button>
+                          </>
+                        ) : (
+                          <label tabIndex={0} title="눌러서 사진 선택 · 이 칸을 누른 뒤 Ctrl+V 로 캡처 붙여넣기 · 끌어놓기"
+                            className="h-full min-h-[3.5rem] flex flex-col items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-white focus:outline-none focus:ring-1 focus:ring-black focus:ring-inset">
+                            <span>사진</span>
+                            <span>Ctrl+V</span>
+                            <input type="file" accept="image/*" className="hidden"
+                              onChange={e => { setImage(look.id, s.key, e.currentTarget.files?.[0] ?? null); e.currentTarget.value = ""; }} />
+                          </label>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-[1fr_5rem] flex-1 min-w-0">
                         <input defaultValue={c?.store_name ?? ""} placeholder="매장명" disabled={locked}
                           onBlur={e => saveCell(look.id, s.key, "store_name", e.currentTarget.value)} className={inputCls + " border-b border-r border-amber-100"} />
                         <input defaultValue={c?.color ?? ""} placeholder="컬러" disabled={locked}
@@ -193,15 +300,25 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                           onBlur={e => saveCell(look.id, s.key, "product_name", e.currentTarget.value)} className={inputCls + " border-b border-r border-amber-100"} />
                         <input defaultValue={c?.unit_price != null ? formatComma(c.unit_price) : ""} placeholder="단가" disabled={locked}
                           onBlur={e => saveCell(look.id, s.key, "unit_price", e.currentTarget.value)} className={inputCls + " border-b border-amber-100 text-right"} />
+                        <div className="col-span-2 h-[1.35rem] px-1.5 flex items-center gap-1">
+                          {badge(c)}
+                          {hasContent(c) && !locked && (
+                            <button type="button" disabled={busy === `${look.id}:${s.key}`}
+                              onClick={() => sendToOrder(look, s.key)} title="이 상품만 주문 탭에 샘플요청으로"
+                              className="ml-auto px-1.5 text-[10px] border border-black rounded bg-white hover:bg-gray-100 disabled:opacity-40">
+                              {busy === `${look.id}:${s.key}` ? "…" : "주문서로"}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="h-[1.1rem] px-1.5">{badge(c)}</div>
+                      </div>
                     </td>
                   );
                 })}
                 <td className="px-2 py-2 border-b border-r border-gray-300 text-center">
                   <button type="button" disabled={busy === look.id} onClick={() => sendToOrder(look)}
                     className={styles.btnSmall + " bg-white whitespace-nowrap disabled:opacity-40"}>
-                    {busy === look.id ? "보내는 중…" : "주문서로"}
+                    {busy === look.id ? "보내는 중…" : "전부 주문서로"}
                   </button>
                 </td>
               </tr>
@@ -210,6 +327,15 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
         </table>
       </div>
       <button type="button" onClick={addLook} className="mt-2 px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">+ 코디 추가</button>
+
+      {/* 사진 크게 보기 */}
+      {preview && (
+        <div onClick={() => setPreview(null)}
+          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-6 cursor-zoom-out">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="" className="max-w-full max-h-full object-contain bg-white" />
+        </div>
+      )}
     </div>
   );
 }

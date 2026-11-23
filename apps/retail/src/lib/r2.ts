@@ -45,6 +45,14 @@ export function buildImageKey(tenantId: string, productId: string, mime: string)
   return `tenants/${tenantId}/products/${productId}/${randomUUID()}.${safeExt}`;
 }
 
+// 스타일링 후보 샘플 사진 (마이그 244) — tenants/{tenant}/styling/{cell}/{uuid}.{ext}
+// tenant prefix 가 같아서 /api/r2/delete 의 isKeyOwnedByTenant 검증 그대로 통과.
+export function buildStylingImageKey(tenantId: string, cellId: string, mime: string): string {
+  const ext = extFromMime(mime);
+  const safeExt = ALLOWED_EXT.has(ext) ? ext : "bin";
+  return `tenants/${tenantId}/styling/${cellId}/${randomUUID()}.${safeExt}`;
+}
+
 // presigned PUT URL — 브라우저가 이 URL 로 직접 PUT (Vercel 우회).
 // 5분 만료 (충분히 길어야 큰 파일 업로드 가능, 너무 길면 보안 X).
 export async function getPresignedPutUrl(key: string, contentType: string): Promise<string> {

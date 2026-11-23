@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseRouteClient } from "@/lib/supabase-server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { buildImageKey, getPresignedPutUrl, publicUrlForKey, extFromMime } from "@/lib/r2";
+import { buildImageKey, buildStylingImageKey, getPresignedPutUrl, publicUrlForKey, extFromMime } from "@/lib/r2";
 
 const ALLOWED_MIMES = new Set([
   "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/avif",
@@ -28,15 +28,18 @@ export async function POST(req: NextRequest) {
   if (!tenantId) return NextResponse.json({ error: "tenant_id not set" }, { status: 500 });
 
   // 2) body
-  let body: { product_id?: unknown; mime?: unknown; file_size?: unknown };
+  let body: { product_id?: unknown; cell_id?: unknown; kind?: unknown; mime?: unknown; file_size?: unknown };
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: "잘못된 JSON" }, { status: 400 });
   }
+  // kind='styling' = 스타일링 후보 샘플 사진 (마이그 244, cell_id 필수). 기본 = 상품 이미지 (product_id 필수).
+  const isStyling = body.kind === "styling";
   const productId = typeof body.product_id === "string" ? body.product_id : "";
+  const cellId = typeof body.cell_id === "string" ? body.cell_id : "";
   const mime = typeof body.mime === "string" ? body.mime.toLowerCase() : "";
   const fileSize = typeof body.file_size === "number" && body.file_size > 0 ? body.file_size : 0;
-  if (!productId || !mime) {
-    return NextResponse.json({ error: "product_id, mime 필수" }, { status: 400 });
+  if ((isStyling ? !cellId : !productId) || !mime) {
+    return NextResponse.json({ error: isStyling ? "cell_id, mime 필수" : "product_id, mime 필수" }, { status: 400 });
   }
   if (!ALLOWED_MIMES.has(mime)) {
     return NextResponse.json({ error: `허용 안 된 mime: ${mime}` }, { status: 400 });
@@ -45,16 +48,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "이미지 mime 만 허용" }, { status: 400 });
   }
 
-  // 3) product_id 소유 검증 — service_role 로 tenant_id 일치 확인
-  const { data: prod } = await supabaseAdmin
-    .from("products")
+  // 3) 소유 검증 — service_role 로 tenant_id 일치 확인 (상품 또는 스타일링 칸)
+  const { data: owner } = await supabaseAdmin
+    .from(isStyling ? "styling_cells" : "products")
     .select("id, tenant_id")
-    .eq("id", productId)
+    .eq("id", isStyling ? cellId : productId)
     .maybeSingle();
-  if (!prod) {
-    return NextResponse.json({ error: "상품을 찾을 수 없습니다" }, { status: 404 });
+  if (!owner) {
+    return NextResponse.json({ error: isStyling ? "스타일링 칸을 찾을 수 없습니다" : "상품을 찾을 수 없습니다" }, { status: 404 });
   }
-  if (prod.tenant_id !== tenantId) {
+  if (owner.tenant_id !== tenantId) {
     return NextResponse.json({ error: "권한 없음" }, { status: 403 });
   }
 
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 5) key 생성 + presigned URL 발급
-  const key = buildImageKey(tenantId, productId, mime);
+  const key = isStyling ? buildStylingImageKey(tenantId, cellId, mime) : buildImageKey(tenantId, productId, mime);
   const uploadUrl = await getPresignedPutUrl(key, mime);
   const publicUrl = publicUrlForKey(key);
 
