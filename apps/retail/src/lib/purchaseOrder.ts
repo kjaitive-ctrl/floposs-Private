@@ -73,6 +73,12 @@ export interface OrderItem {
   // 마이그 239 — 보유재고 출고(누적).
   shipped_quantity?: number | null;
   shipped_at?: string | null;
+  // 마이그 242 — 스타일링에서 온 샘플요청 줄. 입고 시 샘플 탭 상품(sample_product_id) 생성.
+  is_sample_request?: boolean;
+  styling_cell_id?: string | null;
+  sample_product_id?: string | null;
+  // 마이그 243 — 결제방식 (기본 이체)
+  payment_method?: "transfer" | "cash";
 }
 
 // 보유 = 입고 + 반품·교환 수거완료 − 출고. 입고를 안 적은 줄은 0.

@@ -6,6 +6,7 @@ import { styles } from "@/common/styles";
 import { useTenant } from "@/lib/TenantContext";
 
 const LINKS: { href: string; label: string }[] = [
+  { href: "/styling", label: "스타일링" },
   { href: "/samples", label: "샘플" },
   { href: "/products", label: "내 상품" },
   { href: "/product-status", label: "상품현황" },

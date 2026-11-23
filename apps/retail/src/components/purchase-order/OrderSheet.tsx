@@ -205,6 +205,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         variant_label: null,
         unit_price: item.unit_price ?? 0,
         quantity: item.quantity || 1,
+        // 결제방식 칼럼(마이그 243)이 있을 때만 같이 복사 — 없으면 select * 에 값이 안 옴
+        ...(item.payment_method ? { payment_method: item.payment_method } : {}),
       });
       if (error || !copy) { setStatusErr(`복사 실패: ${error ?? "저장된 줄을 받지 못했습니다"}`); return; }
       setItems(prev => [...prev, copy]);
@@ -249,7 +251,25 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     if (error) {
       patchLocal(item.id, previous);
       setStatusErr(`저장 실패: ${error}`);
+      return false;
     }
+    return true;
+  }
+
+  // 스타일링에서 온 샘플요청 줄 — 입고되면(입고수량 > 0) 샘플 탭에 상품으로 등록 (DB 함수 po_receive_sample, 마이그 242).
+  // 이미 등록된 줄은 다시 만들지 않음.
+  async function registerSampleIfReceived(item: OrderItem, received: number | null) {
+    if (!item.is_sample_request || item.sample_product_id || !received || received <= 0) return;
+    const { data, error } = await supabase.rpc("po_receive_sample", { p_item_id: item.id });
+    if (error) { setStatusErr(`샘플 탭 등록 실패: ${error.message}`); return; }
+    const res = data as { product_id: string; product_code: string; already: boolean };
+    patchLocal(item.id, { sample_product_id: res.product_id, product_id: item.product_id ?? res.product_id });
+    setDraftMsg({ text: `샘플 탭에 등록됨: ${res.product_code} ${item.product_name || item.wholesale_name || ""}` });
+  }
+
+  // 결제방식 — 기본 이체, 누르면 현금 ↔ 이체 (마이그 243)
+  function togglePayment(item: OrderItem) {
+    saveStatus(item, { payment_method: item.payment_method === "cash" ? "transfer" : "cash" });
   }
 
   // 같은 버튼을 다시 누르면 해제. 수량은 1부터 — 여러 개인 줄은 칸에서 고침.
@@ -294,15 +314,16 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     }
   }
 
-  function handleReceivedBlur(item: OrderItem) {
+  async function handleReceivedBlur(item: OrderItem) {
     const received = item.received_quantity ?? null;
-    saveStatus(item, receivePatch(item, received));
+    const ok = await saveStatus(item, receivePatch(item, received));
     receiveMessage(item, received, false);
+    if (ok) await registerSampleIfReceived(item, received);
   }
 
   // [즉시출고] — 입고 칸을 비워 두면 주문수량 전부 들어온 걸로 보고, 들어온 만큼 바로 출고(보유 0).
   // 이미 다 출고된 줄에서 누르면 출고 취소.
-  function handleShipNow(item: OrderItem) {
+  async function handleShipNow(item: OrderItem) {
     if (isShippedOut(item)) {
       if (!confirm("출고를 취소할까요? 보유재고로 돌아갑니다.")) return;
       saveStatus(item, { shipped_quantity: 0, shipped_at: null });
@@ -310,12 +331,14 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     }
     const received = item.received_quantity ?? item.quantity;
     const collected = item.claim_type && item.claim_collected_at ? (item.claim_quantity ?? 0) : 0;
-    saveStatus(item, {
+    const ok = await saveStatus(item, {
       ...receivePatch(item, received),
       shipped_quantity: received + collected,
       shipped_at: new Date().toISOString(),
     });
     receiveMessage(item, received, true);
+    // 즉시출고도 입고로 봄 — 샘플요청 줄이면 샘플 탭 등록
+    if (ok) await registerSampleIfReceived({ ...item, received_quantity: received }, received);
   }
 
   // 보유재고 목록의 [전부 출고] — 남은 것 모두.
@@ -522,7 +545,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(draft.unit_price * draft.quantity)}</td>
-        <td colSpan={4} />
+        <td colSpan={5} />
       </tr>
     );
   }
@@ -553,6 +576,13 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             onPick={product => handlePick(item, product)}
             onBlurCommit={() => updateOrderItem(item.id, { product_name: item.product_name })}
           />
+          {item.is_sample_request && (
+            <span className={"inline-block mt-0.5 px-1.5 py-px text-[10px] font-medium rounded "
+              + (item.sample_product_id ? "bg-emerald-50 text-emerald-700" : "bg-yellow-100 text-yellow-800")}
+              title={item.sample_product_id ? "입고되어 샘플 탭에 등록됨" : "스타일링에서 온 샘플요청 — 입고하면 샘플 탭에 자동 등록"}>
+              {item.sample_product_id ? "샘플 등록됨" : "샘플요청"}
+            </span>
+          )}
         </td>
         <td className="px-1 py-1 min-w-[140px]">
           <input defaultValue={item.wholesale_name ?? ""} placeholder="도매상품명"
@@ -614,6 +644,17 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
             className={styles.gridInput + " text-right"} />
         </td>
         <td className="px-2 py-1 w-24 text-right text-black font-medium">{formatComma(subtotal)}</td>
+        <td className="px-1 py-1 text-center whitespace-nowrap">
+          {item.payment_method ? (
+            <button type="button" onClick={() => togglePayment(item)}
+              title="결제방식 — 누르면 이체 ↔ 현금"
+              className={item.payment_method === "cash" ? styles.btnSmallOrange : styles.btnSmallGhost}>
+              {item.payment_method === "cash" ? "현금" : "이체"}
+            </button>
+          ) : (
+            <span className="text-gray-300" title="결제방식 칸 준비 중 (마이그 243 적용 필요)">-</span>
+          )}
+        </td>
         <td className="px-2 py-1 border-l border-gray-200 whitespace-nowrap">
           <div className="flex items-center gap-1">
             <button type="button" disabled={item.quantity <= 0} onClick={() => handleClaim(item, "return")}
@@ -785,6 +826,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 <th className={styles.th}>입고</th>
                 <th className={styles.th}>단가</th>
                 <th className={styles.th}>소계</th>
+                <th className={styles.th}>결제</th>
                 <th className={styles.thLeft + " border-l border-gray-200"}>반품·교환</th>
                 <th className={styles.thLeft}>수거</th>
                 <th className={styles.thLeft}>메모</th>
@@ -796,7 +838,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
               {carriedItems.length > 0 && (
                 <>
                   <tr>
-                    <td colSpan={13} className="px-2 pt-3 pb-1 bg-orange-50">
+                    <td colSpan={14} className="px-2 pt-3 pb-1 bg-orange-50">
                       <span className="text-sm font-bold text-black">보류·미입고: 이전 날짜에서 넘어온 주문</span>
                     </td>
                   </tr>
@@ -808,7 +850,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
                 return (
                   <Fragment key={supplier}>
                     <tr>
-                      <td colSpan={13} className="px-2 pt-3 pb-1 bg-gray-50">
+                      <td colSpan={14} className="px-2 pt-3 pb-1 bg-gray-50">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-bold text-black">거래처: {supplier}</span>
                           <button type="button" disabled={copyable === 0}

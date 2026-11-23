@@ -57,5 +57,6 @@ export const config = {
     "/dashboard/:path*",
     "/purchase-order/:path*",
     "/trends/:path*",
+    "/styling/:path*",
   ],
 };
