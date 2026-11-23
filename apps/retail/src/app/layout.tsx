@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Retail Site",
+  title: "언타일 FLO 시스템",
   description: "소매업체 B2B 쇼핑몰",
 };
 
