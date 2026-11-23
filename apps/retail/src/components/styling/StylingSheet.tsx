@@ -45,7 +45,9 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null); // `${look}:${slot}`
   const [preview, setPreview] = useState<string | null>(null);      // 크게 보기 URL
-  const [resets, setResets] = useState<Record<string, number>>({}); // [비우기] 후 입력칸 다시 그리기용
+  const [resets, setResets] = useState<Record<string, number>>({}); // [비우기]·칸 옮기기 후 입력칸 다시 그리기용
+  const [dragCell, setDragCell] = useState<Cell | null>(null);      // 끌고 있는 칸
+  const [dropKey, setDropKey] = useState<string | null>(null);      // 놓을 자리 표시 `${look}:${slot}`
 
   const load = useCallback(async () => {
     const { data: ls, error: e1 } = await supabase.from("styling_looks")
@@ -190,6 +192,33 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     if (r1.error || r2.error) { setMsg({ text: `순서 저장 실패: ${(r1.error || r2.error)?.message}`, error: true }); load(); }
   }
 
+  // 칸 옮기기 (끌어다 놓기) — 같은 열끼리만. 놓은 자리에 칸이 있으면 맞바꿈, 없으면 옮기기만.
+  // 칸 id 는 그대로라 주문 탭 연결·사진도 같이 따라감. DB 함수 styling_move_cell (마이그 245).
+  async function moveCell(cell: Cell, targetLookId: string) {
+    if (cell.look_id === targetLookId) return;
+    const from = `${cell.look_id}:${cell.slot}`;
+    const to = `${targetLookId}:${cell.slot}`;
+    const other = cells[to];
+    const bump = () => setResets(prev => ({ ...prev, [from]: (prev[from] ?? 0) + 1, [to]: (prev[to] ?? 0) + 1 }));
+    setCells(prev => {
+      const next = { ...prev };
+      delete next[from];
+      delete next[to];
+      next[to] = { ...cell, look_id: targetLookId };
+      if (other) next[from] = { ...other, look_id: cell.look_id };
+      return next;
+    });
+    bump();
+    setMsg(null);
+    const { error } = await supabase.rpc("styling_move_cell", { p_cell_id: cell.id, p_target_look_id: targetLookId });
+    if (error) {
+      const missing = /styling_move_cell|function|schema cache/i.test(error.message);
+      setMsg({ text: missing ? "칸 옮기기 준비 중 (마이그 245 적용 필요)" : `칸 옮기기 실패: ${error.message}`, error: true });
+      await load();
+      bump();
+    }
+  }
+
   // [주문서로] — 상품(칸) 하나 또는 코디 줄 전체. 아직 안 보낸 칸만 주문 탭에 샘플요청 줄로 (수량 1)
   async function sendToOrder(look: Look, only?: SlotKey) {
     const targets = SLOTS.filter(s => !only || s.key === only)
@@ -236,7 +265,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     <div>
       <div className="flex items-center gap-3 mb-4">
         <h1 className={styles.headerTitle}>스타일링</h1>
-        <span className="text-xs text-gray-400">줄 = 코디 1벌 · 칸마다 후보 샘플 (매장명·상품명·컬러·단가) · [주문서로] → 주문 탭 샘플요청 → 입고 시 샘플 탭 등록</span>
+        <span className="text-xs text-gray-400">줄 = 코디 1벌 · 칸마다 후보 샘플 (매장명·상품명·컬러·단가) · [주문서로] → 주문 탭 샘플요청 → 입고 시 샘플 탭 등록 · 칸 왼쪽 아래 ⠿ 를 끌어 다른 코디의 같은 칸에 놓으면 서로 바뀜</span>
       </div>
       {msg && <div className={(msg.error ? styles.msgError : styles.msgOk) + " mb-3"}>{msg.text}</div>}
 
@@ -279,12 +308,32 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                   const locked = !!c?.order_item_id; // 주문서로 보낸 칸은 주문 탭에서 고침
                   // 사진 크기: 주요 4칸(하의~아우터) 크게, 소품·가방/신발은 작게
                   const photo = MINOR_SLOTS.has(s.key) ? "w-[4.5rem] h-[4.5rem]" : "w-[6.75rem] h-[6.75rem]";
+                  const k = `${look.id}:${s.key}`;
+                  // 끌고 있는 칸을 놓을 수 있는 자리 = 같은 열, 다른 코디 줄
+                  const canDrop = !!dragCell && dragCell.slot === s.key && dragCell.look_id !== look.id;
                   return (
                     <td key={s.key}
                       onPaste={e => { const f = imageFromDataTransfer(e.clipboardData); if (f) { e.preventDefault(); setImage(look.id, s.key, f); } }}
-                      onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
-                      onDrop={e => { const f = imageFromDataTransfer(e.dataTransfer); if (f) { e.preventDefault(); setImage(look.id, s.key, f); } }}
-                      className={"p-0 border-b border-r border-gray-300 " + (locked ? "bg-yellow-50" : "bg-amber-50/60")}>
+                      onDragOver={e => {
+                        if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); return; }
+                        if (canDrop) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dropKey !== k) setDropKey(k); }
+                      }}
+                      onDragLeave={e => { if (dropKey === k && !e.currentTarget.contains(e.relatedTarget as Node | null)) setDropKey(null); }}
+                      onDrop={e => {
+                        if (dragCell) {
+                          e.preventDefault();
+                          const moving = dragCell;
+                          setDragCell(null);
+                          setDropKey(null);
+                          if (canDrop) moveCell(moving, look.id);
+                          return;
+                        }
+                        const f = imageFromDataTransfer(e.dataTransfer); if (f) { e.preventDefault(); setImage(look.id, s.key, f); }
+                      }}
+                      className={"p-0 border-b border-r border-gray-300 "
+                        + (dropKey === k ? "bg-sky-100 ring-2 ring-sky-500 ring-inset"
+                          : dragCell?.id && c?.id === dragCell.id ? "opacity-40 bg-amber-50/60"
+                          : locked ? "bg-yellow-50" : "bg-amber-50/60")}>
                       <div className="flex">
                       {/* 사진 칸: 비었으면 눌러서 앨범 선택 / 칸 안에서 Ctrl+V / 끌어놓기 */}
                       <div className={"relative shrink-0 border-r border-b border-amber-100 group/img " + photo}>
@@ -317,6 +366,13 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                         <input defaultValue={c?.unit_price != null ? formatComma(c.unit_price) : ""} placeholder="단가" disabled={locked}
                           onBlur={e => saveCell(look.id, s.key, "unit_price", e.currentTarget.value)} className={inputCls + " border-b border-amber-100 text-right"} />
                         <div className="col-span-2 h-[1.35rem] px-1.5 flex items-center gap-1">
+                          {c && (
+                            <span draggable
+                              onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-styling-cell", c.id); setDragCell(c); }}
+                              onDragEnd={() => { setDragCell(null); setDropKey(null); }}
+                              title={`잡고 다른 코디의 ${s.label} 칸에 놓으면 서로 바뀝니다 (빈 칸이면 옮기기만)`}
+                              className="px-1 text-[11px] leading-none text-gray-400 hover:text-black cursor-grab active:cursor-grabbing select-none">⠿</span>
+                          )}
                           {badge(c)}
                           {/* 파일 선택 (휴대폰 앨범 등) */}
                           <label title="파일에서 사진 선택"
