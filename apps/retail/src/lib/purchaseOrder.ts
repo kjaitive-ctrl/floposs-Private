@@ -79,6 +79,10 @@ export interface OrderItem {
   sample_product_id?: string | null;
   // 마이그 243 — 결제방식 (기본 이체)
   payment_method?: "transfer" | "cash";
+  // 마이그 246 — 지그재그 주문 엑셀에서 온 줄
+  zigzag_order_nos?: string[] | null;
+  zigzag_product_no?: string | null;
+  zigzag_source?: unknown;
 }
 
 // 보유 = 입고 + 반품·교환 수거완료 − 출고. 입고를 안 적은 줄은 0.

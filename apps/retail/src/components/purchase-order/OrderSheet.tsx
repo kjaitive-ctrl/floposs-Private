@@ -13,6 +13,8 @@ import { formatComma, parseDigits, sanitizeFilename } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orderImage";
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
+import ZigzagImportModal from "@/components/purchase-order/ZigzagImportModal";
+import { rememberZigzagNo } from "@/lib/zigzagImport";
 import {
   type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel, stockOf,
   loadOrderProducts, loadOrderItems, addOrderItem, updateOrderItem, deleteOrderItem, moveOrderItemToToday,
@@ -86,6 +88,12 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   // 줄 순서 바꾸기 (손잡이 ⠿ 끌어다 놓기) — 같은 묶음(거래처 / 넘어온 보류·미입고) 안에서만
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null);
+  // 지그재그 주문 엑셀 가져오기 (마이그 246)
+  const [zigzagOpen, setZigzagOpen] = useState(false);
+  const zigzagOrderNos = useMemo(
+    () => new Set(items.flatMap(item => item.zigzag_order_nos ?? [])),
+    [items]
+  );
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -111,7 +119,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   }
 
   function handlePick(item: OrderItem, product: OrderProduct) {
-    const patch = {
+    const patch: OrderItemPatch = {
       product_id: product.id,
       product_name: product.consumer_name || product.wholesale_name || "",
       wholesale_name: product.wholesale_name || "",
@@ -119,8 +127,26 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       unit_price: product.effective_price || 0,
       variant_label: "",
     };
+    // 지그재그에서 온 줄 — 옵션 칸이 비워지니 원래 옵션은 메모로 남기고,
+    // 고른 상품에 지그재그 상품번호를 기억해 다음 업로드부터 바로 찾게 함
+    if (item.zigzag_product_no) {
+      if (item.variant_label && !item.memo) patch.memo = `지그재그 옵션: ${item.variant_label}`;
+      rememberZigzagNo(product.id, item.zigzag_product_no).then(err => {
+        if (err) setStatusErr(`지그재그 상품번호 기억 실패: ${err}`);
+      });
+    }
     patchLocal(item.id, patch);
     updateOrderItem(item.id, patch);
+  }
+
+  function handleZigzagDone(newItems: OrderItem[], summary: string) {
+    setZigzagOpen(false);
+    if (newItems.length === 0) return;
+    setItems(prev => [...prev, ...newItems]);
+    const createdDate = kstDate(newItems[0].created_at);
+    setToday(createdDate);
+    setSelectedDate(createdDate);
+    setDraftMsg({ text: summary });
   }
 
   function handleDraftPick(product: OrderProduct) {
@@ -810,6 +836,11 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           className={(stockOpen ? styles.btnSmallGreen : styles.btnSmall + " bg-white") + " whitespace-nowrap disabled:opacity-30 disabled:cursor-not-allowed"}>
           보유재고 {stockTotal}장 {stockOpen ? "▲" : "▼"}
         </button>
+        <button type="button" onClick={() => setZigzagOpen(true)}
+          title="지그재그 배송준비중 주문 엑셀을 올리면 상품을 찾아 오늘 주문서로 만듭니다 (못 찾은 건 거래처: 미분류)"
+          className={styles.btnSmall + " bg-white whitespace-nowrap"}>
+          지그재그 엑셀
+        </button>
         {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
         {draftMsg && <span role="status" className={"text-xs " + (draftMsg.error ? "text-red-600" : "text-emerald-700")}>{draftMsg.text}</span>}
       </div>
@@ -935,6 +966,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         </div>
       )}
       <div className="text-xs text-gray-400">맨 위 줄에 입력하고 Enter 또는 [등록]을 누르면 오늘 날짜로 등록됩니다.</div>
+      {zigzagOpen && (
+        <ZigzagImportModal tenantId={tenantId} existingOrderNos={zigzagOrderNos}
+          onClose={() => setZigzagOpen(false)} onDone={handleZigzagDone} />
+      )}
     </div>
   );
 }
