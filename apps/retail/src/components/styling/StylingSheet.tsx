@@ -45,6 +45,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null); // `${look}:${slot}`
   const [preview, setPreview] = useState<string | null>(null);      // 크게 보기 URL
+  const [resets, setResets] = useState<Record<string, number>>({}); // [비우기] 후 입력칸 다시 그리기용
 
   const load = useCallback(async () => {
     const { data: ls, error: e1 } = await supabase.from("styling_looks")
@@ -155,6 +156,18 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     if (error) { setMsg({ text: `사진 삭제 실패: ${error.message}`, error: true }); return; }
     setCells(prev => ({ ...prev, [`${cell.look_id}:${cell.slot}`]: { ...cell, image_key: null, image_url: null } }));
     deleteR2Key(cell.image_key);
+  }
+
+  // [비우기] — 칸 하나 통째로 (글자 4개 + 사진). 주문서로 보낸 칸은 대상 아님 (주문 탭에서 줄 삭제하면 풀림)
+  async function clearCell(cell: Cell) {
+    if (cell.order_item_id) return;
+    if (!confirm("이 칸을 비울까요? (매장명·상품명·컬러·단가·사진 전부)")) return;
+    const k = `${cell.look_id}:${cell.slot}`;
+    const { error } = await supabase.from("styling_cells").delete().eq("id", cell.id);
+    if (error) { setMsg({ text: `비우기 실패: ${error.message}`, error: true }); return; }
+    setCells(prev => { const next = { ...prev }; delete next[k]; return next; });
+    setResets(prev => ({ ...prev, [k]: (prev[k] ?? 0) + 1 }));
+    if (cell.image_key) deleteR2Key(cell.image_key);
   }
 
   // 코디 순서 바꾸기 — 위/아래 줄과 sort_order 맞바꿈
@@ -294,7 +307,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                           </div>
                         )}
                       </div>
-                      <div className="grid grid-cols-[1fr_5rem] flex-1 min-w-0">
+                      <div key={resets[`${look.id}:${s.key}`] ?? 0} className="grid grid-cols-[1fr_5rem] flex-1 min-w-0">
                         <input defaultValue={c?.store_name ?? ""} placeholder="매장명" disabled={locked}
                           onBlur={e => saveCell(look.id, s.key, "store_name", e.currentTarget.value)} className={inputCls + " border-b border-r border-amber-100"} />
                         <input defaultValue={c?.color ?? ""} placeholder="컬러" disabled={locked}
@@ -312,6 +325,12 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                             <input type="file" accept="image/*" className="hidden"
                               onChange={e => { setImage(look.id, s.key, e.currentTarget.files?.[0] ?? null); e.currentTarget.value = ""; }} />
                           </label>
+                          {c && !locked && (c.store_name || c.product_name || c.color || c.unit_price != null || c.image_key) && (
+                            <button type="button" onClick={() => clearCell(c)} title="이 칸 비우기 (글자·사진 전부)"
+                              className="px-1.5 text-[10px] border border-gray-300 rounded bg-white text-gray-500 hover:text-red-600 hover:border-red-600">
+                              비우기
+                            </button>
+                          )}
                           {hasContent(c) && !locked && (
                             <button type="button" disabled={busy === `${look.id}:${s.key}`}
                               onClick={() => sendToOrder(look, s.key)} title="이 상품만 주문 탭에 샘플요청으로"
