@@ -7,6 +7,7 @@ export type OrderImageRow = {
   size: string;
   supplier: string;
   quantity: number;
+  sample?: boolean;  // 샘플요청 줄 — 거래처가 주문으로 오해하지 않게 발주량 칸에 "샘플요청"
 };
 
 const FONT_FAMILY = `"Malgun Gothic", "맑은 고딕", Pretendard, "Apple SD Gothic Neo", sans-serif`;
@@ -26,7 +27,9 @@ const COLUMNS: {
   { label: "사입옵션", minWidth: 90, align: "center", value: r => r.option },
   { label: "사이즈", minWidth: 70, align: "center", value: r => r.size },
   { label: "거래처", minWidth: 90, align: "center", value: r => r.supplier },
-  { label: "발주량", minWidth: 70, align: "right", value: r => r.quantity.toLocaleString() },
+  { label: "발주량", minWidth: 70, align: "right", value: r => r.sample
+    ? (r.quantity > 1 ? `샘플요청 ${r.quantity.toLocaleString()}` : "샘플요청")
+    : r.quantity.toLocaleString() },
 ];
 
 export function renderOrderImage(title: string, subtitle: string, rows: OrderImageRow[]): Promise<Blob> {

@@ -442,6 +442,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
       size: variant?.size ?? "",
       supplier: item.supplier_name ?? "",
       quantity: item.quantity,
+      sample: !!item.is_sample_request,
     };
   }
 
