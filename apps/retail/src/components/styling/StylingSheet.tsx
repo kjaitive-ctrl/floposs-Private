@@ -20,6 +20,8 @@ const SLOTS = [
   { key: "shoes", label: "신발" },
 ] as const;
 type SlotKey = typeof SLOTS[number]["key"];
+// 덜 중요한 칸 — 사진·칸 폭을 작게
+const MINOR_SLOTS = new Set<SlotKey>(["acc", "shoes"]);
 
 type Look = { id: string; memo: string; sort_order: number };
 type Cell = {
@@ -235,7 +237,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
             </tr>
             <tr>
               {SLOTS.map(s => (
-                <th key={s.key} className="min-w-[16rem] h-7 bg-yellow-200 border-b border-r border-gray-300 font-semibold">{s.label}</th>
+                <th key={s.key} className={(MINOR_SLOTS.has(s.key) ? "min-w-[14rem]" : "min-w-[19rem]") + " h-7 bg-yellow-200 border-b border-r border-gray-300 font-semibold"}>{s.label}</th>
               ))}
             </tr>
           </thead>
@@ -254,7 +256,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                     </div>
                     <textarea defaultValue={look.memo} placeholder="메모"
                       onBlur={e => saveMemo(look, e.currentTarget.value)}
-                      className="flex-1 h-[4.75rem] px-1.5 py-1 text-xs bg-transparent text-black resize-none focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset" />
+                      className="flex-1 h-[6.75rem] px-1.5 py-1 text-xs bg-transparent text-black resize-none focus:outline-none focus:bg-white focus:ring-1 focus:ring-black focus:ring-inset" />
                   </div>
                   <button type="button" onClick={() => removeLook(look)} title="이 코디 줄 삭제"
                     className="absolute right-1 bottom-1 hidden group-hover:block text-gray-400 hover:text-red-600">✕</button>
@@ -262,6 +264,8 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                 {SLOTS.map(s => {
                   const c = cells[`${look.id}:${s.key}`];
                   const locked = !!c?.order_item_id; // 주문서로 보낸 칸은 주문 탭에서 고침
+                  // 사진 크기: 주요 4칸(하의~아우터) 크게, 소품·가방/신발은 작게
+                  const photo = MINOR_SLOTS.has(s.key) ? "w-[4.5rem] h-[4.5rem]" : "w-[6.75rem] h-[6.75rem]";
                   return (
                     <td key={s.key}
                       onPaste={e => { const f = imageFromDataTransfer(e.clipboardData); if (f) { e.preventDefault(); setImage(look.id, s.key, f); } }}
@@ -270,21 +274,21 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                       className={"p-0 border-b border-r border-gray-300 " + (locked ? "bg-yellow-50" : "bg-amber-50/60")}>
                       <div className="flex">
                       {/* 사진 칸: 비었으면 눌러서 앨범 선택 / 칸 안에서 Ctrl+V / 끌어놓기 */}
-                      <div className="relative w-[4.5rem] shrink-0 border-r border-b border-amber-100 group/img">
+                      <div className={"relative shrink-0 border-r border-b border-amber-100 group/img " + photo}>
                         {uploading === `${look.id}:${s.key}` ? (
-                          <div className="h-full min-h-[3.5rem] flex items-center justify-center text-[10px] text-gray-500">올리는 중…</div>
+                          <div className="h-full flex items-center justify-center text-[10px] text-gray-500">올리는 중…</div>
                         ) : c?.image_url ? (
                           <>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={c.image_url} alt="" onClick={() => setPreview(c.image_url)}
-                              className="w-full h-full min-h-[3.5rem] max-h-[4.5rem] object-cover cursor-zoom-in" />
+                              className="w-full h-full object-cover cursor-zoom-in" />
                             <button type="button" onClick={() => removeImage(c)} title="사진 삭제"
                               className="absolute top-0 right-0 hidden group-hover/img:block bg-white/90 text-gray-500 hover:text-red-600 text-[10px] px-1">✕</button>
                           </>
                         ) : (
                           // 누르면 이 자리가 선택됨 → 바로 Ctrl+V (파일 선택 창은 아래 [파일] 버튼)
                           <div tabIndex={0} title="누른 뒤 Ctrl+V 로 캡처 붙여넣기 · 끌어놓기도 됨"
-                            className="h-full min-h-[3.5rem] flex flex-col items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-inset focus:bg-white focus:text-black">
+                            className="h-full flex flex-col items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-inset focus:bg-white focus:text-black">
                             <span>사진</span>
                             <span>Ctrl+V</span>
                           </div>
