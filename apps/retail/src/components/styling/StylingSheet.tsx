@@ -282,13 +282,12 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                               className="absolute top-0 right-0 hidden group-hover/img:block bg-white/90 text-gray-500 hover:text-red-600 text-[10px] px-1">✕</button>
                           </>
                         ) : (
-                          <label tabIndex={0} title="눌러서 사진 선택 · 이 칸을 누른 뒤 Ctrl+V 로 캡처 붙여넣기 · 끌어놓기"
-                            className="h-full min-h-[3.5rem] flex flex-col items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-white focus:outline-none focus:ring-1 focus:ring-black focus:ring-inset">
+                          // 누르면 이 자리가 선택됨 → 바로 Ctrl+V (파일 선택 창은 아래 [파일] 버튼)
+                          <div tabIndex={0} title="누른 뒤 Ctrl+V 로 캡처 붙여넣기 · 끌어놓기도 됨"
+                            className="h-full min-h-[3.5rem] flex flex-col items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-inset focus:bg-white focus:text-black">
                             <span>사진</span>
                             <span>Ctrl+V</span>
-                            <input type="file" accept="image/*" className="hidden"
-                              onChange={e => { setImage(look.id, s.key, e.currentTarget.files?.[0] ?? null); e.currentTarget.value = ""; }} />
-                          </label>
+                          </div>
                         )}
                       </div>
                       <div className="grid grid-cols-[1fr_5rem] flex-1 min-w-0">
@@ -302,6 +301,13 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
                           onBlur={e => saveCell(look.id, s.key, "unit_price", e.currentTarget.value)} className={inputCls + " border-b border-amber-100 text-right"} />
                         <div className="col-span-2 h-[1.35rem] px-1.5 flex items-center gap-1">
                           {badge(c)}
+                          {/* 파일 선택 (휴대폰 앨범 등) */}
+                          <label title="파일에서 사진 선택"
+                            className="px-1.5 text-[10px] border border-gray-300 rounded bg-white text-gray-500 hover:text-black hover:border-black cursor-pointer">
+                            파일
+                            <input type="file" accept="image/*" className="hidden"
+                              onChange={e => { setImage(look.id, s.key, e.currentTarget.files?.[0] ?? null); e.currentTarget.value = ""; }} />
+                          </label>
                           {hasContent(c) && !locked && (
                             <button type="button" disabled={busy === `${look.id}:${s.key}`}
                               onClick={() => sendToOrder(look, s.key)} title="이 상품만 주문 탭에 샘플요청으로"
