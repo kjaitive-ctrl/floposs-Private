@@ -190,6 +190,34 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     submitDraft();
   }
 
+  // 같은 상품 줄 복사 — 상품·도매상품명·거래처·단가·수량은 그대로, 옵션만 비운 새 줄(오늘 날짜)을 만들고
+  // 옵션 칸으로 바로 이동. 입고·반품·보류·메모 같은 진행 상태는 복사하지 않음.
+  async function handleCopy(item: OrderItem) {
+    if (savingDraft.current) return;
+    savingDraft.current = true;
+    setStatusErr(null);
+    try {
+      const { item: copy, error } = await addOrderItem(tenantId, {
+        product_id: item.product_id,
+        product_name: item.product_name,
+        wholesale_name: item.wholesale_name,
+        supplier_name: item.supplier_name,
+        variant_label: null,
+        unit_price: item.unit_price ?? 0,
+        quantity: item.quantity || 1,
+      });
+      if (error || !copy) { setStatusErr(`복사 실패: ${error ?? "저장된 줄을 받지 못했습니다"}`); return; }
+      setItems(prev => [...prev, copy]);
+      const createdDate = kstDate(copy.created_at);
+      setToday(createdDate);
+      setSelectedDate(createdDate);
+      setDraftMsg({ text: `복사됨: ${item.product_name || item.wholesale_name || "(이름 없음)"} — 옵션을 골라 주세요` });
+      focusCell(`po-${copy.id}-option`);
+    } finally {
+      savingDraft.current = false;
+    }
+  }
+
   async function handleDelete(item: OrderItem) {
     if (!confirm(`"${item.product_name || "(이름 없음)"}" 행을 지울까요?`)) return;
     setStatusErr(null);
@@ -512,7 +540,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
 
     return (
       <tr key={item.id} className={styles.tr + (item.held_at ? " bg-orange-50" : "")}>
-        <td className="px-1 py-1 text-center">
+        <td className="px-1 py-1 text-center whitespace-nowrap">
+          <button type="button" onClick={() => handleCopy(item)} className="text-gray-300 hover:text-black mr-1" title="이 줄 복사 (옵션만 바꿔서 새로 주문)">⧉</button>
           <button type="button" onClick={() => handleDelete(item)} className="text-gray-300 hover:text-red-600" title="이 행 삭제">×</button>
         </td>
         <td className="px-1 py-1 min-w-[140px]">
@@ -537,14 +566,14 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         </td>
         <td className="px-1 py-1 min-w-[100px]">
           {options.length > 0 ? (
-            <select value={item.variant_label ?? ""}
+            <select id={`po-${item.id}-option`} value={item.variant_label ?? ""}
               onChange={e => { const v = e.target.value; patchLocal(item.id, { variant_label: v }); updateOrderItem(item.id, { variant_label: v || null }); }}
               className={styles.gridInput}>
               <option value="">선택</option>
               {options.map(o => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : (
-            <input defaultValue={item.variant_label ?? ""} placeholder="옵션"
+            <input id={`po-${item.id}-option`} defaultValue={item.variant_label ?? ""} placeholder="옵션"
               onBlur={e => { const v = e.target.value; patchLocal(item.id, { variant_label: v }); updateOrderItem(item.id, { variant_label: v || null }); }}
               className={styles.gridInput} />
           )}
