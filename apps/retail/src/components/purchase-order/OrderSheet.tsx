@@ -83,6 +83,9 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   // 보유재고 목록 펼침 + 줄마다 출고할 장수 (비우면 전부)
   const [stockOpen, setStockOpen] = useState(false);
   const [shipQty, setShipQty] = useState<Record<string, number>>({});
+  // 줄 순서 바꾸기 (손잡이 ⠿ 끌어다 놓기) — 같은 묶음(거래처 / 넘어온 보류·미입고) 안에서만
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -226,6 +229,31 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     const error = await deleteOrderItem(item.id);
     if (error) { setStatusErr(`삭제 실패: ${error}`); return; }
     setItems(prev => prev.filter(i => i.id !== item.id));
+  }
+
+  // 끌어다 놓은 순서 저장 — 묶음 안 줄들이 원래 갖던 sort_order 값들을 새 순서대로 다시 나눠 줌
+  // (다른 날짜·거래처 줄은 건드리지 않음, 바뀐 줄만 저장)
+  async function handleReorder(section: OrderItem[], fromId: string, toId: string, after: boolean) {
+    if (fromId === toId) return;
+    const moving = section.find(i => i.id === fromId);
+    if (!moving || !section.some(i => i.id === toId)) return;
+    const rest = section.filter(i => i.id !== fromId);
+    const at = rest.findIndex(i => i.id === toId) + (after ? 1 : 0);
+    const ordered = [...rest.slice(0, at), moving, ...rest.slice(at)];
+    const values = section.map(i => i.sort_order ?? 0).sort((a, b) => a - b);
+    for (let i = 1; i < values.length; i++) if (values[i] <= values[i - 1]) values[i] = values[i - 1] + 1;
+    const changes = new Map<string, number>();
+    ordered.forEach((it, i) => { if (it.sort_order !== values[i]) changes.set(it.id, values[i]); });
+    if (changes.size === 0) return;
+    setItems(prev => prev
+      .map(i => changes.has(i.id) ? { ...i, sort_order: changes.get(i.id)! } : i)
+      .sort((a, b) => (a.sort_order - b.sort_order) || a.created_at.localeCompare(b.created_at)));
+    setStatusErr(null);
+    const now = new Date().toISOString();
+    const results = await Promise.all(Array.from(changes, ([id, sort_order]) =>
+      supabase.from("purchase_order_items").update({ sort_order, updated_at: now }).eq("id", id)));
+    const failed = results.find(r => r.error);
+    if (failed) { setStatusErr(`순서 저장 실패: ${failed.error!.message}`); loadAll(); }
   }
 
   // 넘어온 보류 줄을 오늘 주문으로 — 보류가 풀리고 오늘 날짜의 거래처 묶음으로 들어가 이미지 복사에 포함됨.
@@ -551,7 +579,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     );
   }
 
-  function renderRow(item: OrderItem) {
+  // section = 같은 묶음의 줄들 (rows.map(renderRow) 의 세 번째 인자) — 끌어다 놓기 범위
+  function renderRow(item: OrderItem, _index?: number, section?: OrderItem[]) {
     const product = products.find(p => p.id === item.product_id);
     const variants = product?.variants ?? [];
     const options = Array.from(new Set(variants.map(variantLabel).filter(Boolean)));
@@ -563,8 +592,39 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
     const canReceive = item.quantity > 0 && !isHold;
 
     return (
-      <tr key={item.id} className={styles.tr + (item.held_at ? " bg-orange-50" : "")}>
+      <tr key={item.id}
+        onDragOver={e => {
+          if (!dragId || !section?.some(i => i.id === dragId)) return; // 다른 묶음으로는 못 옮김
+          e.preventDefault();
+          e.stopPropagation();
+          const r = e.currentTarget.getBoundingClientRect();
+          const after = e.clientY > r.top + r.height / 2;
+          if (dropAt?.id !== item.id || dropAt.after !== after) setDropAt({ id: item.id, after });
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (dragId && section && dropAt?.id === item.id) handleReorder(section, dragId, item.id, dropAt.after);
+          setDragId(null); setDropAt(null);
+        }}
+        className={styles.tr + (item.held_at ? " bg-orange-50" : "")
+          + (dragId === item.id ? " opacity-40" : "")
+          + (dropAt?.id === item.id && dragId !== item.id
+            ? (dropAt.after ? " shadow-[inset_0_-2px_0_0_#000]" : " shadow-[inset_0_2px_0_0_#000]") : "")}>
         <td className="px-1 py-1 text-center whitespace-nowrap">
+          {section && section.length > 1 && (
+            <span draggable title="끌어서 순서 바꾸기 (같은 거래처 안에서)"
+              onDragStart={e => {
+                e.stopPropagation(); // 시트 전체의 끌기 막기(글자 끌기 방지)보다 먼저 처리
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("application/x-po-row", item.id);
+                const tr = e.currentTarget.closest("tr");
+                if (tr) e.dataTransfer.setDragImage(tr, 10, 10);
+                setDragId(item.id);
+              }}
+              onDragEnd={() => { setDragId(null); setDropAt(null); }}
+              className="text-gray-300 hover:text-black mr-1 cursor-grab active:cursor-grabbing select-none">⠿</span>
+          )}
           <button type="button" onClick={() => handleCopy(item)} className="text-gray-300 hover:text-black mr-1" title="이 줄 복사 (옵션만 바꿔서 새로 주문)">⧉</button>
           <button type="button" onClick={() => handleDelete(item)} className="text-gray-300 hover:text-red-600" title="이 행 삭제">×</button>
         </td>
