@@ -639,7 +639,7 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           />
           {item.is_sample_request && (
             <span className={"inline-block mt-0.5 px-1.5 py-px text-[10px] font-medium rounded "
-              + (item.sample_product_id ? "bg-emerald-50 text-emerald-700" : "bg-yellow-100 text-yellow-800")}
+              + (item.sample_product_id ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600")}
               title={item.sample_product_id ? "입고되어 샘플 탭에 등록됨" : "스타일링에서 온 샘플요청 — 입고하면 샘플 탭에 자동 등록"}>
               {item.sample_product_id ? "샘플 등록됨" : "샘플요청"}
             </span>
