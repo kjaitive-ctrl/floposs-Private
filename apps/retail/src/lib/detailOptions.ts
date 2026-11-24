@@ -29,6 +29,7 @@ export type DetailOptions = {
   season_note: string;
   washes: string[];
   cautions: string[];
+  cordi: string; // 코디상품 — 한 줄에 하나, 자유 글자 (판매하지 않는 상품도 적음)
 };
 
 function validKeys(raw: unknown, options: { key: string }[]): string[] {
@@ -44,11 +45,17 @@ export function normalizeDetailOptions(raw: unknown): DetailOptions {
     season_note: typeof o.season_note === "string" ? o.season_note.trim() : "",
     washes: validKeys(o.washes, WASH_OPTIONS),
     cautions: validKeys(o.cautions, CAUTION_OPTIONS),
+    cordi: typeof o.cordi === "string" ? o.cordi.trim() : "",
   };
+}
+
+// 코디상품 글자 → 줄 목록. 빈 줄은 빼고, 직접 적은 앞의 - 는 떼어냄 (표시할 때 한 번만 붙임).
+export function cordiLines(cordi: string): string[] {
+  return cordi.split("\n").map(line => line.trim().replace(/^[-–—]+/, "").trim()).filter(Boolean);
 }
 
 // 멘트 버튼 표시용 — 상세페이지에 실제로 나갈 값이 있는지.
 export function hasDetailOptions(raw: unknown): boolean {
   const o = normalizeDetailOptions(raw);
-  return o.seasons.length > 0 || o.washes.length > 0 || o.cautions.length > 0;
+  return o.seasons.length > 0 || o.washes.length > 0 || o.cautions.length > 0 || cordiLines(o.cordi).length > 0;
 }

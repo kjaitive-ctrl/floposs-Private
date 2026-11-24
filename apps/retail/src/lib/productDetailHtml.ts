@@ -1,7 +1,7 @@
 // 상세페이지 HTML — 카페24 전송(api/cafe24/push)과 상품 정보 창(ProductInfoModal) 공용.
 // 모듈 단위로 만들어 에이블리처럼 "모듈 붙여넣기 → 이미지 업로드"를 반복하는 플랫폼에서도 쓸 수 있게 함.
 // 카페24는 buildDetailHtml 이 모듈 + 이미지를 순서대로 합친 결과를 받음. 모듈 추가/문구 변경은 여기 한 곳만.
-import { CAUTION_OPTIONS, SEASON_OPTIONS, WASH_OPTIONS, normalizeDetailOptions, type DetailOptions } from "@/lib/detailOptions";
+import { CAUTION_OPTIONS, SEASON_OPTIONS, WASH_OPTIONS, cordiLines, normalizeDetailOptions, type DetailOptions } from "@/lib/detailOptions";
 
 export interface DetailVariant {
   id: string;
@@ -224,6 +224,15 @@ function buildWearingModule(p: DetailProduct): string {
   ].join("\n");
 }
 
+// 코디상품 — 착용정보(12px)보다 1 작은 연한 회색 글자. 라벨 박스 없음 (사장 결정 2026-11-24).
+function buildCordiModule(options: DetailOptions): string {
+  const lines = cordiLines(options.cordi);
+  if (lines.length === 0) return "";
+  const rows = ["cordi info", ...lines.map(line => `- ${line}`)]
+    .map(text => `<p style="margin:2px 0;font-size:11px;color:#999;text-align:center;">${escapeHtml(text)}</p>`);
+  return `<div style="margin-bottom:24px;">${rows.join("")}</div>`;
+}
+
 // 사이즈표 + 고정 안내문구
 function buildSizeModule(p: DetailProduct, fieldKeys: string[]): string {
   const sizeTable = buildSizeTable(p.product_measurements ?? [], fieldKeys, p.product_variants ?? []);
@@ -254,7 +263,7 @@ ${piRow("품질보증기준", QUALITY_GUARANTEE_TEXT, true)}
 </div>`;
 }
 
-export type DetailModuleKey = "comment" | "season" | "info" | "wash" | "caution" | "wearing" | "size" | "notice";
+export type DetailModuleKey = "comment" | "season" | "info" | "wash" | "caution" | "wearing" | "cordi" | "size" | "notice";
 
 // html 이 빈 문자열이면 아직 입력 안 된 모듈 (상세페이지에 나가지 않음).
 export type DetailModule = { key: DetailModuleKey; label: string; html: string };
@@ -274,6 +283,7 @@ export function buildDetailModules(p: DetailProduct, fieldKeys: string[], compan
       { key: "wash", label: "세탁방법", html: buildWashModule(options) },
       { key: "caution", label: "주의사항", html: buildCautionBlock(options) },
       { key: "wearing", label: "착용정보", html: buildWearingModule(p) },
+      { key: "cordi", label: "코디상품", html: buildCordiModule(options) },
     ],
     afterImages: [
       { key: "size", label: "사이즈표", html: buildSizeModule(p, fieldKeys) },

@@ -48,7 +48,7 @@ function toUpdate(memo: string, options: DetailOptions, template: string) {
   const untouched = !!template.trim() && memo.trim() === template.trim();
   return {
     comment_data: untouched ? "" : memo,
-    detail_options: { ...options, season_note: options.season_note.trim() },
+    detail_options: { ...options, season_note: options.season_note.trim(), cordi: options.cordi.trim() },
     updated_at: new Date().toISOString(),
   };
 }
@@ -247,6 +247,14 @@ export default function CommentSection({ tenantId, productId, autoFocus, onSaved
             )}
           </div>
           <div className="space-y-3">
+            <div>
+              <p className="text-xs font-bold text-black mb-1.5">코디상품 <span className="font-normal text-gray-500">한 줄에 하나 · 비우면 상세페이지에 안 나감</span></p>
+              <textarea value={options.cordi} rows={3}
+                onChange={e => changeOptions({ ...options, cordi: e.target.value })}
+                placeholder="루나 니트 후드 집업&#10;블랙 앵클부츠 (개인소장)"
+                aria-label="코디상품"
+                className={styles.modalInput + " resize-y text-sm leading-relaxed"} />
+            </div>
             <OptionChips title="계절감" options={SEASON_OPTIONS} selected={options.seasons}
               onChange={seasons => changeOptions({ ...options, seasons })} />
             <input type="text" value={options.season_note} maxLength={SEASON_NOTE_MAX}
