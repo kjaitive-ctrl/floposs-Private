@@ -100,6 +100,19 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
     if (error) setMsg({ text: `삭제 실패: ${error.message}`, error: true });
   }
 
+  // 칸 저장 — 있으면 고치고 없으면 만듦. UNIQUE(look_id, slot) 이 DEFERRABLE(마이그 245)이라
+  // upsert(ON CONFLICT)는 쓸 수 없음. 동시에 만들어져 중복(23505)이면 그 칸을 고침.
+  async function writeCell(lookId: string, slot: SlotKey, patch: Partial<Pick<Cell, CellField>>) {
+    const fields = { ...patch, updated_at: new Date().toISOString() };
+    const update = () => supabase.from("styling_cells").update(fields)
+      .eq("look_id", lookId).eq("slot", slot).select(CELL_COLS).maybeSingle();
+    const updated = await update();
+    if (updated.error || updated.data) return updated;
+    const inserted = await supabase.from("styling_cells")
+      .insert({ tenant_id: tenantId, look_id: lookId, slot, ...fields }).select(CELL_COLS).single();
+    return inserted.error?.code === "23505" ? update() : inserted;
+  }
+
   async function saveCell(lookId: string, slot: SlotKey, field: CellField, raw: string) {
     const k = `${lookId}:${slot}`;
     const cur = cells[k];
@@ -108,10 +121,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
       : (raw.trim() || null);
     if ((cur?.[field] ?? null) === value) return;
     if (!cur && value === null) return;
-    const { data, error } = await supabase.from("styling_cells")
-      .upsert({ tenant_id: tenantId, look_id: lookId, slot, [field]: value, updated_at: new Date().toISOString() },
-        { onConflict: "look_id,slot" })
-      .select(CELL_COLS).single();
+    const { data, error } = await writeCell(lookId, slot, { [field]: value });
     if (error || !data) { setMsg({ text: `저장 실패: ${error?.message}`, error: true }); return; }
     setCells(prev => ({ ...prev, [k]: data as Cell }));
   }
@@ -120,9 +130,7 @@ export default function StylingSheet({ tenantId }: { tenantId: string }) {
   async function ensureCell(lookId: string, slot: SlotKey): Promise<Cell | null> {
     const cur = cells[`${lookId}:${slot}`];
     if (cur) return cur;
-    const { data, error } = await supabase.from("styling_cells")
-      .upsert({ tenant_id: tenantId, look_id: lookId, slot }, { onConflict: "look_id,slot" })
-      .select(CELL_COLS).single();
+    const { data, error } = await writeCell(lookId, slot, {});
     if (error || !data) { setMsg({ text: `칸 만들기 실패: ${error?.message}`, error: true }); return null; }
     setCells(prev => ({ ...prev, [`${lookId}:${slot}`]: data as Cell }));
     return data as Cell;
