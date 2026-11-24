@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { copyOrderImage, renderOrderImage, type OrderImageRow } from "@/lib/orderImage";
 import ProductPickerCombobox from "@/components/purchase-order/ProductPickerCombobox";
 import ZigzagImportModal from "@/components/purchase-order/ZigzagImportModal";
+import BulkTransferModal from "@/components/purchase-order/BulkTransferModal";
 import { rememberZigzagNo } from "@/lib/zigzagImport";
 import {
   type OrderClaimType, type OrderItem, type OrderItemPatch, type OrderProduct, variantLabel, stockOf,
@@ -90,6 +91,8 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
   const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null);
   // 지그재그 주문 엑셀 가져오기 (마이그 246)
   const [zigzagOpen, setZigzagOpen] = useState(false);
+  // 국민은행 대량이체 엑셀 (뼈대)
+  const [transferOpen, setTransferOpen] = useState(false);
   const zigzagOrderNos = useMemo(
     () => new Set(items.flatMap(item => item.zigzag_order_nos ?? [])),
     [items]
@@ -841,6 +844,11 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
           className={styles.btnSmall + " bg-white whitespace-nowrap"}>
           지그재그 엑셀
         </button>
+        <button type="button" onClick={() => setTransferOpen(true)}
+          title="입고·즉시출고된 이체 주문을 거래처별로 합쳐 국민은행 대량이체 엑셀을 만듭니다"
+          className={styles.btnSmall + " bg-white whitespace-nowrap"}>
+          대량이체 엑셀
+        </button>
         {statusErr && <span role="alert" className="text-xs text-red-600">{statusErr}</span>}
         {draftMsg && <span role="status" className={"text-xs " + (draftMsg.error ? "text-red-600" : "text-emerald-700")}>{draftMsg.text}</span>}
       </div>
@@ -966,6 +974,10 @@ export default function OrderSheet({ tenantId }: { tenantId: string }) {
         </div>
       )}
       <div className="text-xs text-gray-400">맨 위 줄에 입력하고 Enter 또는 [등록]을 누르면 오늘 날짜로 등록됩니다.</div>
+      {transferOpen && (
+        <BulkTransferModal tenantId={tenantId} items={items} initialDate={selectedDate} orderDate={kstDate}
+          senderName={storeName || companyName} onClose={() => setTransferOpen(false)} />
+      )}
       {zigzagOpen && (
         <ZigzagImportModal tenantId={tenantId} existingOrderNos={zigzagOrderNos}
           onClose={() => setZigzagOpen(false)} onDone={handleZigzagDone} />
